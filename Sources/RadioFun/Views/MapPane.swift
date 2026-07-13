@@ -1,9 +1,9 @@
 import SwiftUI
 import MapKit
 
-/// User-selectable map rendering styles. "Standard" and "Hybrid" use
-/// realistic elevation, so terrain relief shows (the closest MapKit gets
-/// to a topo view).
+/// User-selectable map rendering styles. All flat elevation: realistic
+/// elevation switches MapKit to a 3D globe at wide zooms, and a band-wide
+/// station view is exactly the wide-zoom case.
 enum MapStyleChoice: String, CaseIterable, Identifiable {
     case standard = "Map"
     case hybrid = "Hybrid"
@@ -13,9 +13,9 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
 
     var style: MapStyle {
         switch self {
-        case .standard: return .standard(elevation: .realistic)
-        case .hybrid: return .hybrid(elevation: .realistic)
-        case .satellite: return .imagery(elevation: .realistic)
+        case .standard: return .standard(elevation: .flat)
+        case .hybrid: return .hybrid(elevation: .flat)
+        case .satellite: return .imagery(elevation: .flat)
         }
     }
 }
