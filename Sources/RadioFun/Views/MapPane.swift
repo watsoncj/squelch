@@ -246,6 +246,9 @@ private struct StationPin: View {
 
     private var helpText: String {
         var parts = ["\(station.callsign) — \(station.grid)"]
+        if let country = CallsignCountry.lookup(station.callsign) {
+            parts.append("\(country.flag) \(country.name)")
+        }
         if let d = station.distanceKm {
             parts.append(String(format: "%.0f mi", d * 0.621371))
         }

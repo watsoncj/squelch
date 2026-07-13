@@ -29,6 +29,11 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
         FT8MessageParser.parse(text).addressee
     }
 
+    /// Sender's country by callsign prefix, when recognizable.
+    var country: CallsignCountry.Info? {
+        callsign.flatMap(CallsignCountry.lookup)
+    }
+
     /// Even (0) or odd (1) slot for the given slot period (15 s FT8,
     /// 7.5 s FT4); QSO partners alternate parity.
     func slotParity(slotSeconds: Double) -> Int {

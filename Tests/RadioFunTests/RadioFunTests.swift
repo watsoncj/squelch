@@ -115,6 +115,46 @@ final class FT8MessageParserTests: XCTestCase {
     }
 }
 
+final class CallsignCountryTests: XCTestCase {
+    private func name(_ call: String) -> String? {
+        CallsignCountry.lookup(call)?.name
+    }
+
+    func testCommonPrefixes() {
+        XCTAssertEqual(name("W0CJW"), "USA")
+        XCTAssertEqual(name("VE3MNO"), "Canada")
+        XCTAssertEqual(name("JA1UQA"), "Japan")
+        XCTAssertEqual(name("G4JKL"), "England")
+        XCTAssertEqual(name("DL2ABC"), "Germany")
+        XCTAssertEqual(name("SU9GA"), "Egypt")
+        XCTAssertEqual(name("ZB2FTY"), "Gibraltar")
+        XCTAssertEqual(name("V31MA"), "Belize")
+        XCTAssertEqual(name("XE1ABC"), "Mexico")
+        XCTAssertEqual(name("HK3C"), "Colombia")
+    }
+
+    func testLongestPrefixWins() {
+        XCTAssertEqual(name("DU1PH"), "Philippines") // not Germany's D block
+        XCTAssertEqual(name("DS5KOR"), "South Korea")
+        XCTAssertEqual(name("UR5UKR"), "Ukraine")    // not Russia's U block
+        XCTAssertEqual(name("UA3RUS"), "Russia")
+        XCTAssertEqual(name("EA8CAN"), "Canary Is.") // not mainland Spain
+        XCTAssertEqual(name("EA3ESP"), "Spain")
+        XCTAssertEqual(name("KH6HI"), "Hawaii")
+        XCTAssertEqual(name("MW1WAL"), "Wales")
+    }
+
+    func testCompoundCallsUseLocationPrefix() {
+        XCTAssertEqual(name("PJ4/K1ABC"), "Curaçao/Bonaire")
+        XCTAssertEqual(name("K1ABC/7"), "USA")
+    }
+
+    func testUnknownPrefix() {
+        XCTAssertNil(CallsignCountry.lookup("T88AB")) // Palau: not in the table
+        XCTAssertNil(CallsignCountry.lookup(""))
+    }
+}
+
 final class MaidenheadTests: XCTestCase {
     func testEN35Center() throws {
         let c = try XCTUnwrap(Maidenhead.coordinate(forGrid: "EN35"))

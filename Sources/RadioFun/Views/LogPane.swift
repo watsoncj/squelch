@@ -109,6 +109,17 @@ struct LogPane: View {
                 }
                 .width(min: 220, ideal: 320)
 
+                TableColumn("Country") { msg in
+                    if let country = msg.country {
+                        Text("\(country.flag) \(country.name)")
+                            .lineLimit(1)
+                            .help(country.name)
+                    } else {
+                        Text("").accessibilityHidden(true)
+                    }
+                }
+                .width(min: 50, ideal: 110, max: 160)
+
                 TableColumn("Grid") { msg in
                     Text(msg.grid ?? "")
                         .monospaced()
