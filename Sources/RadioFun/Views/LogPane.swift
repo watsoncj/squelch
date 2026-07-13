@@ -13,10 +13,21 @@ struct LogPane: View {
 
     enum LogFilter: String, CaseIterable, Identifiable {
         case all = "All"
-        case cq = "CQ Only"
-        case mentionsMe = "Calling Me"
-        case withGrid = "Has Grid"
+        case cq = "CQ"
+        case mentionsMe = "Me"
+        case withGrid = "Grid"
+        case international = "Intl"
         var id: String { rawValue }
+
+        var help: String {
+            switch self {
+            case .all: return "All decodes"
+            case .cq: return "CQ calls only"
+            case .mentionsMe: return "Messages calling me"
+            case .withGrid: return "Messages carrying a grid square"
+            case .international: return "Stations outside the US (by callsign prefix)"
+            }
+        }
     }
 
     var body: some View {
@@ -29,6 +40,7 @@ struct LogPane: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .help(filter.help)
 
                 Spacer(minLength: 8)
 
@@ -136,6 +148,8 @@ struct LogPane: View {
         case .cq: result = result.filter(\.isCQ)
         case .mentionsMe: result = result.filter { $0.mentions(myCallsign) }
         case .withGrid: result = result.filter { $0.grid != nil }
+        case .international:
+            result = result.filter { $0.callsign.map { !FT8MessageParser.isUSCallsign($0) } == true }
         }
         let query = searchText.trimmingCharacters(in: .whitespaces).uppercased()
         if !query.isEmpty {

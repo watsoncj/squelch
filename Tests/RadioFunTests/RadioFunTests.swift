@@ -97,6 +97,22 @@ final class FT8MessageParserTests: XCTestCase {
         XCTAssertNil(p.sender)
         XCTAssertNil(p.grid)
     }
+
+    func testUSCallsignClassification() {
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("W0CJW"))
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("K1ABC"))
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("N4NJJ"))
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("AL5G"))   // AA–AL block
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("KH6PQR")) // Hawaii
+        XCTAssertTrue(FT8MessageParser.isUSCallsign("K1ABC/7")) // portable, still US
+
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("VE3XYZ"))    // Canada
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("JA1UQA"))    // Japan
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("G4JKL"))     // England
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("AM1X"))      // Spain (AM–AO)
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("PJ4/K1ABC")) // US op abroad
+        XCTAssertFalse(FT8MessageParser.isUSCallsign("SU9GA"))     // Egypt
+    }
 }
 
 final class MaidenheadTests: XCTestCase {

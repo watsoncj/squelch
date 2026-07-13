@@ -68,4 +68,23 @@ enum FT8MessageParser {
     private static func stripHashBrackets(_ s: String) -> String {
         s.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
     }
+
+    /// True when the callsign indicates a US station (including AK/HI and
+    /// territories): prefixes K, N, W, and AA–AL. For compound calls the
+    /// first segment wins — it's the location prefix ("PJ4/K1ABC" is a US
+    /// call operating from Bonaire → not US; "K1ABC/7" is stateside).
+    static func isUSCallsign(_ callsign: String) -> Bool {
+        let location = callsign.split(separator: "/").first.map(String.init) ?? callsign
+        guard let first = location.first else { return false }
+        switch first {
+        case "K", "N", "W":
+            return true
+        case "A":
+            guard location.count >= 2 else { return false }
+            let second = location[location.index(location.startIndex, offsetBy: 1)]
+            return ("A"..."L").contains(second)
+        default:
+            return false
+        }
+    }
 }
