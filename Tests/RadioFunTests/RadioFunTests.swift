@@ -131,6 +131,8 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(name("V31MA"), "Belize")
         XCTAssertEqual(name("XE1ABC"), "Mexico")
         XCTAssertEqual(name("HK3C"), "Colombia")
+        XCTAssertEqual(name("XQ3SK"), "Chile") // XQ/XR blocks, not just CA–CE
+        XCTAssertEqual(name("CE2ABC"), "Chile")
     }
 
     func testLongestPrefixWins() {

@@ -76,6 +76,7 @@ enum CallsignCountry {
         add(["LU"], "Argentina", "🇦🇷")
         addRange("LO", "LW", "Argentina", "🇦🇷")
         addRange("CA", "CE", "Chile", "🇨🇱")
+        add(["XQ", "XR", "3G"], "Chile", "🇨🇱")
         add(["HJ", "HK"], "Colombia", "🇨🇴")
         add(["HC", "HD"], "Ecuador", "🇪🇨")
         add(["OA", "OB", "OC"], "Peru", "🇵🇪")
