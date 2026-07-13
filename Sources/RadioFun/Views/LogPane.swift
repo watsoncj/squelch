@@ -20,7 +20,7 @@ struct LogPane: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 6) {
             HStack {
                 Picker("Filter", selection: $filter) {
                     ForEach(LogFilter.allCases) { f in
@@ -29,13 +29,8 @@ struct LogPane: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 380)
 
-                Spacer()
-
-                TextField("Search call or message…", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
+                Spacer(minLength: 8)
 
                 Text("\(filtered.count) of \(store.messages.count)")
                     .font(.caption)
@@ -59,7 +54,12 @@ struct LogPane: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.top, 6)
+
+            TextField("Search call or message…", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 2)
 
             Table(filtered, selection: $selection) {
                 TableColumn("UTC") { msg in

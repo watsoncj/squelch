@@ -17,14 +17,14 @@ struct ContentView: View {
     @State private var selectedMessageID: DecodedMessage.ID?
 
     var body: some View {
-        VSplitView {
+        HSplitView {
             MapPane(store: store, location: location, selectedMessage: selectedMessage)
-                .frame(minHeight: 260)
+                .frame(minWidth: 400)
                 .layoutPriority(1)
             LogPane(store: store, selection: $selectedMessageID) { message in
                 actions.reply(to: message)
             }
-            .frame(minHeight: 200)
+            .frame(minWidth: 490, idealWidth: 540)
         }
         .overlay(alignment: .top) {
             if transmit.anyTXActive || sequencer.mode != .idle || transmit.txError != nil {
