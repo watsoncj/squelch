@@ -151,8 +151,19 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(name("K1ABC/7"), "USA")
     }
 
+    func testDXpeditionFavorites() {
+        XCTAssertEqual(name("D4C"), "Cape Verde")
+        XCTAssertEqual(name("V51WH"), "Namibia")
+        XCTAssertEqual(name("T88AB"), "Palau")
+        XCTAssertEqual(name("4O3X"), "Montenegro")
+        XCTAssertEqual(name("FO/W0CJW"), "French Polynesia")
+        XCTAssertEqual(name("CU2AB"), "Azores")
+        XCTAssertEqual(name("CT1AB"), "Portugal")
+        XCTAssertEqual(name("3A2MW"), "Monaco")
+    }
+
     func testUnknownPrefix() {
-        XCTAssertNil(CallsignCountry.lookup("T88AB")) // Palau: not in the table
+        XCTAssertNil(CallsignCountry.lookup("S01WS")) // Western Sahara: not in the table
         XCTAssertNil(CallsignCountry.lookup(""))
     }
 }
