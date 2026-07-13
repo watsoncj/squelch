@@ -1,11 +1,31 @@
 import SwiftUI
 import MapKit
 
+/// User-selectable map rendering styles. "Standard" and "Hybrid" use
+/// realistic elevation, so terrain relief shows (the closest MapKit gets
+/// to a topo view).
+enum MapStyleChoice: String, CaseIterable, Identifiable {
+    case standard = "Map"
+    case hybrid = "Hybrid"
+    case satellite = "Satellite"
+
+    var id: String { rawValue }
+
+    var style: MapStyle {
+        switch self {
+        case .standard: return .standard(elevation: .realistic)
+        case .hybrid: return .hybrid(elevation: .realistic)
+        case .satellite: return .imagery(elevation: .realistic)
+        }
+    }
+}
+
 struct MapPane: View {
     @ObservedObject var store: DecodeStore
     @ObservedObject var location: LocationProvider
     var selectedMessage: DecodedMessage?
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
 
     @State private var camera: MapCameraPosition = .automatic
 
@@ -45,9 +65,19 @@ struct MapPane: View {
                 }
             }
         }
-        .mapStyle(.standard(elevation: .flat))
+        .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
         .overlay(alignment: .topTrailing) {
             VStack(alignment: .trailing, spacing: 6) {
+                Picker("Map style", selection: $mapStyleRaw) {
+                    ForEach(MapStyleChoice.allCases) { choice in
+                        Text(choice.rawValue).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
+
                 Button {
                     camera = .automatic
                 } label: {
