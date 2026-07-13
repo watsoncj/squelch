@@ -50,6 +50,14 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
         guard let latest = locations.last else { return }
         systemCoordinate = latest.coordinate
         manager.stopUpdatingLocation() // one fix is plenty for a fixed station
+
+        // Initialize the manual grid setting from the fix so the station
+        // still has a position when Location Services is unavailable later.
+        // Never overwrites a grid the user typed themselves.
+        let stored = UserDefaults.standard.string(forKey: SettingsKeys.myGrid) ?? ""
+        if stored.isEmpty {
+            UserDefaults.standard.set(Maidenhead.grid(for: latest.coordinate), forKey: SettingsKeys.myGrid)
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
