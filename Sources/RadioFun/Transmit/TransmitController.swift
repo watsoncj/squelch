@@ -36,8 +36,9 @@ final class TransmitController: ObservableObject {
         guard checkLegalAndConfigured() else { return false }
 
         let offset = txOffsetHz
-        guard let samples = FT8Encoder.encode(message: text, frequencyHz: offset) else {
-            txError = "Cannot encode message “\(text)” as FT8"
+        let mode = DigiMode.current
+        guard let samples = FT8Encoder.encode(message: text, frequencyHz: offset, mode: mode) else {
+            txError = "Cannot encode message “\(text)” as \(mode.rawValue)"
             return false
         }
         guard keyPTT() else { return false }

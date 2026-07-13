@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @ObservedObject var cat: CATController
+
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.catPortPath) private var catPortPath = ""
+    @AppStorage(SettingsKeys.catBaud) private var catBaud = 4800
     @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
@@ -75,7 +79,49 @@ struct SettingsView: View {
                     refreshTX()
                 }
 
-                Text("First TX checklist: dial on 28.074 MHz (Technician-legal), radio in DATA-USB, menu 08-05 DATA PTT SELECT = DAKY, dummy load connected, then use Tune and raise Mac output volume until ALC just barely moves.")
+                Text("First TX checklist: dial on 28.074 MHz (Technician-legal), radio in DATA-USB, menu 08-05 DATA PTT SELECT = RTS (radio-USB PTT) or DAKY (Digirig PTT), dummy load connected, then use Tune and raise Mac output volume until ALC just barely moves.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("CAT Control (FT-891)") {
+                Picker("CAT serial port", selection: $catPortPath) {
+                    Text("None").tag("")
+                    ForEach(serialPorts, id: \.self) { port in
+                        Text(port.replacingOccurrences(of: "/dev/", with: "")).tag(port)
+                    }
+                }
+                .help("The radio's first USB serial port (Enhanced). With two cu.usbserial ports, CAT is the one ending in 0.")
+
+                Picker("Baud rate", selection: $catBaud) {
+                    ForEach([4800, 9600, 19200, 38400], id: \.self) { baud in
+                        Text("\(baud)").tag(baud)
+                    }
+                }
+                .help("Must match radio menu 05-06 CAT RATE (factory default 4800)")
+
+                HStack {
+                    Button(cat.isConnected ? "Disconnect" : "Connect") {
+                        if cat.isConnected {
+                            cat.disconnect()
+                        } else {
+                            cat.connect()
+                        }
+                    }
+                    .disabled(catPortPath.isEmpty)
+
+                    if cat.isConnected {
+                        Label(
+                            String(format: "%.3f MHz · %@", cat.radioFrequencyMHz ?? 0, cat.radioModeName ?? "—"),
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .foregroundStyle(.green)
+                    } else if let error = cat.lastError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                }
+
+                Text("When connected, the app's dial frequency follows the radio's VFO, and the frequency menu QSYs the radio directly.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -87,6 +133,9 @@ struct SettingsView: View {
             refreshTX()
             if pttPortPath.isEmpty, let guess = SerialPTT.likelyPTTPort(in: serialPorts) {
                 pttPortPath = guess
+            }
+            if catPortPath.isEmpty, let guess = CATController.likelyCATPort(in: serialPorts), guess != pttPortPath {
+                catPortPath = guess
             }
             if audioOutputUID.isEmpty, let digirig = AudioDevices.likelyDigirig(in: outputDevices) {
                 audioOutputUID = digirig.uid

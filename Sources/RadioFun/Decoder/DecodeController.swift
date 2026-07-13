@@ -23,9 +23,12 @@ final class DecodeController: ObservableObject {
 
     private let bufferLock = NSLock()
     private var sampleBuffer: [Float] = []
-    private static let slotSeconds = 15.0
-    private static let maxBufferedSamples = FT8Decoder.sampleRate * 16
-    private static let minDecodableSamples = Int(12.0 * Double(FT8Decoder.sampleRate))
+
+    /// Mode is latched at start; switching FT8↔FT4 requires stop/start.
+    private(set) var mode: DigiMode = .ft8
+    private var slotSeconds: Double { mode.slotSeconds }
+    private var maxBufferedSamples: Int { Int((slotSeconds + 1) * Double(FT8Decoder.sampleRate)) }
+    private var minDecodableSamples: Int { Int(0.8 * slotSeconds * Double(FT8Decoder.sampleRate)) }
 
     private var lastLevelUpdate = Date.distantPast
 
@@ -65,6 +68,8 @@ final class DecodeController: ObservableObject {
     }
 
     private func beginCapture(device: AudioDevice?) {
+        mode = DigiMode.current
+        decodeQueue.async { [weak self] in self?.decoder = nil } // rebuild for mode
         capture.onSamples = { [weak self] samples in
             self?.append(samples)
         }
@@ -76,15 +81,16 @@ final class DecodeController: ObservableObject {
         }
         deviceName = device?.name ?? "Default input"
         isRunning = true
-        statusText = "Listening — decoding at each 15 s slot boundary"
+        statusText = "Listening (\(mode.rawValue)) — decoding at each \(mode == .ft8 ? "15" : "7.5") s slot boundary"
         scheduleSlotTimer()
     }
 
     private func append(_ samples: [Float]) {
+        let cap = maxBufferedSamples
         bufferLock.lock()
         sampleBuffer.append(contentsOf: samples)
-        if sampleBuffer.count > Self.maxBufferedSamples {
-            sampleBuffer.removeFirst(sampleBuffer.count - Self.maxBufferedSamples)
+        if sampleBuffer.count > cap {
+            sampleBuffer.removeFirst(sampleBuffer.count - cap)
         }
         bufferLock.unlock()
 
@@ -101,12 +107,13 @@ final class DecodeController: ObservableObject {
 
     private func scheduleSlotTimer() {
         timer?.cancel()
+        let period = slotSeconds
         let t = DispatchSource.makeTimerSource(queue: decodeQueue)
         let now = Date().timeIntervalSince1970
-        let untilNextSlot = Self.slotSeconds - now.truncatingRemainder(dividingBy: Self.slotSeconds)
+        let untilNextSlot = period - now.truncatingRemainder(dividingBy: period)
         t.schedule(
             deadline: .now() + untilNextSlot,
-            repeating: Self.slotSeconds,
+            repeating: period,
             leeway: .milliseconds(50)
         )
         t.setEventHandler { [weak self] in
@@ -118,18 +125,19 @@ final class DecodeController: ObservableObject {
 
     /// Runs on decodeQueue at each slot boundary.
     private func processSlot() {
-        let boundary = (Date().timeIntervalSince1970 / Self.slotSeconds).rounded() * Self.slotSeconds
-        let slotStart = Date(timeIntervalSince1970: boundary - Self.slotSeconds)
+        let period = slotSeconds
+        let boundary = (Date().timeIntervalSince1970 / period).rounded() * period
+        let slotStart = Date(timeIntervalSince1970: boundary - period)
 
         bufferLock.lock()
         let slotSamples = sampleBuffer
         sampleBuffer.removeAll(keepingCapacity: true)
         bufferLock.unlock()
 
-        guard slotSamples.count >= Self.minDecodableSamples else { return }
+        guard slotSamples.count >= minDecodableSamples else { return }
 
         if decoder == nil {
-            decoder = FT8Decoder()
+            decoder = FT8Decoder(mode: mode)
         }
         guard let decoder else { return }
 

@@ -7,10 +7,12 @@ struct ContentView: View {
     @ObservedObject var transmit: TransmitController
     @ObservedObject var sequencer: QSOSequencer
     @ObservedObject var qsoLog: QSOLog
+    @ObservedObject var cat: CATController
     let actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
 
@@ -33,6 +35,32 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                Menu {
+                    ForEach(QSYPreset.all) { preset in
+                        Button(preset.label) {
+                            actions.qsy(to: preset)
+                        }
+                    }
+                } label: {
+                    Label(String(format: "%.3f MHz", dialFrequencyMHz), systemImage: "dial.medium")
+                        .monospacedDigit()
+                        .labelStyle(.titleAndIcon)
+                }
+                .help(cat.isConnected
+                      ? "QSY the radio via CAT (connected)"
+                      : "Set the working frequency. Connect CAT in Settings to also tune the radio.")
+
+                Picker("Mode", selection: $digiMode) {
+                    ForEach(DigiMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(controller.isRunning)
+                .help(controller.isRunning ? "Stop decoding to switch modes" : "FT8: 15 s slots · FT4: 7.5 s slots, ~2.5× faster QSOs")
+
+                Divider()
+
                 Picker("Input", selection: $audioDeviceUID) {
                     Text("Default input").tag("")
                     ForEach(devices) { device in
@@ -102,12 +130,15 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog)
+            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
         .onAppear {
             devices = AudioDevices.inputDevices()
             autoSelectDigirig()
             location.requestLocation()
+            if !cat.portPath.isEmpty {
+                cat.connect()
+            }
             if CommandLine.arguments.contains("--demo") {
                 // Exercise the click-to-map path in demo screenshots:
                 // prefer a directed message whose addressee is also mapped

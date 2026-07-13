@@ -69,4 +69,7 @@ enum SettingsKeys {
     static let audioOutputUID = "audioOutputUID"
     static let pttPortPath = "pttPortPath"
     static let txOffsetHz = "txOffsetHz"
+    static let digiMode = "digiMode"
+    static let catPortPath = "catPortPath"
+    static let catBaud = "catBaud"
 }

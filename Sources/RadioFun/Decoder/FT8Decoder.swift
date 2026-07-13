@@ -8,13 +8,28 @@ struct FT8Result {
     let text: String
 }
 
+/// The digital modes we speak. Both share message formats and the QSO
+/// sequence; they differ in slot length and waveform.
+enum DigiMode: String, CaseIterable, Identifiable {
+    case ft8 = "FT8"
+    case ft4 = "FT4"
+
+    var id: String { rawValue }
+    var slotSeconds: Double { self == .ft8 ? 15.0 : 7.5 }
+    var isFT4: Bool { self == .ft4 }
+
+    static var current: DigiMode {
+        DigiMode(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.digiMode) ?? "") ?? .ft8
+    }
+}
+
 enum FT8Encoder {
-    /// Encode a standard FT8 message into 12 kHz mono audio (0.5 s lead
-    /// silence + 12.64 s of tones). Nil if the text can't be packed.
-    static func encode(message: String, frequencyHz: Double) -> [Float]? {
+    /// Encode a message into 12 kHz mono audio (0.5 s lead silence +
+    /// 12.64 s FT8 / 5.04 s FT4 of tones). Nil if the text can't be packed.
+    static func encode(message: String, frequencyHz: Double, mode: DigiMode = .ft8) -> [Float]? {
         var buffer = [Float](repeating: 0, count: 15 * FT8Decoder.sampleRate)
         let written = buffer.withUnsafeMutableBufferPointer { buf in
-            Int(cft8_encode(message, Float(frequencyHz), Int32(FT8Decoder.sampleRate), buf.baseAddress, Int32(buf.count)))
+            Int(cft8_encode(message, Float(frequencyHz), Int32(FT8Decoder.sampleRate), mode.isFT4, buf.baseAddress, Int32(buf.count)))
         }
         guard written > 0 else { return nil }
         return Array(buffer.prefix(written))
@@ -28,8 +43,8 @@ final class FT8Decoder {
 
     private let dec: OpaquePointer
 
-    init?() {
-        guard let d = cft8_create(Int32(Self.sampleRate)) else { return nil }
+    init?(mode: DigiMode = .ft8) {
+        guard let d = cft8_create(Int32(Self.sampleRate), mode.isFT4) else { return nil }
         dec = d
     }
 

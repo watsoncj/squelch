@@ -99,7 +99,7 @@ static ftx_callsign_hash_interface_t hash_if = {
     .save_hash = hashtable_add,
 };
 
-cft8_decoder_t* cft8_create(int sample_rate)
+cft8_decoder_t* cft8_create(int sample_rate, bool ft4)
 {
     cft8_decoder_t* dec = calloc(1, sizeof(cft8_decoder_t));
     if (!dec)
@@ -110,7 +110,7 @@ cft8_decoder_t* cft8_create(int sample_rate)
         .sample_rate = sample_rate,
         .time_osr = 2,
         .freq_osr = 2,
-        .protocol = FTX_PROTOCOL_FT8,
+        .protocol = ft4 ? FTX_PROTOCOL_FT4 : FTX_PROTOCOL_FT8,
     };
     monitor_init(&dec->mon, &cfg);
     return dec;
@@ -204,6 +204,7 @@ void cft8_destroy(cft8_decoder_t* dec)
 // GFSK pulse shaping and synthesis ported from ft8_lib's demo/gen_ft8.c (MIT).
 
 #define FT8_SYMBOL_BT 2.0f
+#define FT4_SYMBOL_BT 1.0f
 #define GFSK_CONST_K 5.336446f // pi * sqrt(2 / log(2))
 
 static void gfsk_pulse(int n_spsym, float symbol_bt, float* pulse)
@@ -278,24 +279,39 @@ static void synth_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol
 }
 
 int cft8_encode(const char* message, float frequency_hz, int sample_rate,
-                float* samples, int max_samples)
+                bool ft4, float* samples, int max_samples)
 {
     ftx_message_t msg;
     ftx_message_rc_t rc = ftx_message_encode(&msg, NULL, message);
     if (rc != FTX_MESSAGE_RC_OK)
         return -(int)rc;
 
-    uint8_t tones[FT8_NN];
-    ft8_encode(msg.payload, tones);
+    uint8_t tones[FT4_NN]; // FT4_NN (105) > FT8_NN (79)
+    int n_tones;
+    float symbol_period, symbol_bt;
+    if (ft4)
+    {
+        ft4_encode(msg.payload, tones);
+        n_tones = FT4_NN;
+        symbol_period = FT4_SYMBOL_PERIOD;
+        symbol_bt = FT4_SYMBOL_BT;
+    }
+    else
+    {
+        ft8_encode(msg.payload, tones);
+        n_tones = FT8_NN;
+        symbol_period = FT8_SYMBOL_PERIOD;
+        symbol_bt = FT8_SYMBOL_BT;
+    }
 
-    int n_spsym = (int)(0.5f + sample_rate * FT8_SYMBOL_PERIOD);
+    int n_spsym = (int)(0.5f + sample_rate * symbol_period);
     int lead_silence = sample_rate / 2; // 0.5 s, matching WSJT-X timing
-    int n_signal = FT8_NN * n_spsym;
+    int n_signal = n_tones * n_spsym;
     int total = lead_silence + n_signal;
     if (total > max_samples)
         return -100;
 
     memset(samples, 0, lead_silence * sizeof(float));
-    synth_gfsk(tones, FT8_NN, frequency_hz, FT8_SYMBOL_BT, FT8_SYMBOL_PERIOD, sample_rate, samples + lead_silence);
+    synth_gfsk(tones, n_tones, frequency_hz, symbol_bt, symbol_period, sample_rate, samples + lead_silence);
     return total;
 }

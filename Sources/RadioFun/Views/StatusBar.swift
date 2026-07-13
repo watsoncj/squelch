@@ -6,7 +6,13 @@ struct StatusBar: View {
     @ObservedObject var location: LocationProvider
     var sequencer: QSOSequencer? = nil
     var qsoLog: QSOLog? = nil
+    var cat: CATController? = nil
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
+
+    private var slotPeriod: Double {
+        (DigiMode(rawValue: digiMode) ?? .ft8).slotSeconds
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -34,18 +40,18 @@ struct StatusBar: View {
                 .help(String(format: "Input level: %.0f dBFS", controller.audioLevelDB))
 
                 // Slot progress
-                TimelineView(.periodic(from: .now, by: 0.5)) { context in
-                    let seconds = context.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 15)
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    let seconds = context.date.timeIntervalSince1970.truncatingRemainder(dividingBy: slotPeriod)
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                        ProgressView(value: seconds, total: 15)
+                        ProgressView(value: seconds, total: slotPeriod)
                             .frame(width: 70)
-                        Text(String(format: "%02.0fs", seconds))
+                        Text(String(format: "%04.1fs", seconds))
                             .monospacedDigit()
-                            .frame(width: 28, alignment: .trailing)
+                            .frame(width: 34, alignment: .trailing)
                     }
                 }
-                .help("Time within the current 15-second FT8 slot")
+                .help("Time within the current \(digiMode) slot (\(String(format: "%g", slotPeriod)) s)")
 
                 if let count = controller.lastSlotCount {
                     Text("Last slot: \(count) decode\(count == 1 ? "" : "s")")
@@ -55,8 +61,17 @@ struct StatusBar: View {
 
             Spacer()
 
-            Text(String(format: "Dial %.3f MHz (%@)", dialFrequencyMHz, bandName(dialFrequencyMHz)))
+            Text(String(format: "%@ · %.3f MHz (%@)", digiMode, dialFrequencyMHz, bandName(dialFrequencyMHz)))
                 .monospacedDigit()
+
+            if let cat, cat.isConnected {
+                Divider().frame(height: 14)
+                Label(cat.radioModeName ?? "CAT", systemImage: "cable.connector")
+                    .foregroundStyle(cat.radioModeName == "DATA-USB" ? Color.secondary : Color.orange)
+                    .help(cat.radioModeName == "DATA-USB"
+                          ? "CAT connected — dial follows the radio"
+                          : "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB")
+            }
 
             if let grid = location.effectiveGrid {
                 Divider().frame(height: 14)

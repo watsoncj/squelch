@@ -29,9 +29,10 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
         FT8MessageParser.parse(text).addressee
     }
 
-    /// Even (0) or odd (1) 15-second slot; QSO partners alternate parity.
-    var slotParity: Int {
-        Int(slotStart.timeIntervalSince1970 / 15) % 2
+    /// Even (0) or odd (1) slot for the given slot period (15 s FT8,
+    /// 7.5 s FT4); QSO partners alternate parity.
+    func slotParity(slotSeconds: Double) -> Int {
+        Int(slotStart.timeIntervalSince1970 / slotSeconds) % 2
     }
 
     func mentions(_ callsign: String) -> Bool {

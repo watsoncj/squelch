@@ -97,10 +97,20 @@ PTT no matter what. Completed QSOs are logged to
    ALC barely moves (start low!). Power ≤ 25 W; 5–10 W is plenty for FT8.
 5. Antenna back on, find a clear audio offset, work someone.
 
+## CAT control & modes
+
+- **CAT (FT-891)**: Settings → CAT Control, pick the radio's *Enhanced* USB
+  serial port (`cu.usbserial-…0`) and the baud from menu 05-06 (factory
+  4800). Once connected, the app's dial frequency follows the radio's VFO,
+  and the toolbar frequency menu QSYs the radio directly (and flips it to
+  DATA-USB). The status bar shows the radio's current mode.
+- **FT4**: the toolbar FT8/FT4 switch changes mode (7.5 s slots, ~2.5× faster
+  QSOs, same message format). The frequency menu's presets carry the right
+  mode — picking "10m FT4 — 28.180" switches both. Mode changes while
+  decoding stop the decoder; press Start again.
+
 ## Ideas for later
 
-- CAT control of the FT-891 over the USB serial port (frequency read/set,
-  band switching from the app).
 - Multi-caller queue when a CQ gets a pileup (currently first heard wins).
-- FT4 support (ft8_lib already decodes it — 7.5 s slots).
 - ADIF export of qsos.jsonl for LoTW / QRZ logging.
+- Waterfall display with click-to-set TX offset.

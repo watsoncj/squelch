@@ -20,6 +20,53 @@ final class FT8EncoderTests: XCTestCase {
     func testEncodeRejectsGarbage() {
         XCTAssertNil(FT8Encoder.encode(message: "THIS IS MUCH TOO LONG TO BE AN FT8 MESSAGE AT ALL", frequencyHz: 1500))
     }
+
+    func testFT4EncodeDecodeLoopback() throws {
+        let decoder = try XCTUnwrap(FT8Decoder(mode: .ft4))
+        for message in ["CQ W0CJW DM79", "K1ABC W0CJW R-07"] {
+            var samples = try XCTUnwrap(FT8Encoder.encode(message: message, frequencyHz: 1200, mode: .ft4))
+            // FT4 signal: 0.5 s lead + 5.04 s of tones, inside a 7.5 s slot
+            XCTAssertEqual(Double(samples.count) / Double(FT8Decoder.sampleRate), 5.54, accuracy: 0.1)
+            samples.append(contentsOf: [Float](repeating: 0, count: Int(7.5 * Double(FT8Decoder.sampleRate)) - samples.count))
+            let results = decoder.decodeSlot(samples)
+            XCTAssertEqual(results.count, 1, "expected one FT4 decode for \(message)")
+            XCTAssertEqual(results.first?.text, message)
+        }
+    }
+
+    func testFT8DecoderDoesNotDecodeFT4() throws {
+        let decoder = try XCTUnwrap(FT8Decoder(mode: .ft8))
+        var samples = try XCTUnwrap(FT8Encoder.encode(message: "CQ W0CJW DM79", frequencyHz: 1500, mode: .ft4))
+        samples.append(contentsOf: [Float](repeating: 0, count: 15 * FT8Decoder.sampleRate - samples.count))
+        XCTAssertEqual(decoder.decodeSlot(samples).count, 0)
+    }
+}
+
+final class FT891CATTests: XCTestCase {
+    func testParseFrequencyResponse() {
+        XCTAssertEqual(FT891CAT.parseFrequencyResponse("FA014074000;"), 14.074)
+        XCTAssertEqual(FT891CAT.parseFrequencyResponse("FA028074000;"), 28.074)
+        XCTAssertNil(FT891CAT.parseFrequencyResponse("FA;"))
+        XCTAssertNil(FT891CAT.parseFrequencyResponse("MD0C;"))
+        XCTAssertNil(FT891CAT.parseFrequencyResponse("FA0280740;")) // wrong length
+    }
+
+    func testSetFrequencyCommand() {
+        XCTAssertEqual(FT891CAT.setFrequencyCommand(mhz: 28.074), "FA028074000;")
+        XCTAssertEqual(FT891CAT.setFrequencyCommand(mhz: 7.074), "FA007074000;")
+        XCTAssertEqual(FT891CAT.setFrequencyCommand(mhz: 144.174), "FA144174000;")
+    }
+
+    func testParseModeResponse() {
+        XCTAssertEqual(FT891CAT.parseModeResponse("MD0C;"), "DATA-USB")
+        XCTAssertEqual(FT891CAT.parseModeResponse("MD02;"), "USB")
+        XCTAssertNil(FT891CAT.parseModeResponse("FA014074000;"))
+    }
+
+    func testDigiModeSlots() {
+        XCTAssertEqual(DigiMode.ft8.slotSeconds, 15.0)
+        XCTAssertEqual(DigiMode.ft4.slotSeconds, 7.5)
+    }
 }
 
 final class TechLegalityTests: XCTestCase {
