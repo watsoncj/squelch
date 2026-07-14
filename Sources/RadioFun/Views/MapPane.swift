@@ -31,11 +31,19 @@ struct MapPane: View {
 
     var body: some View {
         Map(position: $camera) {
-            ForEach(sortedStations) { station in
-                Annotation(station.callsign, coordinate: station.coordinate) {
-                    StationPin(station: station)
+            // Heard stations light up their Maidenhead grid squares
+            ForEach(gridCells) { cell in
+                MapPolygon(coordinates: cell.corners)
+                    .foregroundStyle(cell.color.opacity(0.30))
+                    .stroke(cell.color.opacity(0.8), lineWidth: 1)
+                Annotation("", coordinate: cell.center) {
+                    // Invisible hover target carrying the cell's tooltip
+                    Color.clear
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                        .help(cell.tooltip)
                 }
-                .annotationTitles(.automatic)
+                .annotationTitles(.hidden)
             }
 
             // Selected log row: highlight the stations involved in the
@@ -190,8 +198,53 @@ struct MapPane: View {
         return parts.isEmpty ? message.text : parts.joined(separator: " · ")
     }
 
-    private var sortedStations: [Station] {
-        store.stations.values.sorted { $0.lastHeard < $1.lastHeard }
+    /// One highlighted region per occupied 4-character grid square.
+    private struct GridCell: Identifiable {
+        let id: String // the 4-char grid
+        let corners: [CLLocationCoordinate2D]
+        let center: CLLocationCoordinate2D
+        let color: Color
+        let tooltip: String
+    }
+
+    private var gridCells: [GridCell] {
+        var byGrid: [String: [Station]] = [:]
+        for station in store.stations.values {
+            byGrid[String(station.grid.prefix(4)).uppercased(), default: []].append(station)
+        }
+        return byGrid.compactMap { grid, stations in
+            guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
+            let corners = [
+                CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
+                CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
+                CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
+                CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
+            ]
+            let newest = stations.map(\.lastHeard).max() ?? .distantPast
+            let calls = stations
+                .sorted { $0.lastHeard > $1.lastHeard }
+                .map { st in
+                    var line = "\(st.callsign) — \(String(format: "%+.0f", st.lastSNR)) dB"
+                    if let country = CallsignCountry.lookup(st.callsign) {
+                        line += " \(country.flag)"
+                    }
+                    return line
+                }
+            return GridCell(
+                id: grid,
+                corners: corners,
+                center: center,
+                color: Self.recencyColor(for: newest),
+                tooltip: ([grid] + calls).joined(separator: "\n")
+            )
+        }
+    }
+
+    static func recencyColor(for lastHeard: Date) -> Color {
+        let age = Date().timeIntervalSince(lastHeard)
+        if age < 120 { return .red }
+        if age < 600 { return .orange }
+        return .gray
     }
 }
 
@@ -221,38 +274,5 @@ private struct SelectedRing: View {
             .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulsing)
         }
         .onAppear { pulsing = true }
-    }
-}
-
-private struct StationPin: View {
-    let station: Station
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 10, height: 10)
-            .overlay(Circle().stroke(.white, lineWidth: 1.5))
-            .shadow(radius: 1)
-            .help(helpText)
-    }
-
-    /// Recently heard stations glow hot; older ones fade out.
-    private var color: Color {
-        let age = Date().timeIntervalSince(station.lastHeard)
-        if age < 120 { return .red }
-        if age < 600 { return .orange }
-        return .gray
-    }
-
-    private var helpText: String {
-        var parts = ["\(station.callsign) — \(station.grid)"]
-        if let country = CallsignCountry.lookup(station.callsign) {
-            parts.append("\(country.flag) \(country.name)")
-        }
-        if let d = station.distanceKm {
-            parts.append(String(format: "%.0f mi", d * 0.621371))
-        }
-        parts.append("heard \(station.heardCount)×, last SNR \(String(format: "%+.0f", station.lastSNR)) dB")
-        return parts.joined(separator: "\n")
     }
 }
