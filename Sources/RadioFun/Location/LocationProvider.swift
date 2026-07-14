@@ -81,4 +81,5 @@ enum SettingsKeys {
     static let catPortPath = "catPortPath"
     static let catBaud = "catBaud"
     static let mapStyle = "mapStyle"
+    static let autoAnswer = "autoAnswer"
 }

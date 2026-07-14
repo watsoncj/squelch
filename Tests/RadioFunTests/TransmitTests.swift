@@ -319,6 +319,62 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
     }
 
+    // MARK: - Auto-answer entry points
+
+    /// They answered our stopped CQ with a grid → we engage owing a report.
+    func testEngageAsCaller() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+
+        seq.engageAsCaller(call: "K1ABC", grid: "EN52", snr: -7.4, theirParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW -07")
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW RR73")
+        XCTAssertEqual(completed?.partner, "K1ABC")
+        XCTAssertEqual(completed?.partnerGrid, "EN52")
+        XCTAssertEqual(completed?.reportReceived, "-12")
+    }
+
+    /// The N5CAR recovery: their report arrived while idle → we engage
+    /// owing a roger, and the QSO completes.
+    func testEngageAsAnswerer() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+
+        seq.engageAsAnswerer(call: "N5CAR", report: "-17", snr: -8.2, theirParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW R-08")
+
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW 73")
+        XCTAssertEqual(completed?.partner, "N5CAR")
+        XCTAssertEqual(completed?.reportSent, "-08")
+        XCTAssertEqual(completed?.reportReceived, "-17")
+
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    func testNextTXWindow() {
+        let period = 15.0
+        // t = 0 is an even slot start; ask for the next odd window ≥5 s out
+        let base = Date(timeIntervalSince1970: 0)
+        let odd = QSOSequencer.nextTXWindow(parity: 1, period: period, after: base, minLead: 5)
+        XCTAssertEqual(odd.timeIntervalSince1970, 15)
+        // Even window at t=0 is "now" (lead 0 < 5) → next even is t=30
+        let even = QSOSequencer.nextTXWindow(parity: 0, period: period, after: base, minLead: 5)
+        XCTAssertEqual(even.timeIntervalSince1970, 30)
+        // 2 s before an odd boundary with 5 s lead → skip to the next odd
+        let late = Date(timeIntervalSince1970: 13)
+        XCTAssertEqual(QSOSequencer.nextTXWindow(parity: 1, period: period, after: late, minLead: 5).timeIntervalSince1970, 45)
+        // FT4 period
+        XCTAssertEqual(QSOSequencer.nextTXWindow(parity: 0, period: 7.5, after: base, minLead: 5).timeIntervalSince1970, 15)
+    }
+
     func testReportFormatting() {
         XCTAssertEqual(QSOSequencer.formatReport(-7.4), "-07")
         XCTAssertEqual(QSOSequencer.formatReport(3.6), "+04")

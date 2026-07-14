@@ -8,7 +8,7 @@ struct ContentView: View {
     @ObservedObject var sequencer: QSOSequencer
     @ObservedObject var qsoLog: QSOLog
     @ObservedObject var cat: CATController
-    let actions: AppModel
+    @ObservedObject var actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
@@ -31,11 +31,14 @@ struct ContentView: View {
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
         .overlay(alignment: .top) {
-            if transmit.anyTXActive || sequencer.mode != .idle || transmit.txError != nil {
+            if transmit.anyTXActive || transmit.txError != nil {
                 TXBanner(transmit: transmit, sequencer: sequencer) {
                     actions.haltTX()
                 }
             }
+        }
+        .overlay(alignment: .topLeading) {
+            QSOStatusPanel(sequencer: sequencer, model: actions)
         }
         .toolbar {
             ToolbarItemGroup {
@@ -151,6 +154,11 @@ struct ContentView: View {
                             } == true
                     }
                     selectedMessageID = (twoPin ?? store.messages.first { $0.coordinate != nil })?.id
+                }
+                // Show the QSO status panel (AppModel.demoMode guarantees
+                // demo never keys the radio)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    actions.startCQ()
                 }
             }
         }

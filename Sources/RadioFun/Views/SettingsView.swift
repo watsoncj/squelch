@@ -79,6 +79,12 @@ struct SettingsView: View {
                     refreshTX()
                 }
 
+                Toggle("Auto-answer stations calling \(myCallsign)", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.autoAnswer) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.autoAnswer) }
+                ))
+                .help("When idle, a station calling you arms a reply with an on-screen countdown — cancel it before it fires to stay silent. You remain the control operator.")
+
                 Text("First TX checklist: dial on 28.074 MHz (Technician-legal), radio in DATA-USB, menu 08-05 DATA PTT SELECT = RTS (radio-USB PTT) or DAKY (Digirig PTT), dummy load connected, then use Tune and raise Mac output volume until ALC just barely moves.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

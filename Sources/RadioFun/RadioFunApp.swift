@@ -25,6 +25,16 @@ struct QSYPreset: Identifiable {
     ]
 }
 
+/// A station calling us that auto-answer has armed, pending its countdown.
+struct PendingReply: Equatable {
+    let call: String
+    let grid: String?    // they sent their grid → we enter as caller
+    let report: String?  // they sent a report → we enter as answerer
+    let snr: Float
+    let theirParity: Int
+    let fireAt: Date     // the TX slot the reply goes out in (unless canceled)
+}
+
 final class AppModel: ObservableObject {
     let store = DecodeStore()
     let location = LocationProvider()
@@ -33,6 +43,11 @@ final class AppModel: ObservableObject {
     let sequencer = QSOSequencer()
     let qsoLog = QSOLog()
     let cat = CATController()
+
+    @Published var pendingReply: PendingReply?
+
+    /// Demo mode must never key the radio, even with PTT configured.
+    let demoMode = CommandLine.arguments.contains("--demo")
 
     init() {
         sequencer.onQSOComplete = { [qsoLog] record in
@@ -58,22 +73,87 @@ final class AppModel: ObservableObject {
     /// the upcoming slot, key up. The encoded audio's 0.5 s lead keeps us
     /// inside FT8's timing tolerance even though we start slightly late.
     private func runSequencer(results: [FT8Result], slotStart: Date) {
-        guard sequencer.mode != .idle else { return }
-        let parity = Int(slotStart.timeIntervalSince1970 / controller.mode.slotSeconds) % 2
+        let period = controller.mode.slotSeconds
+        let parity = Int(slotStart.timeIntervalSince1970 / period) % 2
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
-        sequencer.ingest(
-            decodes: results.map { QSOSequencer.Decode(text: $0.text, snr: $0.snr) },
-            slotParity: parity
-        )
+
+        if sequencer.mode != .idle {
+            sequencer.ingest(
+                decodes: results.map { QSOSequencer.Decode(text: $0.text, snr: $0.snr) },
+                slotParity: parity
+            )
+        } else {
+            considerAutoAnswer(results: results, theirParity: parity, period: period)
+        }
+
+        firePendingReplyIfDue(upcomingParity: 1 - parity, period: period)
+
         if let text = sequencer.transmission(forSlotParity: 1 - parity) {
-            if !transmit.transmitNow(text: text) {
+            if demoMode {
+                // Simulate success; never key the radio from demo data
+            } else if !transmit.transmitNow(text: text) {
                 sequencer.stop() // TX blocked (legality/config) — don't keep trying
             }
         }
     }
 
+    /// While idle: someone calling W0CJW with a grid or report arms a
+    /// countdown-gated reply (user sees it and can cancel before it fires).
+    private func considerAutoAnswer(results: [FT8Result], theirParity: Int, period: Double) {
+        guard UserDefaults.standard.bool(forKey: SettingsKeys.autoAnswer),
+              pendingReply == nil else { return }
+        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW").uppercased()
+
+        for result in results {
+            let tokens = result.text.uppercased().split(separator: " ").map(String.init)
+            guard tokens.count >= 3, tokens[0] == myCall else { continue }
+            let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            guard FT8MessageParser.isCallsign(from) else { continue }
+            let payload = tokens[2]
+
+            let grid = FT8MessageParser.isGrid(payload) ? payload : nil
+            let report = QSOSequencer.isReport(payload) ? payload : nil
+            guard grid != nil || report != nil else { continue }
+
+            pendingReply = PendingReply(
+                call: from,
+                grid: grid,
+                report: report,
+                snr: result.snr,
+                theirParity: theirParity,
+                fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
+            )
+            return
+        }
+    }
+
+    private func firePendingReplyIfDue(upcomingParity: Int, period: Double) {
+        guard let pending = pendingReply else { return }
+        let now = Date()
+        // Stale (decoder was stopped past its window) — drop silently
+        if now > pending.fireAt.addingTimeInterval(period) {
+            pendingReply = nil
+            return
+        }
+        guard sequencer.mode == .idle,
+              upcomingParity == 1 - pending.theirParity,
+              now >= pending.fireAt.addingTimeInterval(-1) else { return }
+
+        pendingReply = nil
+        if let grid = pending.grid {
+            sequencer.engageAsCaller(call: pending.call, grid: grid, snr: pending.snr, theirParity: pending.theirParity)
+        } else if let report = pending.report {
+            sequencer.engageAsAnswerer(call: pending.call, report: report, snr: pending.snr, theirParity: pending.theirParity)
+        }
+    }
+
+    func cancelPendingReply() {
+        pendingReply = nil
+    }
+
     func startCQ() {
+        pendingReply = nil
         let period = controller.mode.slotSeconds
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
@@ -86,6 +166,7 @@ final class AppModel: ObservableObject {
 
     func reply(to message: DecodedMessage) {
         guard let call = message.callsign else { return }
+        pendingReply = nil
         let period = controller.mode.slotSeconds
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
@@ -107,6 +188,7 @@ final class AppModel: ObservableObject {
     }
 
     func haltTX() {
+        pendingReply = nil
         sequencer.stop()
         transmit.haltAll()
     }

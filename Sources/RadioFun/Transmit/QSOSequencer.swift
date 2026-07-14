@@ -44,6 +44,7 @@ final class QSOSequencer: ObservableObject {
 
     @Published private(set) var mode: Mode = .idle
     @Published private(set) var stateDescription = "TX idle"
+    @Published private(set) var currentPartner: String?
 
     var myCall = "W0CJW"
     var myGrid4 = ""
@@ -54,7 +55,9 @@ final class QSOSequencer: ObservableObject {
     private(set) var txParity = 0
     private var currentTX: String?
     private var awaiting: Awaiting = .none
-    private var partner: String?
+    private var partner: String? {
+        didSet { currentPartner = partner }
+    }
     private var partnerGrid: String?
     private var reportSent = ""
     private var reportReceived: String?
@@ -89,6 +92,51 @@ final class QSOSequencer: ObservableObject {
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Answering \(call)")
+    }
+
+    /// Engage with a station that answered us (or our stopped CQ) with a
+    /// grid: we owe them a report. Enters mid-exchange as the caller side.
+    func engageAsCaller(call: String, grid: String?, snr: Float, theirParity: Int) {
+        reset()
+        mode = .qsoAsCaller
+        partner = call
+        partnerGrid = grid
+        txParity = 1 - theirParity
+        reportSent = Self.formatReport(snr)
+        currentTX = "\(call) \(myCall) \(reportSent)"
+        awaiting = .rogerReport
+        retriesLeft = maxRetries
+        qsoStart = Date()
+        resumeCQAfterQSO = false
+        describe("Answering \(call) with report")
+    }
+
+    /// Engage with a station that sent us a signal report: we owe them a
+    /// roger. Enters mid-exchange as the answerer side (the "late reply
+    /// after give-up" recovery).
+    func engageAsAnswerer(call: String, report: String, snr: Float, theirParity: Int) {
+        reset()
+        mode = .qsoAsAnswerer
+        partner = call
+        reportReceived = report
+        txParity = 1 - theirParity
+        reportSent = Self.formatReport(snr)
+        currentTX = "\(call) \(myCall) R\(reportSent)"
+        awaiting = .rr73
+        retriesLeft = maxRetries
+        qsoStart = Date()
+        resumeCQAfterQSO = false
+        describe("Roger report to \(call)")
+    }
+
+    /// The next slot-start of the given parity, at least `minLead` seconds
+    /// out — the window an armed auto-answer will fire in.
+    static func nextTXWindow(parity: Int, period: Double, after date: Date, minLead: TimeInterval) -> Date {
+        var t = (date.timeIntervalSince1970 / period).rounded(.up) * period
+        while Int(t / period) % 2 != parity || t - date.timeIntervalSince1970 < minLead {
+            t += period
+        }
+        return Date(timeIntervalSince1970: t)
     }
 
     func stop() {
