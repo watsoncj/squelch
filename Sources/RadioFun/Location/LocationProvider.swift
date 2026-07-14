@@ -82,4 +82,5 @@ enum SettingsKeys {
     static let catBaud = "catBaud"
     static let mapStyle = "mapStyle"
     static let autoAnswer = "autoAnswer"
+    static let showWaterfall = "showWaterfall"
 }

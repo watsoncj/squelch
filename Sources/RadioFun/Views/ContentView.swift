@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
+    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
 
@@ -26,6 +27,10 @@ struct ContentView: View {
                     actions.reply(to: message)
                 }
                 .frame(minWidth: 490, idealWidth: 540)
+            }
+            if showWaterfall {
+                Divider()
+                WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
             }
             Divider()
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
@@ -77,6 +82,11 @@ struct ContentView: View {
                     Label("Refresh Devices", systemImage: "arrow.clockwise")
                 }
                 .disabled(controller.isRunning)
+
+                Toggle(isOn: $showWaterfall) {
+                    Label("Waterfall", systemImage: "water.waves")
+                }
+                .help("Show the passband spectrogram (double-click it to move your TX offset)")
 
                 Button {
                     toggleRunning()

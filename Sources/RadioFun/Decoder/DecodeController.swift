@@ -15,6 +15,8 @@ final class DecodeController: ObservableObject {
 
     /// Called on the main queue with each slot's decodes.
     var onSlotDecoded: (([FT8Result], Date) -> Void)?
+    /// Raw 12 kHz mono samples, invoked on the audio thread — keep it light.
+    var audioTap: (([Float]) -> Void)?
 
     private let capture = AudioCapture()
     private let decodeQueue = DispatchQueue(label: "radiofun.ft8.decode", qos: .userInitiated)
@@ -88,6 +90,7 @@ final class DecodeController: ObservableObject {
     }
 
     private func append(_ samples: [Float]) {
+        audioTap?(samples)
         let cap = maxBufferedSamples
         bufferLock.lock()
         sampleBuffer.append(contentsOf: samples)

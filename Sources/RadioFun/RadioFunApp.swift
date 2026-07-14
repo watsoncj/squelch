@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     let sequencer = QSOSequencer()
     let qsoLog = QSOLog()
     let cat = CATController()
+    let waterfall = WaterfallProcessor()
 
     @Published var pendingReply: PendingReply?
 
@@ -52,6 +53,9 @@ final class AppModel: ObservableObject {
     init() {
         sequencer.onQSOComplete = { [qsoLog] record in
             qsoLog.append(record)
+        }
+        controller.audioTap = { [waterfall] samples in
+            waterfall.ingest(samples)
         }
         controller.onSlotDecoded = { [weak self] results, slotStart in
             guard let self else { return }
