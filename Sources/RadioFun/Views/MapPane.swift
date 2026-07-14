@@ -121,19 +121,37 @@ struct MapPane: View {
         }
         .overlay(alignment: .bottomLeading) {
             if let key = hoveredGrid, let cell = cellsByGrid[key] {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(cell.id) — \(cell.stationLines.count) station\(cell.stationLines.count == 1 ? "" : "s")")
-                        .font(.caption.bold())
-                    ForEach(cell.stationLines.prefix(8), id: \.self) { line in
-                        Text(line)
-                            .font(.caption.monospaced())
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(cell.id)
+                            .font(.caption.bold())
+                        Spacer(minLength: 16)
+                        Text("\(cell.rows.count) station\(cell.rows.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    if cell.stationLines.count > 8 {
-                        Text("… and \(cell.stationLines.count - 8) more")
+                    Grid(horizontalSpacing: 10, verticalSpacing: 2) {
+                        ForEach(cell.rows.prefix(8)) { row in
+                            GridRow {
+                                Text(row.call)
+                                    .font(.caption.monospaced())
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .gridColumnAlignment(.leading)
+                                Text(row.snrText)
+                                    .font(.caption.monospaced())
+                                    .gridColumnAlignment(.trailing)
+                                Text(row.flag)
+                                    .gridColumnAlignment(.trailing)
+                            }
+                        }
+                    }
+                    if cell.rows.count > 8 {
+                        Text("and \(cell.rows.count - 8) more")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .frame(minWidth: 180, alignment: .leading)
                 .padding(8)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(10)
@@ -239,11 +257,18 @@ struct MapPane: View {
 
     /// One highlighted region per occupied 4-character grid square.
     private struct GridCell: Identifiable {
+        struct Row: Identifiable {
+            let call: String
+            let snrText: String
+            let flag: String
+            var id: String { call }
+        }
+
         let id: String // the 4-char grid
         let corners: [CLLocationCoordinate2D]
         let center: CLLocationCoordinate2D
         let color: Color
-        let stationLines: [String]
+        let rows: [Row]
     }
 
     private var cellsByGrid: [String: GridCell] {
@@ -264,21 +289,21 @@ struct MapPane: View {
                 CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
             ]
             let newest = stations.map(\.lastHeard).max() ?? .distantPast
-            let calls = stations
+            let rows = stations
                 .sorted { $0.lastHeard > $1.lastHeard }
                 .map { st in
-                    var line = "\(st.callsign) — \(String(format: "%+.0f", st.lastSNR)) dB"
-                    if let country = CallsignCountry.lookup(st.callsign) {
-                        line += " \(country.flag)"
-                    }
-                    return line
+                    GridCell.Row(
+                        call: st.callsign,
+                        snrText: String(format: "%+.0f dB", st.lastSNR),
+                        flag: CallsignCountry.lookup(st.callsign)?.flag ?? ""
+                    )
                 }
             return GridCell(
                 id: grid,
                 corners: corners,
                 center: center,
                 color: Self.recencyColor(for: newest),
-                stationLines: calls
+                rows: rows
             )
         }
     }
