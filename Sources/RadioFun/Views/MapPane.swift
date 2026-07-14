@@ -151,7 +151,7 @@ struct MapPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .frame(minWidth: 180, alignment: .leading)
+                .frame(width: 210, alignment: .leading)
                 .padding(8)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(10)
