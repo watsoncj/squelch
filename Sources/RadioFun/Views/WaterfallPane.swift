@@ -8,6 +8,7 @@ struct WaterfallPane: View {
     @ObservedObject var transmit: TransmitController
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
+    @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
 
     @State private var hoverX: CGFloat?
 
@@ -84,6 +85,12 @@ struct WaterfallPane: View {
         }
         .frame(height: 110)
         .clipped()
+        .onAppear {
+            processor.setStyle(MapStyleChoice(rawValue: mapStyleRaw) ?? .standard)
+        }
+        .onChange(of: mapStyleRaw) { _, raw in
+            processor.setStyle(MapStyleChoice(rawValue: raw) ?? .standard)
+        }
     }
 
     private func setOffset(atX x: CGFloat, width: CGFloat) {

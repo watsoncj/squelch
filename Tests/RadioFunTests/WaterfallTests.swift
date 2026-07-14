@@ -15,10 +15,14 @@ final class WaterfallTests: XCTestCase {
         XCTAssertEqual(WaterfallProcessor.frequency(forX: x, width: 1000), 1500, accuracy: 0.01)
     }
 
-    func testPalette() {
-        XCTAssertEqual(WaterfallProcessor.palette.count, 256)
-        XCTAssertEqual(WaterfallProcessor.palette[255].0, 255) // hottest = white
-        XCTAssertLessThan(WaterfallProcessor.palette[0].2, 64) // coldest = dark
+    func testPalettes() {
+        for style in MapStyleChoice.allCases {
+            let palette = try! XCTUnwrap(WaterfallProcessor.palettes[style], "missing palette for \(style)")
+            XCTAssertEqual(palette.count, 256)
+            // Hottest = white, coldest = dark, for every basemap theme
+            XCTAssertTrue(palette[255] == (255, 255, 255), "hottest not white for \(style)")
+            XCTAssertLessThan(Int(palette[0].0) + Int(palette[0].1) + Int(palette[0].2), 128)
+        }
     }
 
     /// End-to-end DSP: a 1500 Hz tone must light up the right column.

@@ -23,6 +23,7 @@ final class WaterfallProcessor: ObservableObject {
     private var pending = [Float]()
     private var rows: [[UInt8]] = [] // palette indices, oldest first
     private var rowsSinceImage = 0
+    private var palette = WaterfallProcessor.palettes[.standard]!
 
     private var binLo: Int { Int((Self.minHz / sampleRate * Double(fftSize)).rounded()) }
     private var binHi: Int { Int((Self.maxHz / sampleRate * Double(fftSize)).rounded()) }
@@ -46,6 +47,16 @@ final class WaterfallProcessor: ObservableObject {
             guard let self else { return }
             self.pending.append(contentsOf: samples)
             self.drain()
+        }
+    }
+
+    /// Recolor to match the basemap; history recolors immediately since
+    /// rows store intensity, not color.
+    func setStyle(_ style: MapStyleChoice) {
+        queue.async { [weak self] in
+            guard let self, let palette = Self.palettes[style] else { return }
+            self.palette = palette
+            self.rebuildImage()
         }
     }
 
@@ -159,7 +170,7 @@ final class WaterfallProcessor: ObservableObject {
             let y = height - 1 - rowIndex
             let base = y * width * 4
             for x in 0..<width {
-                let color = Self.palette[Int(row[x])]
+                let color = palette[Int(row[x])]
                 let p = base + x * 4
                 pixels[p] = color.0
                 pixels[p + 1] = color.1
@@ -186,16 +197,36 @@ final class WaterfallProcessor: ObservableObject {
         }
     }
 
-    /// Dark navy → blue → cyan → yellow → white.
-    static let palette: [(UInt8, UInt8, UInt8)] = {
-        let stops: [(Double, (Double, Double, Double))] = [
+    /// One palette per basemap, sampled from each style's dominant tones.
+    static let palettes: [MapStyleChoice: [(UInt8, UInt8, UInt8)]] = [
+        // Standard dark map: navy water → blue → cyan → warm label yellow
+        .standard: makePalette([
             (0.00, (6, 10, 32)),
             (0.35, (14, 48, 128)),
             (0.60, (36, 150, 200)),
             (0.82, (240, 218, 70)),
             (1.00, (255, 255, 255)),
-        ]
-        return (0..<256).map { i in
+        ]),
+        // Hybrid: deep ocean → vegetation greens → sunlit highlight
+        .hybrid: makePalette([
+            (0.00, (4, 12, 24)),
+            (0.38, (18, 58, 42)),
+            (0.62, (62, 138, 72)),
+            (0.84, (198, 220, 122)),
+            (1.00, (255, 255, 255)),
+        ]),
+        // Satellite: ocean → earth/scrub → desert sand → white
+        .satellite: makePalette([
+            (0.00, (6, 12, 26)),
+            (0.40, (58, 68, 44)),
+            (0.66, (138, 118, 70)),
+            (0.86, (222, 192, 124)),
+            (1.00, (255, 255, 255)),
+        ]),
+    ]
+
+    static func makePalette(_ stops: [(Double, (Double, Double, Double))]) -> [(UInt8, UInt8, UInt8)] {
+        (0..<256).map { i in
             let t = Double(i) / 255
             var lower = stops[0], upper = stops[stops.count - 1]
             for pair in zip(stops, stops.dropFirst()) where t >= pair.0.0 && t <= pair.1.0 {
@@ -208,5 +239,5 @@ final class WaterfallProcessor: ObservableObject {
             func lerp(_ a: Double, _ b: Double) -> UInt8 { UInt8(a + (b - a) * local) }
             return (lerp(lower.1.0, upper.1.0), lerp(lower.1.1, upper.1.1), lerp(lower.1.2, upper.1.2))
         }
-    }()
+    }
 }
