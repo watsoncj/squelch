@@ -17,14 +17,18 @@ struct ContentView: View {
     @State private var selectedMessageID: DecodedMessage.ID?
 
     var body: some View {
-        HSplitView {
-            MapPane(store: store, location: location, selectedMessage: selectedMessage)
-                .frame(minWidth: 400)
-                .layoutPriority(1)
-            LogPane(store: store, selection: $selectedMessageID) { message in
-                actions.reply(to: message)
+        VStack(spacing: 0) {
+            HSplitView {
+                MapPane(store: store, location: location, selectedMessage: selectedMessage)
+                    .frame(minWidth: 400)
+                    .layoutPriority(1)
+                LogPane(store: store, selection: $selectedMessageID) { message in
+                    actions.reply(to: message)
+                }
+                .frame(minWidth: 490, idealWidth: 540)
             }
-            .frame(minWidth: 490, idealWidth: 540)
+            Divider()
+            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
         .overlay(alignment: .top) {
             if transmit.anyTXActive || sequencer.mode != .idle || transmit.txError != nil {
@@ -128,9 +132,6 @@ struct ContentView: View {
                 .disabled(!transmit.isTuning && (!txLegal || transmit.isTransmitting))
                 .help(txDisabledReason ?? "Key the radio with a steady tone to set drive level (watch the ALC)")
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
         .onAppear {
             devices = AudioDevices.inputDevices()
