@@ -23,7 +23,6 @@ final class WaterfallProcessor: ObservableObject {
     private var pending = [Float]()
     private var rows: [[UInt8]] = [] // palette indices, oldest first
     private var rowsSinceImage = 0
-    private var noiseFloorDB: Float = -60
 
     private var binLo: Int { Int((Self.minHz / sampleRate * Double(fftSize)).rounded()) }
     private var binHi: Int { Int((Self.maxHz / sampleRate * Double(fftSize)).rounded()) }
@@ -112,12 +111,12 @@ final class WaterfallProcessor: ObservableObject {
         vDSP_vdbcon(magnitudes, 1, &reference, &db, 1, vDSP_Length(half), 0)
 
         let band = Array(db[binLo..<binHi])
-        // Track the noise floor slowly so the palette adapts to level changes
-        let mean = band.reduce(0, +) / Float(band.count)
-        noiseFloorDB = 0.95 * noiseFloorDB + 0.05 * mean
-
-        let floor = noiseFloorDB - 4
-        let span: Float = 42
+        // Normalize each row against its own median: flattens slot-to-slot
+        // band-level swings (which read as horizontal banding) while
+        // signals — well above the median — stay bright.
+        let median = band.sorted()[band.count / 2]
+        let floor = median - 2
+        let span: Float = 38
         let row = band.map { value -> UInt8 in
             let t = (value - floor) / span
             return UInt8(min(max(t, 0), 1) * 255)
@@ -132,9 +131,30 @@ final class WaterfallProcessor: ObservableObject {
     private func rebuildImage() {
         guard !rows.isEmpty else { return }
         let width = binCount
-        let height = rows.count
+
+        // Max-pool time rows down to roughly display resolution so a
+        // 1:1-ish pixel mapping keeps 12.6 s signals as SOLID vertical
+        // streaks (plain scaling drops rows and chops them into dashes).
+        let targetHeight = 132
+        let factor = max(1, Int((Double(rows.count) / Double(targetHeight)).rounded(.up)))
+        var pooled: [[UInt8]] = []
+        pooled.reserveCapacity(rows.count / factor + 1)
+        var index = 0
+        while index < rows.count {
+            let group = rows[index..<min(index + factor, rows.count)]
+            var merged = group.first!
+            for row in group.dropFirst() {
+                for x in 0..<width {
+                    merged[x] = max(merged[x], row[x])
+                }
+            }
+            pooled.append(merged)
+            index += factor
+        }
+
+        let height = pooled.count
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        for (rowIndex, row) in rows.enumerated() {
+        for (rowIndex, row) in pooled.enumerated() {
             // Newest row at the top of the image
             let y = height - 1 - rowIndex
             let base = y * width * 4
