@@ -204,6 +204,121 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
     }
 
+    // MARK: - Mode transitions
+
+    /// The real-world flow: calling CQ, then manually answering someone
+    /// else's CQ that runs on the SAME parity as ours (the N5CAR case).
+    func testSwitchFromCQToReply() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+
+        seq.startCQ(parity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+
+        // N5CAR's CQ decodes in parity-0 (a slot we happened not to TX in).
+        // User clicks Reply: we must flip to parity 1 — his listening slot.
+        seq.replyTo(call: "N5CAR", snr: -9, cqParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 0), "must vacate the old CQ parity")
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW DM79")
+
+        // No stale CQ-mode state may leak into the exchange
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR -17", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW R-09")
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW 73")
+        XCTAssertEqual(completed?.partner, "N5CAR")
+        XCTAssertEqual(completed?.reportSent, "-09")
+        XCTAssertEqual(completed?.reportReceived, "-17")
+
+        // Manual reply replaced the CQ session: after the QSO we go idle,
+        // we do NOT silently resume the interrupted CQ loop
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    /// Replying while mid-QSO as the CQ caller abandons the old partner
+    /// cleanly and starts fresh with the new one.
+    func testReplySwitchesPartnerMidQSO() {
+        let seq = makeSequencer()
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+
+        // Operator spots rarer DX and clicks Reply on VP8AA's CQ (parity 1)
+        seq.replyTo(call: "VP8AA", snr: -15, cqParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "VP8AA W0CJW DM79")
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+
+        // The abandoned partner's messages are now ignored
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "VP8AA W0CJW DM79")
+    }
+
+    /// The N5CAR failure boundary: after retries exhaust, the sequencer is
+    /// idle and a late report is ignored (documented current behavior —
+    /// auto-answer may want to change this).
+    func testLateReportAfterGiveUpIsIgnored() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+
+        seq.replyTo(call: "N5CAR", snr: -9, cqParity: 0)
+        // Initial send + 3 retries, all unanswered
+        for _ in 0..<4 {
+            XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW DM79")
+            seq.ingest(decodes: [], slotParity: 0)
+        }
+        // Fifth window: gives up
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+
+        // His report finally decodes one slot later — too late
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR -17", snr: -8)], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+        XCTAssertNil(completed)
+    }
+
+    func testStopMidQSOGoesSilent() {
+        let seq = makeSequencer()
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+
+        seq.stop()
+        XCTAssertEqual(seq.mode, .idle)
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        // Partner's roger after stop must not wake anything up
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -7)], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+    }
+
+    /// Restarting CQ after a completed reply-QSO works from a clean slate.
+    func testCQAfterReplyQSO() {
+        let seq = makeSequencer()
+        seq.replyTo(call: "N5CAR", snr: -9, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR -17", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // R-09
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR RR73", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // 73
+        seq.ingest(decodes: [], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // winds down → idle
+
+        seq.startCQ(parity: 1)
+        XCTAssertEqual(seq.mode, .cqLoop)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+        // Old partner's stray 73 must not confuse the new session
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR 73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+    }
+
     func testReportFormatting() {
         XCTAssertEqual(QSOSequencer.formatReport(-7.4), "-07")
         XCTAssertEqual(QSOSequencer.formatReport(3.6), "+04")
