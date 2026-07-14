@@ -140,7 +140,9 @@ struct MapPane: View {
                                 Text(row.snrText)
                                     .font(.caption.monospaced())
                                     .gridColumnAlignment(.trailing)
-                                Text(row.flag)
+                                Text(row.country)
+                                    .font(.caption)
+                                    .lineLimit(1)
                                     .gridColumnAlignment(.trailing)
                             }
                         }
@@ -151,7 +153,7 @@ struct MapPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .frame(width: 210, alignment: .leading)
+                .frame(width: 240, alignment: .leading)
                 .padding(8)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(10)
@@ -260,7 +262,7 @@ struct MapPane: View {
         struct Row: Identifiable {
             let call: String
             let snrText: String
-            let flag: String
+            let country: String // "🇯🇵 Japan", empty when unknown
             var id: String { call }
         }
 
@@ -295,7 +297,8 @@ struct MapPane: View {
                     GridCell.Row(
                         call: st.callsign,
                         snrText: String(format: "%+.0f dB", st.lastSNR),
-                        flag: CallsignCountry.lookup(st.callsign)?.flag ?? ""
+                        country: CallsignCountry.lookup(st.callsign)
+                            .map { "\($0.flag) \($0.name)" } ?? ""
                     )
                 }
             return GridCell(
