@@ -30,15 +30,8 @@ struct ContentView: View {
             Divider()
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
-        .overlay(alignment: .top) {
-            if transmit.anyTXActive || transmit.txError != nil {
-                TXBanner(transmit: transmit, sequencer: sequencer) {
-                    actions.haltTX()
-                }
-            }
-        }
         .overlay(alignment: .topLeading) {
-            QSOStatusPanel(sequencer: sequencer, model: actions)
+            QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
         }
         .toolbar {
             ToolbarItemGroup {
