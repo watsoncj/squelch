@@ -29,6 +29,13 @@ struct MapPane: View {
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var hoveredGrid: String?
+    /// Snapshot of the rendered squares. Rebuilt only when decodes arrive or
+    /// on the aging timer — NEVER derived live in the map content. Rebuilding
+    /// MapKit overlays on every view update leaks GPU buffers in VectorKit
+    /// until Metal allocation aborts (seen after an overnight session).
+    @State private var cells: [GridCell] = []
+
+    private static let colorAgingTick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         MapReader { proxy in
@@ -44,24 +51,51 @@ struct MapPane: View {
                             if lon < -180 { lon += 360 }
                             let normalized = CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: lon)
                             let key = String(Maidenhead.grid(for: normalized).prefix(4)).uppercased()
-                            hoveredGrid = cellsByGrid[key] != nil ? key : nil
+                            setHoveredGrid(cellsByGrid[key] != nil ? key : nil)
                         } else {
-                            hoveredGrid = nil
+                            setHoveredGrid(nil)
                         }
                     case .ended:
-                        hoveredGrid = nil
+                        setHoveredGrid(nil)
                     }
                 }
+        }
+        .onAppear { rebuildCellsIfChanged() }
+        .onChange(of: store.totalDecodes) { _, _ in rebuildCellsIfChanged() }
+        .onReceive(Self.colorAgingTick) { _ in rebuildCellsIfChanged() }
+    }
+
+    /// Avoid touching @State (and re-diffing map content) on every mouse move.
+    private func setHoveredGrid(_ key: String?) {
+        if hoveredGrid != key {
+            hoveredGrid = key
+        }
+    }
+
+    /// Recompute the snapshot; assign only when something actually changed
+    /// so MapKit sees no overlay update at all on quiet ticks.
+    private func rebuildCellsIfChanged() {
+        let fresh = computeGridCells()
+        if fresh != cells {
+            cells = fresh
         }
     }
 
     private var mapContent: some View {
         Map(position: $camera) {
             // Heard stations light up their Maidenhead grid squares
-            ForEach(gridCells) { cell in
+            ForEach(cells) { cell in
                 MapPolygon(coordinates: cell.corners)
-                    .foregroundStyle(cell.color.opacity(cell.id == hoveredGrid ? 0.5 : 0.30))
-                    .stroke(cell.color.opacity(0.8), lineWidth: cell.id == hoveredGrid ? 2 : 1)
+                    .foregroundStyle(cell.color.opacity(0.30))
+                    .stroke(cell.color.opacity(0.8), lineWidth: 1)
+            }
+
+            // Hover highlight: one extra polygon, so pointing at a cell
+            // never restyles the whole overlay set
+            if let hoveredGrid, let cell = cellsByGrid[hoveredGrid] {
+                MapPolygon(coordinates: cell.corners)
+                    .foregroundStyle(cell.color.opacity(0.25))
+                    .stroke(.white.opacity(0.9), lineWidth: 2)
             }
 
             // Selected log row: highlight the stations involved in the
@@ -258,8 +292,8 @@ struct MapPane: View {
     }
 
     /// One highlighted region per occupied 4-character grid square.
-    private struct GridCell: Identifiable {
-        struct Row: Identifiable {
+    private struct GridCell: Identifiable, Equatable {
+        struct Row: Identifiable, Equatable {
             let call: String
             let snrText: String
             let country: String // "🇯🇵 Japan", empty when unknown
@@ -271,17 +305,25 @@ struct MapPane: View {
         let center: CLLocationCoordinate2D
         let color: Color
         let rows: [Row]
+
+        // Corners/center derive from the grid id, so identity + style +
+        // roster fully describe the cell.
+        static func == (lhs: GridCell, rhs: GridCell) -> Bool {
+            lhs.id == rhs.id && lhs.color == rhs.color && lhs.rows == rhs.rows
+        }
     }
 
     private var cellsByGrid: [String: GridCell] {
-        Dictionary(uniqueKeysWithValues: gridCells.map { ($0.id, $0) })
+        Dictionary(uniqueKeysWithValues: cells.map { ($0.id, $0) })
     }
 
-    private var gridCells: [GridCell] {
+    private func computeGridCells() -> [GridCell] {
         var byGrid: [String: [Station]] = [:]
         for station in store.stations.values {
             byGrid[String(station.grid.prefix(4)).uppercased(), default: []].append(station)
         }
+        // Sorted so repeated computations compare equal (dictionary order
+        // is nondeterministic, which would defeat the change check)
         return byGrid.compactMap { grid, stations in
             guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
             let corners = [
@@ -309,6 +351,7 @@ struct MapPane: View {
                 rows: rows
             )
         }
+        .sorted { $0.id < $1.id }
     }
 
     static func recencyColor(for lastHeard: Date) -> Color {

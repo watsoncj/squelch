@@ -3,3 +3,4 @@
 RadioFun.app/
 *.xcodeproj
 .swiftpm/
+crash*.txt
