@@ -28,7 +28,9 @@ final class DecodeController: ObservableObject {
     private(set) var mode: DigiMode = .ft8
     private var slotSeconds: Double { mode.slotSeconds }
     private var maxBufferedSamples: Int { Int((slotSeconds + 1) * Double(FT8Decoder.sampleRate)) }
-    private var minDecodableSamples: Int { Int(0.8 * slotSeconds * Double(FT8Decoder.sampleRate)) }
+    /// Decode partial slots — audio can glitch briefly around our own
+    /// TX/RX turnaround, and half a slot still decodes most signals.
+    private var minDecodableSamples: Int { Int(0.5 * slotSeconds * Double(FT8Decoder.sampleRate)) }
 
     private var lastLevelUpdate = Date.distantPast
 
@@ -134,14 +136,18 @@ final class DecodeController: ObservableObject {
         sampleBuffer.removeAll(keepingCapacity: true)
         bufferLock.unlock()
 
-        guard slotSamples.count >= minDecodableSamples else { return }
-
         if decoder == nil {
             decoder = FT8Decoder(mode: mode)
         }
-        guard let decoder else { return }
 
-        let results = decoder.decodeSlot(slotSamples)
+        // Always report the slot — even empty — so the QSO sequencer keeps
+        // getting its transmit windows when a slot's audio is unusable.
+        let results: [FT8Result]
+        if slotSamples.count >= minDecodableSamples, let decoder {
+            results = decoder.decodeSlot(slotSamples)
+        } else {
+            results = []
+        }
         DispatchQueue.main.async {
             self.lastSlotCount = results.count
             self.onSlotDecoded?(results, slotStart)
