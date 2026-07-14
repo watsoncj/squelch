@@ -28,22 +28,40 @@ struct MapPane: View {
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
 
     @State private var camera: MapCameraPosition = .automatic
+    @State private var hoveredGrid: String?
 
     var body: some View {
+        MapReader { proxy in
+            mapContent
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let point):
+                        if let coordinate = proxy.convert(point, from: .local),
+                           (-90.0...90.0).contains(coordinate.latitude) {
+                            // Normalize longitude — a wrapped map can yield values beyond ±180
+                            var lon = coordinate.longitude.truncatingRemainder(dividingBy: 360)
+                            if lon >= 180 { lon -= 360 }
+                            if lon < -180 { lon += 360 }
+                            let normalized = CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: lon)
+                            let key = String(Maidenhead.grid(for: normalized).prefix(4)).uppercased()
+                            hoveredGrid = cellsByGrid[key] != nil ? key : nil
+                        } else {
+                            hoveredGrid = nil
+                        }
+                    case .ended:
+                        hoveredGrid = nil
+                    }
+                }
+        }
+    }
+
+    private var mapContent: some View {
         Map(position: $camera) {
             // Heard stations light up their Maidenhead grid squares
             ForEach(gridCells) { cell in
                 MapPolygon(coordinates: cell.corners)
-                    .foregroundStyle(cell.color.opacity(0.30))
-                    .stroke(cell.color.opacity(0.8), lineWidth: 1)
-                Annotation("", coordinate: cell.center) {
-                    // Invisible hover target carrying the cell's tooltip
-                    Color.clear
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                        .help(cell.tooltip)
-                }
-                .annotationTitles(.hidden)
+                    .foregroundStyle(cell.color.opacity(cell.id == hoveredGrid ? 0.5 : 0.30))
+                    .stroke(cell.color.opacity(0.8), lineWidth: cell.id == hoveredGrid ? 2 : 1)
             }
 
             // Selected log row: highlight the stations involved in the
@@ -100,6 +118,27 @@ struct MapPane: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
             }
             .padding(10)
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let key = hoveredGrid, let cell = cellsByGrid[key] {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(cell.id) — \(cell.stationLines.count) station\(cell.stationLines.count == 1 ? "" : "s")")
+                        .font(.caption.bold())
+                    ForEach(cell.stationLines.prefix(8), id: \.self) { line in
+                        Text(line)
+                            .font(.caption.monospaced())
+                    }
+                    if cell.stationLines.count > 8 {
+                        Text("… and \(cell.stationLines.count - 8) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(10)
+                .allowsHitTesting(false)
+            }
         }
         .onChange(of: selectedMessage?.id) { _, _ in
             focusOnSelection()
@@ -204,7 +243,11 @@ struct MapPane: View {
         let corners: [CLLocationCoordinate2D]
         let center: CLLocationCoordinate2D
         let color: Color
-        let tooltip: String
+        let stationLines: [String]
+    }
+
+    private var cellsByGrid: [String: GridCell] {
+        Dictionary(uniqueKeysWithValues: gridCells.map { ($0.id, $0) })
     }
 
     private var gridCells: [GridCell] {
@@ -235,7 +278,7 @@ struct MapPane: View {
                 corners: corners,
                 center: center,
                 color: Self.recencyColor(for: newest),
-                tooltip: ([grid] + calls).joined(separator: "\n")
+                stationLines: calls
             )
         }
     }
