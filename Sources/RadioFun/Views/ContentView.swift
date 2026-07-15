@@ -20,10 +20,10 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HSplitView {
-                MapPane(store: store, location: location, selectedMessage: selectedMessage)
+                MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
                     .frame(minWidth: 400)
                     .layoutPriority(1)
-                LogPane(store: store, selection: $selectedMessageID) { message in
+                LogPane(store: store, stateResolver: actions.stateResolver, selection: $selectedMessageID) { message in
                     actions.reply(to: message)
                 }
                 .frame(minWidth: 490, idealWidth: 540)

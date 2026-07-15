@@ -23,7 +23,9 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
 struct MapPane: View {
     @ObservedObject var store: DecodeStore
     @ObservedObject var location: LocationProvider
+    @ObservedObject var stateResolver: StateResolver
     var selectedMessage: DecodedMessage?
+    @AppStorage(SettingsKeys.usDisplay) private var usDisplayRaw = USDisplay.country.rawValue
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
 
@@ -336,14 +338,23 @@ struct MapPane: View {
                 CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
             ]
             let newest = stations.map(\.lastHeard).max() ?? .distantPast
+            let wantState = USDisplay.current(usDisplayRaw) == .state
             let rows = stations
                 .sorted { $0.lastHeard > $1.lastHeard }
-                .map { st in
-                    GridCell.Row(
+                .map { st -> GridCell.Row in
+                    var countryText = ""
+                    if let country = CallsignCountry.lookup(st.callsign) {
+                        if wantState, FT8MessageParser.isUSCallsign(st.callsign),
+                           let state = stateResolver.state(forGrid: st.grid, isUS: true) {
+                            countryText = "\(country.flag) \(state)"
+                        } else {
+                            countryText = "\(country.flag) \(country.name)"
+                        }
+                    }
+                    return GridCell.Row(
                         call: st.callsign,
                         snrText: String(format: "%+.0f dB", st.lastSNR),
-                        country: CallsignCountry.lookup(st.callsign)
-                            .map { "\($0.flag) \($0.name)" } ?? ""
+                        country: countryText
                     )
                 }
             return GridCell(

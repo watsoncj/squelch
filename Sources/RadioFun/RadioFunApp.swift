@@ -44,6 +44,7 @@ final class AppModel: ObservableObject {
     let qsoLog = QSOLog()
     let cat = CATController()
     let waterfall = WaterfallProcessor()
+    let stateResolver = StateResolver()
 
     @Published var pendingReply: PendingReply?
 

@@ -53,6 +53,17 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
+                Picker("US stations", selection: Binding(
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.usDisplay) ?? USDisplay.country.rawValue },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.usDisplay) }
+                )) {
+                    ForEach(USDisplay.allCases) { choice in
+                        Text(choice.rawValue).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("State shows e.g. 🇺🇸 Colorado instead of 🇺🇸 USA, resolved from each station's grid square (fills in as lookups complete; needs network once per grid)")
             }
 
             Section("Radio") {

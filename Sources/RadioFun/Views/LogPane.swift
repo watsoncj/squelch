@@ -3,8 +3,10 @@ import AppKit
 
 struct LogPane: View {
     @ObservedObject var store: DecodeStore
+    @ObservedObject var stateResolver: StateResolver
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
+    @AppStorage(SettingsKeys.usDisplay) private var usDisplayRaw = USDisplay.country.rawValue
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
@@ -112,10 +114,10 @@ struct LogPane: View {
                 .width(min: 220, ideal: 320)
 
                 TableColumn("Country") { msg in
-                    if let country = msg.country {
-                        Text("\(country.flag) \(country.name)")
+                    if let text = countryText(for: msg) {
+                        Text(text)
                             .lineLimit(1)
-                            .help(country.name)
+                            .help(text)
                     } else {
                         Text("").accessibilityHidden(true)
                     }
@@ -169,5 +171,18 @@ struct LogPane: View {
             result = result.filter { $0.text.uppercased().contains(query) }
         }
         return result
+    }
+
+    /// "🇺🇸 Colorado" when the State preference is on and the grid has
+    /// resolved; otherwise the country name.
+    private func countryText(for msg: DecodedMessage) -> String? {
+        guard let country = msg.country else { return nil }
+        if USDisplay.current(usDisplayRaw) == .state,
+           let call = msg.callsign, FT8MessageParser.isUSCallsign(call),
+           let grid = msg.grid,
+           let state = stateResolver.state(forGrid: grid, isUS: true) {
+            return "\(country.flag) \(state)"
+        }
+        return "\(country.flag) \(country.name)"
     }
 }
