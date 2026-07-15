@@ -97,15 +97,3 @@ final class StateResolver: ObservableObject {
         try? data.write(to: fileURL)
     }
 }
-
-/// How to label US stations in country columns and cards.
-enum USDisplay: String, CaseIterable, Identifiable {
-    case country = "USA"
-    case state = "State"
-
-    var id: String { rawValue }
-
-    static func current(_ raw: String) -> USDisplay {
-        USDisplay(rawValue: raw) ?? .country
-    }
-}

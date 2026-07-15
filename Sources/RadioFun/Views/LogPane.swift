@@ -6,7 +6,6 @@ struct LogPane: View {
     @ObservedObject var stateResolver: StateResolver
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
-    @AppStorage(SettingsKeys.usDisplay) private var usDisplayRaw = USDisplay.country.rawValue
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
@@ -173,12 +172,11 @@ struct LogPane: View {
         return result
     }
 
-    /// "🇺🇸 UT, USA" when the State preference is on and the grid has
-    /// resolved; otherwise the country name.
+    /// "🇺🇸 UT, USA" once a US station's grid has resolved to a state;
+    /// otherwise the country name.
     private func countryText(for msg: DecodedMessage) -> String? {
         guard let country = msg.country else { return nil }
-        if USDisplay.current(usDisplayRaw) == .state,
-           let call = msg.callsign, FT8MessageParser.isUSCallsign(call),
+        if let call = msg.callsign, FT8MessageParser.isUSCallsign(call),
            let grid = msg.grid,
            let state = stateResolver.state(forGrid: grid, isUS: true) {
             return "\(country.flag) \(state), USA"

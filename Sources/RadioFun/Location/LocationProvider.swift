@@ -85,5 +85,4 @@ enum SettingsKeys {
     static let showWaterfall = "showWaterfall"
     static let timeDisplay = "timeDisplay"
     static let distanceUnit = "distanceUnit"
-    static let usDisplay = "usDisplay"
 }
