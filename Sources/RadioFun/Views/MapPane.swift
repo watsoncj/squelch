@@ -287,7 +287,10 @@ struct MapPane: View {
         var parts: [String] = []
         if let call = message.callsign { parts.append(call) }
         if let grid = message.grid { parts.append(grid) }
-        if let km = message.distanceKm { parts.append(String(format: "%.0f mi", km * 0.621371)) }
+        if let km = message.distanceKm {
+            let unit = DistanceUnit.current(UserDefaults.standard.string(forKey: SettingsKeys.distanceUnit) ?? "")
+            parts.append(unit.text(fromKm: km))
+        }
         return parts.isEmpty ? message.text : parts.joined(separator: " · ")
     }
 

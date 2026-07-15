@@ -32,6 +32,29 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Display") {
+                Picker("Time", selection: Binding(
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? TimeDisplay.utc.rawValue },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.timeDisplay) }
+                )) {
+                    ForEach(TimeDisplay.allCases) { choice in
+                        Text(choice.rawValue).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .help("FT8 convention is UTC — what other operators and logs use — but Local can be easier to read")
+
+                Picker("Distance", selection: Binding(
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.distanceUnit) ?? DistanceUnit.miles.rawValue },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.distanceUnit) }
+                )) {
+                    ForEach(DistanceUnit.allCases) { choice in
+                        Text(choice.rawValue).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             Section("Radio") {
                 TextField("Dial frequency (MHz)", value: $dialFrequencyMHz, format: .number.precision(.fractionLength(3)))
                     .help("Set to match the FT-891's VFO so log entries record the band. FT8 on 10m is 28.074 MHz.")

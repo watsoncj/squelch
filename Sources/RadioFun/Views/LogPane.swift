@@ -6,6 +6,8 @@ struct LogPane: View {
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
+    @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
     @State private var filter: LogFilter = .all
     @State private var searchText = ""
@@ -74,8 +76,8 @@ struct LogPane: View {
                 .padding(.bottom, 2)
 
             Table(filtered, selection: $selection) {
-                TableColumn("UTC") { msg in
-                    Text(Self.utcFormatter.string(from: msg.slotStart))
+                TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { msg in
+                    Text(TimeDisplay.current(timeDisplayRaw).formatter.string(from: msg.slotStart))
                         .monospacedDigit()
                 }
                 .width(min: 60, ideal: 65, max: 80)
@@ -128,7 +130,7 @@ struct LogPane: View {
 
                 TableColumn("Distance") { msg in
                     if let km = msg.distanceKm {
-                        Text(String(format: "%.0f mi", km * 0.621371))
+                        Text(DistanceUnit.current(distanceUnitRaw).text(fromKm: km))
                             .monospacedDigit()
                     } else {
                         Text("—").foregroundStyle(.tertiary)
@@ -168,11 +170,4 @@ struct LogPane: View {
         }
         return result
     }
-
-    private static let utcFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f
-    }()
 }

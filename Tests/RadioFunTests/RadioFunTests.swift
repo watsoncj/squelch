@@ -162,6 +162,16 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(name("3A2MW"), "Monaco")
     }
 
+    func testDistanceUnits() {
+        XCTAssertEqual(DistanceUnit.miles.text(fromKm: 100), "62 mi")
+        XCTAssertEqual(DistanceUnit.kilometers.text(fromKm: 100), "100 km")
+        XCTAssertEqual(DistanceUnit.current("Kilometers"), .kilometers)
+        XCTAssertEqual(DistanceUnit.current("bogus"), .miles) // default
+        XCTAssertEqual(TimeDisplay.current("Local"), .local)
+        XCTAssertEqual(TimeDisplay.current(""), .utc) // default
+        XCTAssertEqual(TimeDisplay.utc.formatter.timeZone.secondsFromGMT(), 0)
+    }
+
     func testUnknownPrefix() {
         XCTAssertNil(CallsignCountry.lookup("S01WS")) // Western Sahara: not in the table
         XCTAssertNil(CallsignCountry.lookup(""))
