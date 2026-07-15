@@ -64,8 +64,6 @@ struct ContentView: View {
                 .disabled(controller.isRunning)
                 .help(controller.isRunning ? "Stop decoding to switch modes" : "FT8: 15 s slots · FT4: 7.5 s slots, ~2.5× faster QSOs")
 
-                Divider()
-
                 Picker("Input", selection: $audioDeviceUID) {
                     Text("Default input").tag("")
                     ForEach(devices) { device in
@@ -99,8 +97,6 @@ struct ContentView: View {
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .help(controller.isRunning ? "Stop decoding" : "Start decoding FT8")
-
-                Divider()
 
                 Button {
                     if let message = selectedMessage {
