@@ -63,7 +63,7 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .help("State shows e.g. 🇺🇸 Colorado instead of 🇺🇸 USA, resolved from each station's grid square (fills in as lookups complete; needs network once per grid)")
+                .help("State shows e.g. 🇺🇸 CO, USA instead of 🇺🇸 USA, resolved from each station's grid square (fills in as lookups complete; needs network once per grid)")
             }
 
             Section("Radio") {

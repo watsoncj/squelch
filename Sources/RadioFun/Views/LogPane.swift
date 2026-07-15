@@ -173,7 +173,7 @@ struct LogPane: View {
         return result
     }
 
-    /// "🇺🇸 Colorado" when the State preference is on and the grid has
+    /// "🇺🇸 UT, USA" when the State preference is on and the grid has
     /// resolved; otherwise the country name.
     private func countryText(for msg: DecodedMessage) -> String? {
         guard let country = msg.country else { return nil }
@@ -181,7 +181,7 @@ struct LogPane: View {
            let call = msg.callsign, FT8MessageParser.isUSCallsign(call),
            let grid = msg.grid,
            let state = stateResolver.state(forGrid: grid, isUS: true) {
-            return "\(country.flag) \(state)"
+            return "\(country.flag) \(state), USA"
         }
         return "\(country.flag) \(country.name)"
     }

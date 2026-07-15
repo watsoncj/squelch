@@ -346,7 +346,7 @@ struct MapPane: View {
                     if let country = CallsignCountry.lookup(st.callsign) {
                         if wantState, FT8MessageParser.isUSCallsign(st.callsign),
                            let state = stateResolver.state(forGrid: st.grid, isUS: true) {
-                            countryText = "\(country.flag) \(state)"
+                            countryText = "\(country.flag) \(state), USA"
                         } else {
                             countryText = "\(country.flag) \(country.name)"
                         }
