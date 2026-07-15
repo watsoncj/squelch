@@ -359,6 +359,43 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.mode, .idle)
     }
 
+    func testQuieterParityIgnoresOwnDecodesAndStaleRows() {
+        let now = Date(timeIntervalSince1970: 1_000_005) // arbitrary anchor
+        func message(parity: Int, sender: String, age: TimeInterval) -> DecodedMessage {
+            // Construct a slotStart with the requested parity near `now`
+            var t = (now.timeIntervalSince1970 - age) - (now.timeIntervalSince1970 - age)
+                .truncatingRemainder(dividingBy: 15)
+            if Int(t / 15) % 2 != parity { t -= 15 }
+            return DecodedMessage(
+                id: UUID(), slotStart: Date(timeIntervalSince1970: t), snr: -10,
+                timeOffset: 0.5, audioFrequency: 1500, dialFrequencyMHz: 28.074,
+                text: "CQ \(sender) DM79", callsign: sender, grid: "DM79",
+                latitude: nil, longitude: nil, distanceKm: nil
+            )
+        }
+
+        // Others: 3 decodes on even, 1 on odd → odd is quieter
+        var messages = [
+            message(parity: 0, sender: "K1ABC", age: 60),
+            message(parity: 0, sender: "N2DEF", age: 90),
+            message(parity: 0, sender: "W9GHI", age: 120),
+            message(parity: 1, sender: "K5JKL", age: 60),
+        ]
+        XCTAssertEqual(AppModel.quieterParity(messages: messages, myCall: "W0CJW", period: 15, now: now, fallback: 0), 1)
+
+        // A pile of our OWN loopback decodes on odd must not flip the choice
+        messages += (0..<10).map { message(parity: 1, sender: "W0CJW", age: Double(60 + $0 * 30)) }
+        XCTAssertEqual(AppModel.quieterParity(messages: messages, myCall: "W0CJW", period: 15, now: now, fallback: 0), 1)
+
+        // Stale traffic (>10 min) is ignored → tie → fallback wins
+        let stale = [
+            message(parity: 0, sender: "K1ABC", age: 700),
+            message(parity: 1, sender: "K5JKL", age: 700),
+        ]
+        XCTAssertEqual(AppModel.quieterParity(messages: stale, myCall: "W0CJW", period: 15, now: now, fallback: 1), 1)
+        XCTAssertEqual(AppModel.quieterParity(messages: stale, myCall: "W0CJW", period: 15, now: now, fallback: 0), 0)
+    }
+
     func testNextTXWindow() {
         let period = 15.0
         // t = 0 is an even slot start; ask for the next odd window ≥5 s out

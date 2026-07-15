@@ -160,13 +160,41 @@ final class AppModel: ObservableObject {
     func startCQ() {
         pendingReply = nil
         let period = controller.mode.slotSeconds
-        sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        sequencer.myCall = myCall
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
-        // Transmit in whichever slot parity we hear less traffic (less QRM)
-        let recent = store.messages.prefix(200)
-        let evenCount = recent.filter { $0.slotParity(slotSeconds: period) == 0 }.count
-        let parity = evenCount <= recent.count - evenCount ? 0 : 1
+        let lastParity = UserDefaults.standard.integer(forKey: SettingsKeys.lastCQParity)
+        let parity = Self.quieterParity(
+            messages: Array(store.messages.prefix(400)),
+            myCall: myCall,
+            period: period,
+            fallback: lastParity
+        )
+        UserDefaults.standard.set(parity, forKey: SettingsKeys.lastCQParity)
         sequencer.startCQ(parity: parity)
+    }
+
+    /// Slot parity with less recent traffic — where our CQ competes least.
+    /// Our own decodes (monitor loopback) are excluded so a CQ session
+    /// doesn't make its own parity look busy and flip the next session;
+    /// stale rows are ignored; ties keep the previous session's parity.
+    static func quieterParity(
+        messages: [DecodedMessage],
+        myCall: String,
+        period: Double,
+        now: Date = Date(),
+        fallback: Int
+    ) -> Int {
+        let cutoff = now.addingTimeInterval(-600)
+        let relevant = messages.filter {
+            $0.slotStart > cutoff && $0.callsign?.uppercased() != myCall.uppercased()
+        }
+        let evenCount = relevant.filter { $0.slotParity(slotSeconds: period) == 0 }.count
+        let oddCount = relevant.count - evenCount
+        if evenCount == oddCount {
+            return fallback
+        }
+        return evenCount < oddCount ? 0 : 1
     }
 
     func reply(to message: DecodedMessage) {
