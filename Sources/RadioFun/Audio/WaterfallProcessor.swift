@@ -117,6 +117,12 @@ final class WaterfallProcessor: ObservableObject {
             }
         }
 
+        // Digital silence has zero-magnitude bins; log10(0) = -inf, and
+        // -inf − -inf = NaN, which traps in the UInt8 conversion. Nudge all
+        // magnitudes off zero so silence is merely "very quiet".
+        var epsilon: Float = 1e-20
+        vDSP_vsadd(magnitudes, 1, &epsilon, &magnitudes, 1, vDSP_Length(half))
+
         var db = [Float](repeating: 0, count: half)
         var reference: Float = 1
         vDSP_vdbcon(magnitudes, 1, &reference, &db, 1, vDSP_Length(half), 0)
@@ -126,10 +132,11 @@ final class WaterfallProcessor: ObservableObject {
         // band-level swings (which read as horizontal banding) while
         // signals — well above the median — stay bright.
         let median = band.sorted()[band.count / 2]
-        let floor = median - 2
+        let floor = median.isFinite ? median - 2 : -180
         let span: Float = 38
         let row = band.map { value -> UInt8 in
             let t = (value - floor) / span
+            guard t.isFinite else { return 0 } // belt and braces vs NaN/inf
             return UInt8(min(max(t, 0), 1) * 255)
         }
         rows.append(row)

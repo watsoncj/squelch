@@ -25,6 +25,23 @@ final class WaterfallTests: XCTestCase {
         }
     }
 
+    /// Regression: pure digital silence produced -inf dB rows whose median
+    /// subtraction yielded NaN, trapping in the UInt8 palette conversion.
+    func testDigitalSilenceDoesNotCrash() throws {
+        let processor = WaterfallProcessor()
+        processor.ingest([Float](repeating: 0, count: 3 * FT8Decoder.sampleRate))
+        // A tone afterwards proves the pipeline is still alive
+        let rate = Double(FT8Decoder.sampleRate)
+        let omega = 2.0 * Double.pi * 1000.0 / rate
+        processor.ingest((0..<FT8Decoder.sampleRate).map { Float(sin(omega * Double($0))) * 0.3 })
+
+        let deadline = Date().addingTimeInterval(3)
+        while processor.image == nil && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertNotNil(processor.image, "processor died on silence")
+    }
+
     /// End-to-end DSP: a 1500 Hz tone must light up the right column.
     func testToneProducesBrightColumnAtItsFrequency() throws {
         let processor = WaterfallProcessor()
