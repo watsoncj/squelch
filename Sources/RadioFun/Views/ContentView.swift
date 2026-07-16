@@ -64,23 +64,6 @@ struct ContentView: View {
                 .disabled(controller.isRunning)
                 .help(controller.isRunning ? "Stop decoding to switch modes" : "FT8: 15 s slots · FT4: 7.5 s slots, ~2.5× faster QSOs")
 
-                Picker("Input", selection: $audioDeviceUID) {
-                    Text("Default input").tag("")
-                    ForEach(devices) { device in
-                        Text(device.name).tag(device.uid)
-                    }
-                }
-                .frame(minWidth: 180)
-                .disabled(controller.isRunning)
-                .help("Audio input device (the Digirig's USB sound card)")
-
-                Button {
-                    devices = AudioDevices.inputDevices()
-                } label: {
-                    Label("Refresh Devices", systemImage: "arrow.clockwise")
-                }
-                .disabled(controller.isRunning)
-
                 Toggle(isOn: $showWaterfall) {
                     Label("Waterfall", systemImage: "water.waves")
                 }
@@ -197,6 +180,8 @@ struct ContentView: View {
         if controller.isRunning {
             controller.stop()
         } else {
+            // Re-enumerate at start so a just-plugged Digirig is found;
+            // the device itself is chosen in Settings → Audio Input
             devices = AudioDevices.inputDevices()
             let device = devices.first { $0.uid == audioDeviceUID }
             controller.start(device: device)
