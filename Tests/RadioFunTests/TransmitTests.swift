@@ -359,6 +359,27 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.mode, .idle)
     }
 
+    /// Partner repeating RR73 after our courtesy 73 means they missed it —
+    /// we re-send instead of going silent.
+    func testRepeatedRR73ResendsCourtesy73() {
+        let seq = makeSequencer()
+        seq.replyTo(call: "N5CAR", snr: -9, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // grid
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR -17", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // R-09
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW 73")
+
+        // They didn't hear it and ask again
+        seq.ingest(decodes: [.init(text: "W0CJW N5CAR RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "N5CAR W0CJW 73")
+
+        // Silence after the repeat → wind down to idle
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
     func testQuieterParityIgnoresOwnDecodesAndStaleRows() {
         let now = Date(timeIntervalSince1970: 1_000_005) // arbitrary anchor
         func message(parity: Int, sender: String, age: TimeInterval) -> DecodedMessage {

@@ -254,6 +254,16 @@ final class QSOSequencer: ObservableObject {
                 finishQSOSession()
             }
 
+        case (.qsoAsAnswerer, .none):
+            // Post-73: a repeated RR73/RRR means they missed our courtesy
+            // 73 — send it again. Their own 73 means everyone's done.
+            guard from == partner else { return }
+            if payload == "RR73" || payload == "RRR" {
+                markResponded("Repeating 73 to \(from)")
+            } else if payload == "73" {
+                finishQSOSession()
+            }
+
         default:
             break
         }
