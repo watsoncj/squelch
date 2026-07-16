@@ -6,12 +6,16 @@ enum AudioCaptureError: LocalizedError {
     case noInputAvailable
     case deviceSelectionFailed(OSStatus)
     case formatUnsupported
+    case outputDeviceUnavailable
+    case outputRoutingFailed
 
     var errorDescription: String? {
         switch self {
         case .noInputAvailable: return "No audio input available. Is the Digirig plugged in?"
         case .deviceSelectionFailed(let status): return "Could not select the audio device (CoreAudio error \(status))."
         case .formatUnsupported: return "The audio device's format is not supported."
+        case .outputDeviceUnavailable: return "TX blocked: the selected TX audio output device was not found — check Settings → Transmit."
+        case .outputRoutingFailed: return "TX blocked: macOS bound the TX audio to the wrong output device — check Settings → Transmit and try again."
         }
     }
 }

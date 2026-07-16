@@ -157,7 +157,12 @@ final class TransmitController: ObservableObject {
         UserDefaults.standard.string(forKey: SettingsKeys.pttPortPath) ?? ""
     }
 
+    /// Explicit TX output selection, falling back to the same device as the
+    /// RX input (the Digirig carries both sides) — never the system default,
+    /// so TX audio can't end up on the Mac speakers.
     private var outputDeviceUID: String {
-        UserDefaults.standard.string(forKey: SettingsKeys.audioOutputUID) ?? ""
+        let explicit = UserDefaults.standard.string(forKey: SettingsKeys.audioOutputUID) ?? ""
+        if !explicit.isEmpty { return explicit }
+        return UserDefaults.standard.string(forKey: SettingsKeys.audioDeviceUID) ?? ""
     }
 }

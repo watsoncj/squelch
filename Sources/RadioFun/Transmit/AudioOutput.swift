@@ -56,6 +56,8 @@ final class AudioOutput {
         currentDeviceUID = nil
     }
 
+    private var requiredDeviceID: AudioDeviceID?
+
     private func prepareEngine(deviceUID: String?) throws {
         if engine == nil || currentDeviceUID != deviceUID {
             shutdown()
@@ -64,21 +66,16 @@ final class AudioOutput {
             let player = AVAudioPlayerNode()
             engine.attach(player)
 
-            if let deviceUID, !deviceUID.isEmpty,
-               let device = AudioDevices.outputDevices().first(where: { $0.uid == deviceUID }) {
-                guard let audioUnit = engine.outputNode.audioUnit else {
-                    throw AudioCaptureError.formatUnsupported
+            if let deviceUID, !deviceUID.isEmpty {
+                // No silent fallback: playing TX audio out the system
+                // default (Mac speakers) is worse than not playing at all
+                guard let device = AudioDevices.outputDevices().first(where: { $0.uid == deviceUID }) else {
+                    throw AudioCaptureError.outputDeviceUnavailable
                 }
-                var id = device.id
-                let status = AudioUnitSetProperty(
-                    audioUnit,
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    kAudioUnitScope_Global,
-                    0,
-                    &id,
-                    UInt32(MemoryLayout<AudioDeviceID>.size)
-                )
-                guard status == noErr else { throw AudioCaptureError.deviceSelectionFailed(status) }
+                try engine.outputNode.auAudioUnit.setDeviceID(device.id)
+                requiredDeviceID = device.id
+            } else {
+                requiredDeviceID = nil
             }
 
             guard let format = AVAudioFormat(
@@ -100,6 +97,12 @@ final class AudioOutput {
         if let engine, !engine.isRunning {
             engine.prepare()
             try engine.start()
+            // Trust but verify: device binding has silently reverted to the
+            // system default in the wild — refuse to play if it did
+            if let requiredDeviceID, engine.outputNode.auAudioUnit.deviceID != requiredDeviceID {
+                shutdown()
+                throw AudioCaptureError.outputRoutingFailed
+            }
         }
     }
 
