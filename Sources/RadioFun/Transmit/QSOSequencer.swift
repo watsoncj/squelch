@@ -51,6 +51,9 @@ final class QSOSequencer: ObservableObject {
     var maxRetries = 3
     var maxUnansweredCQ = 10
     var onQSOComplete: ((QSORecord) -> Void)?
+    /// Fired when we give up on a partner mid-exchange (retries exhausted) —
+    /// lets the app re-engage if their reply straggles in moments later.
+    var onQSOAbandoned: ((String) -> Void)?
 
     private(set) var txParity = 0
     private var currentTX: String?
@@ -182,6 +185,9 @@ final class QSOSequencer: ObservableObject {
                 retriesLeft -= 1
                 if retriesLeft < 0 {
                     describe("No reply from \(partner ?? "?") — giving up")
+                    if let partner {
+                        onQSOAbandoned?(partner)
+                    }
                     finishQSOSession()
                     return transmission(forSlotParity: parity)
                 }

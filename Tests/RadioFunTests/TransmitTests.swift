@@ -380,6 +380,44 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.mode, .idle)
     }
 
+    func testAbandonmentFiresCallback() {
+        let seq = makeSequencer()
+        var abandoned: String?
+        seq.onQSOAbandoned = { abandoned = $0 }
+
+        seq.replyTo(call: "AA9JC", snr: -14, cqParity: 1)
+        for _ in 0..<4 { // initial + 3 retries, all unanswered
+            XCTAssertEqual(seq.transmission(forSlotParity: 0), "AA9JC W0CJW DM79")
+            seq.ingest(decodes: [], slotParity: 1)
+        }
+        XCTAssertNil(seq.transmission(forSlotParity: 0)) // gives up
+        XCTAssertEqual(abandoned, "AA9JC")
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    func testCallCandidateScan() {
+        func result(_ text: String, snr: Float = -10) -> FT8Result {
+            FT8Result(snr: snr, timeOffset: 0.5, freqHz: 1228, text: text)
+        }
+        // Report payload (the AA9JC late-reply shape)
+        let report = AppModel.callCandidate(in: [
+            result("KE9FCR KF0UR RR73"),
+            result("W0CJW AA9JC +15", snr: -14),
+        ], myCall: "W0CJW")
+        XCTAssertEqual(report?.call, "AA9JC")
+        XCTAssertEqual(report?.report, "+15")
+        XCTAssertNil(report?.grid)
+
+        // Grid payload
+        let grid = AppModel.callCandidate(in: [result("W0CJW K1ABC EN52")], myCall: "W0CJW")
+        XCTAssertEqual(grid?.call, "K1ABC")
+        XCTAssertEqual(grid?.grid, "EN52")
+
+        // Not addressed to us / no payload → nothing
+        XCTAssertNil(AppModel.callCandidate(in: [result("K9XYZ K1ABC EN52")], myCall: "W0CJW"))
+        XCTAssertNil(AppModel.callCandidate(in: [result("W0CJW K1ABC RR73")], myCall: "W0CJW"))
+    }
+
     func testQuieterParityIgnoresOwnDecodesAndStaleRows() {
         let now = Date(timeIntervalSince1970: 1_000_005) // arbitrary anchor
         func message(parity: Int, sender: String, age: TimeInterval) -> DecodedMessage {

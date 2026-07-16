@@ -48,12 +48,21 @@ final class AppModel: ObservableObject {
 
     @Published var pendingReply: PendingReply?
 
+    /// Partner we gave up on mid-exchange; their straggling reply within
+    /// the grace window re-engages even with auto-answer off — the user
+    /// already chose to work this station.
+    private var recentlyAbandoned: (call: String, at: Date)?
+    private static let abandonGraceSeconds: TimeInterval = 120
+
     /// Demo mode must never key the radio, even with PTT configured.
     let demoMode = CommandLine.arguments.contains("--demo")
 
     init() {
         sequencer.onQSOComplete = { [qsoLog] record in
             qsoLog.append(record)
+        }
+        sequencer.onQSOAbandoned = { [weak self] partner in
+            self?.recentlyAbandoned = (partner, Date())
         }
         controller.audioTap = { [waterfall] samples in
             waterfall.ingest(samples)
@@ -105,14 +114,41 @@ final class AppModel: ObservableObject {
 
     /// While idle: someone calling W0CJW with a grid or report arms a
     /// countdown-gated reply (user sees it and can cancel before it fires).
+    /// Auto-answer must be enabled — EXCEPT for a partner we just gave up
+    /// on, whose late reply re-engages within the grace window regardless.
     private func considerAutoAnswer(results: [FT8Result], theirParity: Int, period: Double) {
-        guard UserDefaults.standard.bool(forKey: SettingsKeys.autoAnswer),
-              pendingReply == nil else { return }
+        guard pendingReply == nil else { return }
         let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW").uppercased()
+        guard let candidate = Self.callCandidate(in: results, myCall: myCall) else { return }
 
+        let autoAnswerOn = UserDefaults.standard.bool(forKey: SettingsKeys.autoAnswer)
+        let isGraceReturn: Bool = {
+            guard let abandoned = recentlyAbandoned else { return false }
+            return abandoned.call == candidate.call
+                && Date().timeIntervalSince(abandoned.at) < Self.abandonGraceSeconds
+        }()
+        guard autoAnswerOn || isGraceReturn else { return }
+
+        recentlyAbandoned = nil
+        pendingReply = PendingReply(
+            call: candidate.call,
+            grid: candidate.grid,
+            report: candidate.report,
+            snr: candidate.snr,
+            theirParity: theirParity,
+            fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
+        )
+    }
+
+    /// First decode addressed to us carrying a grid or report — someone
+    /// calling us. Pure and testable.
+    static func callCandidate(
+        in results: [FT8Result],
+        myCall: String
+    ) -> (call: String, grid: String?, report: String?, snr: Float)? {
         for result in results {
             let tokens = result.text.uppercased().split(separator: " ").map(String.init)
-            guard tokens.count >= 3, tokens[0] == myCall else { continue }
+            guard tokens.count >= 3, tokens[0] == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
             guard FT8MessageParser.isCallsign(from) else { continue }
             let payload = tokens[2]
@@ -120,17 +156,9 @@ final class AppModel: ObservableObject {
             let grid = FT8MessageParser.isGrid(payload) ? payload : nil
             let report = QSOSequencer.isReport(payload) ? payload : nil
             guard grid != nil || report != nil else { continue }
-
-            pendingReply = PendingReply(
-                call: from,
-                grid: grid,
-                report: report,
-                snr: result.snr,
-                theirParity: theirParity,
-                fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
-            )
-            return
+            return (from, grid, report, result.snr)
         }
+        return nil
     }
 
     private func firePendingReplyIfDue(upcomingParity: Int, period: Double) {
@@ -222,6 +250,7 @@ final class AppModel: ObservableObject {
 
     func haltTX() {
         pendingReply = nil
+        recentlyAbandoned = nil
         sequencer.stop()
         transmit.haltAll()
     }
