@@ -76,10 +76,7 @@ struct QSOLogView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup {
-                Text("\(qsoLog.records.count) QSO\(qsoLog.records.count == 1 ? "" : "s")")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+            ToolbarItem {
                 Button {
                     showingAdd = true
                 } label: {
@@ -99,6 +96,7 @@ struct QSOLogView: View {
             }
         }
         .navigationTitle("QSO Log")
+        .navigationSubtitle("\(qsoLog.records.count) QSO\(qsoLog.records.count == 1 ? "" : "s")")
         .frame(minWidth: 620, minHeight: 320)
     }
 }
