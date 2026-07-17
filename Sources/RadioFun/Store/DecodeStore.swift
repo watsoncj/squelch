@@ -28,6 +28,7 @@ final class DecodeStore: ObservableObject {
     var logFileURL: URL { fileURL }
 
     func ingest(results: [FT8Result], slotStart: Date, myCoordinate: CLLocationCoordinate2D?, dialFrequencyMHz: Double) {
+        var newMessages: [DecodedMessage] = []
         for r in results {
             let parsed = FT8MessageParser.parse(r.text)
 
@@ -66,11 +67,13 @@ final class DecodeStore: ObservableObject {
                 distanceKm: distanceKm
             )
 
-            messages.insert(message, at: 0)
+            newMessages.append(message)
             totalDecodes += 1
             updateStation(from: message)
             appendToDisk(message)
         }
+        // One array mutation (and one @Published emission) per slot
+        messages.insert(contentsOf: newMessages.reversed(), at: 0)
         if messages.count > Self.maxMessagesInMemory {
             messages.removeLast(messages.count - Self.maxMessagesInMemory)
         }

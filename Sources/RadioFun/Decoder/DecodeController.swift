@@ -99,14 +99,19 @@ final class DecodeController: ObservableObject {
         }
         bufferLock.unlock()
 
-        // Throttled input level for the UI meter
+        // Throttled input level for the UI meter. Every publish invalidates
+        // the whole SwiftUI window, so update sparingly and only on change.
         let now = Date()
-        if now.timeIntervalSince(lastLevelUpdate) > 0.25, !samples.isEmpty {
+        if now.timeIntervalSince(lastLevelUpdate) > 0.5, !samples.isEmpty {
             lastLevelUpdate = now
             var rms: Float = 0
             vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
             let db = max(-80, 20 * log10(max(rms, 1e-9)))
-            DispatchQueue.main.async { self.audioLevelDB = db }
+            DispatchQueue.main.async {
+                if abs(db - self.audioLevelDB) > 0.8 {
+                    self.audioLevelDB = db
+                }
+            }
         }
     }
 

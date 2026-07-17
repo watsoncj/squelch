@@ -29,23 +29,23 @@ struct StatusBar: View {
                 Label(controller.deviceName, systemImage: "waveform")
                     .lineLimit(1)
 
-                // Input level meter
+                // Input level meter (plain capsule: Gauge/ProgressView
+                // animate via AppKit and keep whole-window layout running
+                // every frame)
                 HStack(spacing: 4) {
                     Image(systemName: "speaker.wave.2")
-                    Gauge(value: levelFraction) { EmptyView() }
-                        .gaugeStyle(.accessoryLinearCapacity)
-                        .tint(levelFraction > 0.9 ? .red : .green)
-                        .frame(width: 90)
+                    CapsuleBar(fraction: levelFraction, tint: levelFraction > 0.9 ? .red : .green)
+                        .frame(width: 90, height: 4)
                 }
                 .help(String(format: "Input level: %.0f dBFS", controller.audioLevelDB))
 
                 // Slot progress
-                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                TimelineView(.periodic(from: .now, by: 0.5)) { context in
                     let seconds = context.date.timeIntervalSince1970.truncatingRemainder(dividingBy: slotPeriod)
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                        ProgressView(value: seconds, total: slotPeriod)
-                            .frame(width: 70)
+                        CapsuleBar(fraction: seconds / slotPeriod, tint: .blue)
+                            .frame(width: 70, height: 4)
                         Text(String(format: "%04.1fs", seconds))
                             .monospacedDigit()
                             .frame(width: 34, alignment: .trailing)
@@ -100,6 +100,24 @@ struct StatusBar: View {
     private var levelFraction: Double {
         // Map -60…0 dBFS to 0…1
         min(1, max(0, (Double(controller.audioLevelDB) + 60) / 60))
+    }
+
+    /// Animation-free progress bar: draws in one pass, invalidates nothing.
+    private struct CapsuleBar: View {
+        let fraction: Double
+        let tint: Color
+
+        var body: some View {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.15))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: max(4, geo.size.width * min(max(fraction, 0), 1)))
+                }
+            }
+            .animation(nil, value: fraction)
+        }
     }
 
     private func bandName(_ mhz: Double) -> String {

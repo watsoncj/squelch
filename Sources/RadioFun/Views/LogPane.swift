@@ -47,7 +47,7 @@ struct LogPane: View {
 
                 Spacer(minLength: 8)
 
-                Text("\(filtered.count) of \(store.messages.count)")
+                Text(countLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
@@ -76,7 +76,7 @@ struct LogPane: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 2)
 
-            Table(filtered, selection: $selection) {
+            Table(visibleRows, selection: $selection) {
                 TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { msg in
                     Text(TimeDisplay.current(timeDisplayRaw).formatter.string(from: msg.slotStart))
                         .monospacedDigit()
@@ -170,6 +170,23 @@ struct LogPane: View {
             result = result.filter { $0.text.uppercased().contains(query) }
         }
         return result
+    }
+
+    /// SwiftUI Table re-diffs every row on each update; 5,000 rows at the
+    /// UI tick rate pegged the main thread. Filters and search still scan
+    /// the full log — only the rendered window is capped.
+    private static let maxTableRows = 1200
+
+    private var visibleRows: [DecodedMessage] {
+        Array(filtered.prefix(Self.maxTableRows))
+    }
+
+    private var countLabel: String {
+        let matching = filtered.count
+        if matching > Self.maxTableRows {
+            return "showing \(Self.maxTableRows) of \(matching)"
+        }
+        return "\(matching) of \(store.messages.count)"
     }
 
     /// "🇺🇸 UT, USA" once a US station's grid has resolved to a state;
