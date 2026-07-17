@@ -16,6 +16,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,6 +69,13 @@ struct ContentView: View {
                     Label("Waterfall", systemImage: "water.waves")
                 }
                 .help("Show the passband spectrogram (double-click it to move your TX offset)")
+
+                Button {
+                    openWindow(id: "qso-log")
+                } label: {
+                    Label("QSO Log", systemImage: "checkmark.seal")
+                }
+                .help("Completed contacts (⌘L) — add off-app QSOs from there")
 
                 Button {
                     toggleRunning()

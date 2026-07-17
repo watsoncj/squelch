@@ -307,6 +307,12 @@ struct RadioFunApp: App {
         }
         .defaultSize(width: 1200, height: 800)
 
+        Window("QSO Log", id: "qso-log") {
+            QSOLogView(qsoLog: model.qsoLog)
+        }
+        .defaultSize(width: 720, height: 420)
+        .keyboardShortcut("l", modifiers: .command)
+
         Settings {
             SettingsView(cat: model.cat)
         }
