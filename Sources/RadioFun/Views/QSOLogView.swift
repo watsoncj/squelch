@@ -7,6 +7,7 @@ struct QSOLogView: View {
 
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
+    @State private var editingRecord: QSORecord?
 
     var body: some View {
         Table(qsoLog.records, selection: $selection) {
@@ -58,10 +59,20 @@ struct QSOLogView: View {
             .width(min: 70, ideal: 90)
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
+            if ids.count == 1, let record = qsoLog.records.first(where: { $0.id == ids.first }) {
+                Button("Edit QSO") {
+                    editingRecord = record
+                }
+            }
             if !ids.isEmpty {
                 Button("Delete \(ids.count == 1 ? "QSO" : "\(ids.count) QSOs")", role: .destructive) {
                     qsoLog.delete(ids)
                 }
+            }
+        } primaryAction: { ids in
+            // Double-click a row to edit it
+            if let id = ids.first, let record = qsoLog.records.first(where: { $0.id == id }) {
+                editingRecord = record
             }
         }
         .toolbar {
@@ -78,8 +89,13 @@ struct QSOLogView: View {
             }
         }
         .sheet(isPresented: $showingAdd) {
-            AddQSOSheet { record in
+            QSOFormSheet(existing: nil) { record in
                 qsoLog.append(record)
+            }
+        }
+        .sheet(item: $editingRecord) { record in
+            QSOFormSheet(existing: record) { updated in
+                qsoLog.update(updated)
             }
         }
         .navigationTitle("QSO Log")
@@ -94,26 +110,45 @@ struct QSOLogView: View {
     }()
 }
 
-/// Manual QSO entry — for contacts the sequencer didn't run.
-private struct AddQSOSheet: View {
+/// Manual QSO entry and editing — for contacts the sequencer didn't run,
+/// or fixing ones it did.
+private struct QSOFormSheet: View {
     @Environment(\.dismiss) private var dismiss
+    let existing: QSORecord?
     let onSave: (QSORecord) -> Void
 
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
 
-    @State private var callsign = ""
-    @State private var grid = ""
-    @State private var when = Date()
-    @State private var mode = "FT8"
-    @State private var frequencyMHz = 0.0
-    @State private var reportSent = ""
-    @State private var reportReceived = ""
+    @State private var callsign: String
+    @State private var grid: String
+    @State private var when: Date
+    @State private var mode: String
+    @State private var frequencyMHz: Double
+    @State private var reportSent: String
+    @State private var reportReceived: String
 
-    private static let modes = ["FT8", "FT4", "SSB", "CW", "FM", "AM", "RTTY"]
+    private static let standardModes = ["FT8", "FT4", "SSB", "CW", "FM", "AM", "RTTY"]
+
+    private var modes: [String] {
+        // An edited record may carry a mode outside the standard list
+        Self.standardModes.contains(mode) ? Self.standardModes : Self.standardModes + [mode]
+    }
+
+    init(existing: QSORecord?, onSave: @escaping (QSORecord) -> Void) {
+        self.existing = existing
+        self.onSave = onSave
+        _callsign = State(initialValue: existing?.partner ?? "")
+        _grid = State(initialValue: existing?.partnerGrid ?? "")
+        _when = State(initialValue: existing?.start ?? Date())
+        _mode = State(initialValue: existing?.mode ?? "FT8")
+        _frequencyMHz = State(initialValue: existing?.dialFrequencyMHz ?? 0)
+        _reportSent = State(initialValue: existing?.reportSent ?? "")
+        _reportReceived = State(initialValue: existing?.reportReceived ?? "")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Log a QSO")
+            Text(existing == nil ? "Log a QSO" : "Edit QSO")
                 .font(.headline)
 
             Form {
@@ -122,7 +157,7 @@ private struct AddQSOSheet: View {
                 TextField("Grid (optional)", text: $grid, prompt: Text("e.g. EN34"))
                 DatePicker("When", selection: $when)
                 Picker("Mode", selection: $mode) {
-                    ForEach(Self.modes, id: \.self) { Text($0) }
+                    ForEach(modes, id: \.self) { Text($0) }
                 }
                 TextField("Frequency (MHz)", value: $frequencyMHz, format: .number.precision(.fractionLength(3)))
                 TextField("Report sent", text: $reportSent, prompt: Text("-05 / 59 …"))
@@ -141,14 +176,15 @@ private struct AddQSOSheet: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
+                    let duration = existing.map { $0.end.timeIntervalSince($0.start) } ?? 0
                     let record = QSORecord(
-                        id: UUID(),
+                        id: existing?.id ?? UUID(),
                         partner: callsign.trimmingCharacters(in: .whitespaces).uppercased(),
                         partnerGrid: grid.isEmpty ? nil : grid.uppercased(),
                         reportSent: reportSent,
                         reportReceived: reportReceived.isEmpty ? nil : reportReceived,
                         start: when,
-                        end: when,
+                        end: when.addingTimeInterval(duration),
                         dialFrequencyMHz: frequencyMHz,
                         mode: mode
                     )
@@ -163,7 +199,9 @@ private struct AddQSOSheet: View {
         .padding(20)
         .frame(width: 380)
         .onAppear {
-            frequencyMHz = dialFrequencyMHz
+            if existing == nil {
+                frequencyMHz = dialFrequencyMHz
+            }
         }
     }
 }

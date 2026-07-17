@@ -39,6 +39,13 @@ final class QSOLog: ObservableObject {
         rewriteFile()
     }
 
+    /// Replace a record (matched by id) in place.
+    func update(_ record: QSORecord) {
+        guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
+        records[index] = record
+        rewriteFile()
+    }
+
     private func rewriteFile() {
         var data = Data()
         for record in records.reversed() { // file is oldest-first
