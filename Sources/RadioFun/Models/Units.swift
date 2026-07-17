@@ -23,6 +23,25 @@ enum TimeDisplay: String, CaseIterable, Identifiable {
         self == .utc ? Self.utcFormatter : Self.localFormatter
     }
 
+    static let utcDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    static let localDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    /// Date must ride the same zone as the time — a 20:00 local QSO is
+    /// "tomorrow" in UTC, and mixing zones between columns misleads.
+    var dateFormatter: DateFormatter {
+        self == .utc ? Self.utcDateFormatter : Self.localDateFormatter
+    }
+
     static func current(_ raw: String) -> TimeDisplay {
         TimeDisplay(rawValue: raw) ?? .utc
     }

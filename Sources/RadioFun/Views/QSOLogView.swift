@@ -12,7 +12,7 @@ struct QSOLogView: View {
     var body: some View {
         Table(qsoLog.records, selection: $selection) {
             TableColumn("Date") { record in
-                Text(Self.dateFormatter.string(from: record.start))
+                Text(TimeDisplay.current(timeDisplayRaw).dateFormatter.string(from: record.start))
                     .monospacedDigit()
             }
             .width(min: 80, ideal: 90)
@@ -101,13 +101,6 @@ struct QSOLogView: View {
         .navigationTitle("QSO Log")
         .frame(minWidth: 620, minHeight: 320)
     }
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone(identifier: "UTC")
-        return f
-    }()
 }
 
 /// Manual QSO entry and editing — for contacts the sequencer didn't run,
