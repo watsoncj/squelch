@@ -40,6 +40,13 @@ final class AudioOutput {
         player.play()
     }
 
+    /// Start the (silent) engine without playing anything, so the device
+    /// reconfiguration it causes happens at a harmless moment — not during
+    /// the first transmission of a QSO.
+    func warmUp(deviceUID: String?) throws {
+        try prepareEngine(deviceUID: deviceUID)
+    }
+
     /// End playback but leave the engine running (silent) so the shared
     /// USB device is not reconfigured between transmissions.
     func stop() {

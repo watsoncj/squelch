@@ -91,6 +91,12 @@ final class TransmitController: ObservableObject {
         endTransmission()
     }
 
+    /// Best-effort: spin up the silent output engine ahead of any TX so its
+    /// device reconfiguration doesn't disrupt receive mid-QSO. Never keys.
+    func warmUp() {
+        try? audioOut.warmUp(deviceUID: outputDeviceUID)
+    }
+
     // MARK: - Internals
 
     private func checkLegalAndConfigured() -> Bool {

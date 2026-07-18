@@ -194,6 +194,9 @@ struct ContentView: View {
             devices = AudioDevices.inputDevices()
             let device = devices.first { $0.uid == audioDeviceUID }
             controller.start(device: device)
+            // Pre-start the TX engine so its device reconfiguration hits
+            // now, while the capture's config-change handler can absorb it
+            transmit.warmUp()
         }
     }
 

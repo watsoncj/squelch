@@ -28,6 +28,7 @@ final class AudioCapture {
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private var outputFormat: AVAudioFormat?
+    private var configObserver: NSObjectProtocol?
 
     func start(deviceID: AudioDeviceID?) throws {
         stop()
@@ -71,9 +72,37 @@ final class AudioCapture {
 
         engine.prepare()
         try engine.start()
+
+        // CoreAudio stops the engine on device configuration changes —
+        // including the FIRST start of the TX output engine on the same
+        // Digirig. Without this restart, receive dies silently mid-QSO.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            self?.restartAfterConfigChange(attempt: 1)
+        }
+    }
+
+    private func restartAfterConfigChange(attempt: Int) {
+        guard let engine, !engine.isRunning else { return }
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            guard attempt < 3 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.restartAfterConfigChange(attempt: attempt + 1)
+            }
+        }
     }
 
     func stop() {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+            self.configObserver = nil
+        }
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
