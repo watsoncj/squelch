@@ -11,6 +11,7 @@ struct ContentView: View {
     @ObservedObject var actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
@@ -171,7 +172,7 @@ struct ContentView: View {
     private var canReplyToSelection: Bool {
         guard txAvailable, sequencer.mode == .idle, !transmit.anyTXActive,
               let message = selectedMessage else { return false }
-        return message.isCQ && message.callsign != nil
+        return message.isAnswerable(by: myCallsign)
     }
 
     private var txDisabledReason: String? {

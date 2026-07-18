@@ -141,8 +141,8 @@ struct LogPane: View {
             }
             .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
                 if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
-                    if message.isCQ, message.callsign != nil, let onReply {
-                        Button("Reply to \(message.callsign!)") {
+                    if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
+                        Button(message.isCQ ? "Reply to \(call)" : "Answer \(call)") {
                             onReply(message)
                         }
                     }

@@ -34,6 +34,22 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
         callsign.flatMap(CallsignCountry.lookup)
     }
 
+    /// Third token of a directed message ("EN52", "-05", "RR73", …).
+    var payloadToken: String {
+        let tokens = text.uppercased().split(separator: " ").map(String.init)
+        return tokens.count >= 3 ? tokens[2] : ""
+    }
+
+    /// Can Reply start/continue an exchange from this message? True for any
+    /// CQ, and for messages calling `myCall` — except sign-offs, which
+    /// carry nothing to answer.
+    func isAnswerable(by myCall: String) -> Bool {
+        guard callsign != nil else { return false }
+        if isCQ { return true }
+        guard addressee == myCall.uppercased() else { return false }
+        return !QSOSequencer.isSignoff(payloadToken)
+    }
+
     /// Even (0) or odd (1) slot for the given slot period (15 s FT8,
     /// 7.5 s FT4); QSO partners alternate parity.
     func slotParity(slotSeconds: Double) -> Int {

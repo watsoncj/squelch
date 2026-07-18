@@ -162,6 +162,24 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(name("3A2MW"), "Monaco")
     }
 
+    func testIsAnswerable() {
+        func message(_ text: String) -> DecodedMessage {
+            DecodedMessage(
+                id: UUID(), slotStart: Date(), snr: -10, timeOffset: 0.5,
+                audioFrequency: 1500, dialFrequencyMHz: 28.074, text: text,
+                callsign: FT8MessageParser.parse(text).sender,
+                grid: FT8MessageParser.parse(text).grid,
+                latitude: nil, longitude: nil, distanceKm: nil
+            )
+        }
+        XCTAssertTrue(message("CQ KJ6QBD CM98").isAnswerable(by: "W0CJW"))
+        XCTAssertTrue(message("W0CJW KJ6QBD CM98").isAnswerable(by: "W0CJW"))  // calls me w/ grid
+        XCTAssertTrue(message("W0CJW KJ6QBD -05").isAnswerable(by: "W0CJW"))   // calls me w/ report
+        XCTAssertFalse(message("W0CJW KJ6QBD RR73").isAnswerable(by: "W0CJW")) // sign-off
+        XCTAssertFalse(message("W0CJW KJ6QBD 73").isAnswerable(by: "W0CJW"))
+        XCTAssertFalse(message("K1ABC KJ6QBD CM98").isAnswerable(by: "W0CJW")) // not for me
+    }
+
     func testDistanceUnits() {
         XCTAssertEqual(DistanceUnit.miles.text(fromKm: 100), "62 mi")
         XCTAssertEqual(DistanceUnit.kilometers.text(fromKm: 100), "100 km")

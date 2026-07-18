@@ -225,13 +225,25 @@ final class AppModel: ObservableObject {
         return evenCount < oddCount ? 0 : 1
     }
 
+    /// Reply to a CQ (answer with our grid), or to a message calling us —
+    /// entering mid-exchange at the right step for its payload.
     func reply(to message: DecodedMessage) {
         guard let call = message.callsign else { return }
         pendingReply = nil
         let period = controller.mode.slotSeconds
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
-        sequencer.replyTo(call: call, snr: message.snr, cqParity: message.slotParity(slotSeconds: period))
+        let theirParity = message.slotParity(slotSeconds: period)
+
+        if message.isCQ {
+            sequencer.replyTo(call: call, snr: message.snr, cqParity: theirParity)
+        } else if QSOSequencer.isReport(message.payloadToken) {
+            // They sent us a report — we owe a roger
+            sequencer.engageAsAnswerer(call: call, report: message.payloadToken, snr: message.snr, theirParity: theirParity)
+        } else {
+            // They called us with a grid (or bare call) — we owe a report
+            sequencer.engageAsCaller(call: call, grid: message.grid, snr: message.snr, theirParity: theirParity)
+        }
     }
 
     /// Change frequency (and app mode). QSYs the radio when CAT is up.
