@@ -1,6 +1,28 @@
 import XCTest
 @testable import RadioFun
 
+final class DecodeStoreTests: XCTestCase {
+    func testOwnLoopbackStaysInLogButNotStations() {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("decodes-test-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        UserDefaults.standard.set("W0CJW", forKey: SettingsKeys.myCallsign)
+
+        let store = DecodeStore(fileURL: tempURL)
+        store.ingest(
+            results: [
+                FT8Result(snr: -8, timeOffset: 0.8, freqHz: 950, text: "CQ W0CJW DM79"),   // own loopback
+                FT8Result(snr: -12, timeOffset: 0.7, freqHz: 1500, text: "CQ K1ABC FN42"),
+            ],
+            slotStart: Date(), myCoordinate: nil, dialFrequencyMHz: 28.074
+        )
+
+        XCTAssertEqual(store.messages.count, 2, "outgoing rows stay visible in the log")
+        XCTAssertNil(store.stations["W0CJW"], "own call must not become a heard station")
+        XCTAssertNotNil(store.stations["K1ABC"])
+    }
+}
+
 final class QSOLogTests: XCTestCase {
     private var tempURL: URL!
 

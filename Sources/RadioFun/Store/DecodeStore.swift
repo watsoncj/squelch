@@ -16,11 +16,15 @@ final class DecodeStore: ObservableObject {
     private var fileHandle: FileHandle?
     private let encoder = JSONEncoder()
 
-    init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("RadioFun", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        fileURL = dir.appendingPathComponent("decodes.jsonl")
+    init(fileURL: URL? = nil) {
+        if let fileURL {
+            self.fileURL = fileURL
+        } else {
+            let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("RadioFun", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            self.fileURL = dir.appendingPathComponent("decodes.jsonl")
+        }
         encoder.dateEncodingStrategy = .iso8601
         loadFromDisk()
     }
@@ -90,6 +94,11 @@ final class DecodeStore: ObservableObject {
 
     private func updateStation(from message: DecodedMessage) {
         guard let call = message.callsign, let coord = message.coordinate, let grid = message.grid else { return }
+        // Our own loopback decodes stay in the log (TX confirmation) but
+        // must not appear as a heard station — every CQ would update the
+        // map and trigger a polygon rebuild + camera refit
+        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
+        guard call.uppercased() != myCall else { return }
         if var station = stations[call] {
             station.grid = grid
             station.coordinate = coord

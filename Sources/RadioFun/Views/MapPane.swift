@@ -29,6 +29,7 @@ struct MapPane: View {
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
 
     @State private var camera: MapCameraPosition = .automatic
+    @State private var hasAutoFitted = false
     @State private var hoveredGrid: String?
     /// Snapshot of the rendered squares. Rebuilt only when decodes arrive or
     /// on the aging timer — NEVER derived live in the map content. Rebuilding
@@ -80,6 +81,35 @@ struct MapPane: View {
         if fresh != cells {
             cells = fresh
         }
+        // Pin the camera to an explicit region once content exists:
+        // .automatic re-fits (and animates) on EVERY content change, which
+        // reads as the UI locking up after each decode cycle
+        if !hasAutoFitted, !cells.isEmpty {
+            hasAutoFitted = true
+            camera = fitAllRegion()
+        }
+    }
+
+    /// Explicit region covering all cells and my position — used instead of
+    /// .automatic so the camera only moves when asked.
+    private func fitAllRegion() -> MapCameraPosition {
+        var coords = cells.flatMap(\.corners)
+        if let me = location.effectiveCoordinate() {
+            coords.append(me)
+        }
+        guard let first = coords.first else { return .automatic }
+        var minLat = first.latitude, maxLat = first.latitude
+        var minLon = first.longitude, maxLon = first.longitude
+        for c in coords.dropFirst() {
+            minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+        }
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * 1.15, 4),
+            longitudeDelta: max((maxLon - minLon) * 1.15, 4)
+        )
+        return .region(MKCoordinateRegion(center: center, span: span))
     }
 
     private var mapContent: some View {
@@ -140,7 +170,7 @@ struct MapPane: View {
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
 
                 Button {
-                    camera = .automatic
+                    camera = fitAllRegion()
                 } label: {
                     Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
