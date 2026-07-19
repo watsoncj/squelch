@@ -411,10 +411,13 @@ struct MapPane: View {
     }
 }
 
-/// Pulsing highlight ring for the station selected in the log.
+/// Highlight ring for the station selected in the log.
+/// Deliberately STATIC: animated content inside Map makes MapKit clear and
+/// rebuild the entire scene (all overlay renderables) every display-link
+/// frame — ~6k GPU allocations/s and unbounded memory growth whenever a
+/// row was selected.
 private struct SelectedRing: View {
     let label: String
-    @State private var pulsing = false
 
     var body: some View {
         VStack(spacing: 3) {
@@ -426,16 +429,15 @@ private struct SelectedRing: View {
                 .foregroundStyle(.white)
             ZStack {
                 Circle()
+                    .stroke(.blue.opacity(0.45), lineWidth: 5)
+                    .frame(width: 30, height: 30)
+                Circle()
                     .stroke(.blue, lineWidth: 2.5)
-                    .frame(width: 26, height: 26)
-                    .scaleEffect(pulsing ? 1.25 : 0.95)
-                    .opacity(pulsing ? 0.4 : 1)
+                    .frame(width: 24, height: 24)
                 Circle()
                     .fill(.blue)
                     .frame(width: 8, height: 8)
             }
-            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: pulsing)
         }
-        .onAppear { pulsing = true }
     }
 }
