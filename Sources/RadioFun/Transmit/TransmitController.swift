@@ -12,8 +12,6 @@ final class TransmitController: ObservableObject {
     private let ptt = SerialPTT()
     private var watchdog: DispatchWorkItem?
 
-    /// Hard cap on a single keydown: an FT8 transmission is 12.64 s + lead.
-    private static let watchdogSeconds: TimeInterval = 16
     /// Tune gets longer for antenna-tuner work, but still force-drops.
     private static let tuneWatchdogSeconds: TimeInterval = 60
 
@@ -55,7 +53,12 @@ final class TransmitController: ObservableObject {
         isTransmitting = true
         currentTXText = text
         txError = nil
-        armWatchdog(after: Self.watchdogSeconds)
+        // AVAudioPlayerNode completion callbacks are unreliable across
+        // stop/reschedule cycles — when one is dropped, only the 16 s
+        // watchdog unkeys, leaving the TX indicator (and PTT) up ~3 s past
+        // the audio. End deterministically at the audio's actual duration.
+        let duration = Double(samples.count) / Double(FT8Decoder.sampleRate)
+        armWatchdog(after: duration + 0.35)
         return true
     }
 

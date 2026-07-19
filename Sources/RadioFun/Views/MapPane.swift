@@ -185,18 +185,19 @@ struct MapPane: View {
             .padding(10)
         }
         .overlay(alignment: .bottomLeading) {
-            if let key = hoveredGrid, let cell = cellsByGrid[key] {
+            if let key = hoveredGrid, cellsByGrid[key] != nil {
+                let rows = hoverRows(forGrid: key)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(cell.id)
+                        Text(key)
                             .font(.caption.bold())
                         Spacer(minLength: 16)
-                        Text("\(cell.rows.count) station\(cell.rows.count == 1 ? "" : "s")")
+                        Text("\(rows.count) station\(rows.count == 1 ? "" : "s")")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Grid(horizontalSpacing: 10, verticalSpacing: 2) {
-                        ForEach(cell.rows.prefix(8)) { row in
+                        ForEach(rows.prefix(8)) { row in
                             GridRow {
                                 Text(row.call)
                                     .font(.caption.monospaced())
@@ -212,8 +213,8 @@ struct MapPane: View {
                             }
                         }
                     }
-                    if cell.rows.count > 8 {
-                        Text("and \(cell.rows.count - 8) more")
+                    if rows.count > 8 {
+                        Text("and \(rows.count - 8) more")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -326,24 +327,19 @@ struct MapPane: View {
     }
 
     /// One highlighted region per occupied 4-character grid square.
+    /// Identity is deliberately just grid + color: including per-station
+    /// hover data made cells "change" on nearly every decode, forcing
+    /// MapKit to re-encode ~400 polygons each slot (main-thread stall) and
+    /// steadily leak VectorKit GPU buffers. The hover roster is computed
+    /// live from the station cache instead.
     private struct GridCell: Identifiable, Equatable {
-        struct Row: Identifiable, Equatable {
-            let call: String
-            let snrText: String
-            let country: String // "🇯🇵 Japan", empty when unknown
-            var id: String { call }
-        }
-
         let id: String // the 4-char grid
         let corners: [CLLocationCoordinate2D]
         let center: CLLocationCoordinate2D
         let color: Color
-        let rows: [Row]
 
-        // Corners/center derive from the grid id, so identity + style +
-        // roster fully describe the cell.
         static func == (lhs: GridCell, rhs: GridCell) -> Bool {
-            lhs.id == rhs.id && lhs.color == rhs.color && lhs.rows == rhs.rows
+            lhs.id == rhs.id && lhs.color == rhs.color
         }
     }
 
@@ -367,33 +363,44 @@ struct MapPane: View {
                 CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
             ]
             let newest = stations.map(\.lastHeard).max() ?? .distantPast
-            let rows = stations
-                .sorted { $0.lastHeard > $1.lastHeard }
-                .map { st -> GridCell.Row in
-                    var countryText = ""
-                    if let country = CallsignCountry.lookup(st.callsign) {
-                        if FT8MessageParser.isUSCallsign(st.callsign),
-                           let state = stateResolver.state(forGrid: st.grid, isUS: true) {
-                            countryText = "\(country.flag) \(state), USA"
-                        } else {
-                            countryText = "\(country.flag) \(country.name)"
-                        }
-                    }
-                    return GridCell.Row(
-                        call: st.callsign,
-                        snrText: String(format: "%+.0f dB", st.lastSNR),
-                        country: countryText
-                    )
-                }
             return GridCell(
                 id: grid,
                 corners: corners,
                 center: center,
-                color: Self.recencyColor(for: newest),
-                rows: rows
+                color: Self.recencyColor(for: newest)
             )
         }
         .sorted { $0.id < $1.id }
+    }
+
+    /// Hover roster, computed only for the cell under the cursor.
+    private struct HoverRow: Identifiable {
+        let call: String
+        let snrText: String
+        let country: String
+        var id: String { call }
+    }
+
+    private func hoverRows(forGrid grid: String) -> [HoverRow] {
+        store.stations.values
+            .filter { String($0.grid.prefix(4)).uppercased() == grid }
+            .sorted { $0.lastHeard > $1.lastHeard }
+            .map { st in
+                var countryText = ""
+                if let country = CallsignCountry.lookup(st.callsign) {
+                    if FT8MessageParser.isUSCallsign(st.callsign),
+                       let state = stateResolver.state(forGrid: st.grid, isUS: true) {
+                        countryText = "\(country.flag) \(state), USA"
+                    } else {
+                        countryText = "\(country.flag) \(country.name)"
+                    }
+                }
+                return HoverRow(
+                    call: st.callsign,
+                    snrText: String(format: "%+.0f dB", st.lastSNR),
+                    country: countryText
+                )
+            }
     }
 
     static func recencyColor(for lastHeard: Date) -> Color {
