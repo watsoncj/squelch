@@ -25,9 +25,13 @@ struct ContentView: View {
                 MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
                     .frame(minWidth: 400)
                     .layoutPriority(1)
-                LogPane(store: store, stateResolver: actions.stateResolver, selection: $selectedMessageID) { message in
-                    actions.reply(to: message)
-                }
+                LogPane(
+                    store: store,
+                    stateResolver: actions.stateResolver,
+                    selection: $selectedMessageID,
+                    onReply: { message in actions.reply(to: message) },
+                    replyEnabled: txAvailable && sequencer.mode == .idle
+                )
                 .frame(minWidth: 490, idealWidth: 540)
             }
             if showWaterfall {
@@ -187,6 +191,9 @@ struct ContentView: View {
 
     private func toggleRunning() {
         if controller.isRunning {
+            // A stopped decoder can't drive the sequencer — halt any
+            // session/pending reply instead of leaving them armed and dead
+            actions.haltTX()
             controller.stop()
         } else {
             // Re-enumerate at start so a just-plugged Digirig is found;

@@ -6,6 +6,7 @@ struct LogPane: View {
     @ObservedObject var stateResolver: StateResolver
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
+    var replyEnabled = true
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
@@ -142,9 +143,12 @@ struct LogPane: View {
             .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
                 if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
                     if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
-                        Button(message.isCQ ? "Reply to \(call)" : "Answer \(call)") {
+                        Button(replyEnabled
+                               ? (message.isCQ ? "Reply to \(call)" : "Answer \(call)")
+                               : "Reply requires decoding (press Start)") {
                             onReply(message)
                         }
+                        .disabled(!replyEnabled)
                     }
                     Button("Copy Message") {
                         NSPasteboard.general.clearContents()

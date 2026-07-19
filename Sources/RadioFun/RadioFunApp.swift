@@ -186,6 +186,7 @@ final class AppModel: ObservableObject {
     }
 
     func startCQ() {
+        guard requireDecoding() else { return }
         pendingReply = nil
         let period = controller.mode.slotSeconds
         let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
@@ -225,9 +226,19 @@ final class AppModel: ObservableObject {
         return evenCount < oddCount ? 0 : 1
     }
 
+    /// The sequencer only transmits from the decode loop's slot boundaries;
+    /// arming it with the decoder stopped yields a countdown that never
+    /// fires. Refuse loudly instead.
+    private func requireDecoding() -> Bool {
+        if controller.isRunning { return true }
+        transmit.txError = "Start decoding first — the QSO sequencer transmits from receive slot boundaries"
+        return false
+    }
+
     /// Reply to a CQ (answer with our grid), or to a message calling us —
     /// entering mid-exchange at the right step for its payload.
     func reply(to message: DecodedMessage) {
+        guard requireDecoding() else { return }
         guard let call = message.callsign else { return }
         pendingReply = nil
         let period = controller.mode.slotSeconds
