@@ -10,10 +10,15 @@ import CoreAudio
 /// CoreAudio reconfigure the device and glitches the input stream — which
 /// silently corrupted the receive slot right after each transmission.
 final class AudioOutput {
+    /// Fired when a device configuration change kills the engine — the
+    /// transmitter should unkey rather than send dead carrier.
+    var onEngineLost: (() -> Void)?
+
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
     private var format: AVAudioFormat?
     private var currentDeviceUID: String?
+    private var configObserver: NSObjectProtocol?
 
     /// Play once; `completion` fires on the main queue when the buffer has
     /// been fully rendered. With `loop: true`, plays until `stop()`.
@@ -55,6 +60,10 @@ final class AudioOutput {
 
     /// Full teardown — device change or app shutdown.
     func shutdown() {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+            self.configObserver = nil
+        }
         player?.stop()
         engine?.stop()
         player = nil
@@ -66,6 +75,14 @@ final class AudioOutput {
     private var requiredDeviceID: AudioDeviceID?
 
     private func prepareEngine(deviceUID: String?) throws {
+        // A stopped engine means a device configuration change hit us
+        // (AirPods connecting stops engines, and a restarted engine can
+        // rebind to the new system default — TX audio in someone's ears
+        // instead of the transmitter). Rebuild from scratch so the device
+        // binding is freshly applied and verified.
+        if let engine, !engine.isRunning {
+            shutdown()
+        }
         if engine == nil || currentDeviceUID != deviceUID {
             shutdown()
 
@@ -99,6 +116,18 @@ final class AudioOutput {
             self.player = player
             self.format = format
             self.currentDeviceUID = deviceUID
+
+            // A config change (device connect/disconnect) stops the engine;
+            // drop everything so the next play rebuilds with an explicit,
+            // verified binding instead of restarting onto the default device
+            configObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange,
+                object: engine,
+                queue: .main
+            ) { [weak self] _ in
+                self?.shutdown()
+                self?.onEngineLost?()
+            }
         }
 
         if let engine, !engine.isRunning {

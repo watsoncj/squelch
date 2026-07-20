@@ -16,6 +16,14 @@ final class TransmitController: ObservableObject {
     /// so a radio left in SSB/CW gets flipped back before the tones flow.
     var preTransmitHook: (() -> Void)?
 
+    init() {
+        audioOut.onEngineLost = { [weak self] in
+            guard let self, self.anyTXActive else { return }
+            self.endTransmission()
+            self.txError = "TX ended early: the audio output device changed mid-transmission"
+        }
+    }
+
     /// Tune gets longer for antenna-tuner work, but still force-drops.
     private static let tuneWatchdogSeconds: TimeInterval = 60
 

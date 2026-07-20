@@ -29,9 +29,11 @@ final class AudioCapture {
     private var converter: AVAudioConverter?
     private var outputFormat: AVAudioFormat?
     private var configObserver: NSObjectProtocol?
+    private var currentDeviceID: AudioDeviceID?
 
     func start(deviceID: AudioDeviceID?) throws {
         stop()
+        currentDeviceID = deviceID
 
         let engine = AVAudioEngine()
         self.engine = engine
@@ -86,10 +88,17 @@ final class AudioCapture {
     }
 
     private func restartAfterConfigChange(attempt: Int) {
-        guard let engine, !engine.isRunning else { return }
-        engine.prepare()
+        if let engine, engine.isRunning { return } // recovered on its own
+        guard currentDeviceID != nil || engine != nil || attempt > 1 else { return }
+        // Full rebuild, not restart-in-place: after a device configuration
+        // change (AirPods connecting, etc.) a restarted engine can silently
+        // rebind to the new system default instead of our explicit device.
+        let device = currentDeviceID
+        let callback = onSamples
+        stop()
+        onSamples = callback
         do {
-            try engine.start()
+            try start(deviceID: device)
         } catch {
             guard attempt < 3 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
