@@ -16,6 +16,12 @@ final class TransmitController: ObservableObject {
     /// so a radio left in SSB/CW gets flipped back before the tones flow.
     var preTransmitHook: (() -> Void)?
 
+    /// CAT-based PTT: returns true if it handled the keying (CAT
+    /// connected). Preferred over serial RTS — it works regardless of the
+    /// radio's DATA PTT SELECT menu. Falls back to RTS when unavailable.
+    var catPTT: ((Bool) -> Bool)?
+    private var keyedViaCAT = false
+
     init() {
         audioOut.onEngineLost = { [weak self] in
             guard let self, self.anyTXActive else { return }
@@ -153,6 +159,11 @@ final class TransmitController: ObservableObject {
     }
 
     private func keyPTT() -> Bool {
+        if let catPTT, catPTT(true) {
+            keyedViaCAT = true
+            return true
+        }
+        keyedViaCAT = false
         do {
             try ptt.open(path: pttPortPath)
         } catch {
@@ -164,6 +175,11 @@ final class TransmitController: ObservableObject {
     }
 
     private func unkeyPTT() {
+        if keyedViaCAT {
+            _ = catPTT?(false)
+            keyedViaCAT = false
+            return
+        }
         ptt.unkey()
     }
 

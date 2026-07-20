@@ -93,7 +93,7 @@ struct SettingsView: View {
                         Text(port.replacingOccurrences(of: "/dev/", with: "")).tag(port)
                     }
                 }
-                .help("PTT is keyed by asserting RTS on this port. FT-891 USB: the radio exposes two ports — use the second (Standard) one, with menu 08-05 DATA PTT SELECT = RTS. Digirig serial: the single cu.usbserial port, with DATA PTT SELECT = DAKY.")
+                .help("Fallback PTT via RTS on this port — only used when CAT is not connected. With CAT up (DR-891), PTT is keyed by CAT command automatically, regardless of the radio's DATA PTT SELECT menu.")
 
                 TextField("TX audio offset (Hz)", value: $txOffsetHz, format: .number.precision(.fractionLength(0)))
                     .help("Where your signal sits in the audio passband, 200–3000 Hz. Pick a spot clear of other traffic on the waterfall.")

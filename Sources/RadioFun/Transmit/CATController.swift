@@ -8,6 +8,8 @@ enum FT891CAT {
     static let readFrequency = "FA;"
     static let readMode = "MD0;"
     static let setDataUSB = "MD0C;"
+    static let pttOn = "TX1;"
+    static let pttOff = "TX0;"
 
     /// "FA014074000;" → 14.074
     static func parseFrequencyResponse(_ response: String) -> Double? {
@@ -126,6 +128,20 @@ final class CATController: ObservableObject {
         radioModeName = nil
         if oldFD >= 0 {
             queue.async { cserial_close(oldFD) }
+        }
+    }
+
+    /// Key/unkey via CAT (TX1;/TX0;). Fire-and-forget: no response wait, so
+    /// keying latency is just the serial write (~15 ms at 9600). This is
+    /// the DR-891's supported PTT path and works regardless of the radio's
+    /// DATA PTT SELECT menu.
+    func setPTT(_ keyed: Bool) {
+        guard isConnected else { return }
+        let fd = self.fd
+        let command = keyed ? FT891CAT.pttOn : FT891CAT.pttOff
+        queue.async {
+            let bytes = Array(command.utf8).map { CChar(bitPattern: $0) }
+            _ = cserial_write(fd, bytes, Int32(bytes.count))
         }
     }
 

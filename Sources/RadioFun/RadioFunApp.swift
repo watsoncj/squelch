@@ -74,6 +74,11 @@ final class AppModel: ObservableObject {
         transmit.preTransmitHook = { [cat] in
             cat.ensureDataUSB()
         }
+        transmit.catPTT = { [cat] keyed in
+            guard cat.isConnected else { return false }
+            cat.setPTT(keyed)
+            return true
+        }
         controller.audioTap = { [waterfall] samples in
             waterfall.ingest(samples)
         }

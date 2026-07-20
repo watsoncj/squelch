@@ -1,148 +1,242 @@
 import Foundation
-import AVFoundation
+import AudioToolbox
 import CoreAudio
 
 /// Plays 12 kHz mono float samples out a chosen output device (the
 /// Digirig's speaker side, which drives the radio's data input).
 ///
-/// The engine is kept alive between transmissions: starting/stopping an
-/// output engine on the same USB device the decoder is capturing from makes
-/// CoreAudio reconfigure the device and glitches the input stream — which
-/// silently corrupted the receive slot right after each transmission.
+/// Implemented directly on a HAL output AudioUnit pinned to the device.
+/// AVAudioEngine's device binding proved untrustworthy: engines restarted
+/// after configuration changes (AirPods connecting) silently rebind to the
+/// system default, and the readback used for verification echoes the set
+/// value rather than the actual route. A HAL unit bound to a specific
+/// AudioDeviceID cannot follow the default device.
 final class AudioOutput {
-    /// Fired when a device configuration change kills the engine — the
+    /// Fired when playback dies mid-stream (device removed) — the
     /// transmitter should unkey rather than send dead carrier.
     var onEngineLost: (() -> Void)?
 
-    private var engine: AVAudioEngine?
-    private var player: AVAudioPlayerNode?
-    private var format: AVAudioFormat?
+    private var unit: AudioComponentInstance?
     private var currentDeviceUID: String?
-    private var configObserver: NSObjectProtocol?
+    private var boundDeviceID: AudioDeviceID = 0
 
-    /// Play once; `completion` fires on the main queue when the buffer has
-    /// been fully rendered. With `loop: true`, plays until `stop()`.
-    func play(samples: [Float], deviceUID: String?, loop: Bool, completion: (() -> Void)? = nil) throws {
-        guard !samples.isEmpty else { return }
-        try prepareEngine(deviceUID: deviceUID)
-        guard let player, let format,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else {
-            throw AudioCaptureError.formatUnsupported
-        }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        samples.withUnsafeBufferPointer { src in
-            buffer.floatChannelData![0].update(from: src.baseAddress!, count: samples.count)
-        }
+    private let lock = NSLock()
+    private var samples: [Float] = []
+    private var cursor = 0
+    private var looping = false
+    private var finished = true
+    private var completion: (() -> Void)?
 
-        player.stop() // clear anything pending; engine keeps running
-        if loop {
-            player.scheduleBuffer(buffer, at: nil, options: .loops)
-        } else {
-            player.scheduleBuffer(buffer, at: nil, completionCallbackType: .dataRendered) { _ in
-                DispatchQueue.main.async { completion?() }
-            }
+    // MARK: - Public API (unchanged shape)
+
+    func play(samples newSamples: [Float], deviceUID: String?, loop: Bool, completion newCompletion: (() -> Void)? = nil) throws {
+        guard !newSamples.isEmpty else { return }
+        try prepareUnit(deviceUID: deviceUID)
+
+        lock.lock()
+        samples = newSamples
+        cursor = 0
+        looping = loop
+        finished = false
+        completion = newCompletion
+        lock.unlock()
+
+        guard let unit else { throw AudioCaptureError.formatUnsupported }
+        let status = AudioOutputUnitStart(unit)
+        guard status == noErr else {
+            throw AudioCaptureError.deviceSelectionFailed(status)
         }
-        player.play()
     }
 
-    /// Start the (silent) engine without playing anything, so the device
-    /// reconfiguration it causes happens at a harmless moment — not during
-    /// the first transmission of a QSO.
     func warmUp(deviceUID: String?) throws {
-        try prepareEngine(deviceUID: deviceUID)
+        try prepareUnit(deviceUID: deviceUID)
     }
 
-    /// End playback but leave the engine running (silent) so the shared
-    /// USB device is not reconfigured between transmissions.
+    /// End playback; the unit stays initialized and device-bound.
     func stop() {
-        player?.stop()
+        lock.lock()
+        finished = true
+        completion = nil
+        lock.unlock()
+        if let unit {
+            AudioOutputUnitStop(unit)
+        }
     }
 
-    /// Full teardown — device change or app shutdown.
     func shutdown() {
-        if let configObserver {
-            NotificationCenter.default.removeObserver(configObserver)
-            self.configObserver = nil
+        stop()
+        if let unit {
+            AudioUnitUninitialize(unit)
+            AudioComponentInstanceDispose(unit)
         }
-        player?.stop()
-        engine?.stop()
-        player = nil
-        engine = nil
-        format = nil
+        unit = nil
         currentDeviceUID = nil
-    }
-
-    private var requiredDeviceID: AudioDeviceID?
-
-    private func prepareEngine(deviceUID: String?) throws {
-        // A stopped engine means a device configuration change hit us
-        // (AirPods connecting stops engines, and a restarted engine can
-        // rebind to the new system default — TX audio in someone's ears
-        // instead of the transmitter). Rebuild from scratch so the device
-        // binding is freshly applied and verified.
-        if let engine, !engine.isRunning {
-            shutdown()
-        }
-        if engine == nil || currentDeviceUID != deviceUID {
-            shutdown()
-
-            let engine = AVAudioEngine()
-            let player = AVAudioPlayerNode()
-            engine.attach(player)
-
-            if let deviceUID, !deviceUID.isEmpty {
-                // No silent fallback: playing TX audio out the system
-                // default (Mac speakers) is worse than not playing at all
-                guard let device = AudioDevices.outputDevices().first(where: { $0.uid == deviceUID }) else {
-                    throw AudioCaptureError.outputDeviceUnavailable
-                }
-                try engine.outputNode.auAudioUnit.setDeviceID(device.id)
-                requiredDeviceID = device.id
-            } else {
-                requiredDeviceID = nil
-            }
-
-            guard let format = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: Double(FT8Decoder.sampleRate),
-                channels: 1,
-                interleaved: false
-            ) else {
-                throw AudioCaptureError.formatUnsupported
-            }
-            engine.connect(player, to: engine.mainMixerNode, format: format)
-
-            self.engine = engine
-            self.player = player
-            self.format = format
-            self.currentDeviceUID = deviceUID
-
-            // A config change (device connect/disconnect) stops the engine;
-            // drop everything so the next play rebuilds with an explicit,
-            // verified binding instead of restarting onto the default device
-            configObserver = NotificationCenter.default.addObserver(
-                forName: .AVAudioEngineConfigurationChange,
-                object: engine,
-                queue: .main
-            ) { [weak self] _ in
-                self?.shutdown()
-                self?.onEngineLost?()
-            }
-        }
-
-        if let engine, !engine.isRunning {
-            engine.prepare()
-            try engine.start()
-            // Trust but verify: device binding has silently reverted to the
-            // system default in the wild — refuse to play if it did
-            if let requiredDeviceID, engine.outputNode.auAudioUnit.deviceID != requiredDeviceID {
-                shutdown()
-                throw AudioCaptureError.outputRoutingFailed
-            }
-        }
+        boundDeviceID = 0
     }
 
     deinit {
         shutdown()
     }
+
+    // MARK: - HAL unit
+
+    private func prepareUnit(deviceUID: String?) throws {
+        if unit != nil, currentDeviceUID == deviceUID {
+            // Re-verify the binding is still what we set — device lists
+            // change under us and silence beats misroute
+            if boundDeviceID != 0, readBackDevice() == boundDeviceID {
+                return
+            }
+            shutdown()
+        } else if unit != nil {
+            shutdown()
+        }
+
+        var targetDevice: AudioDeviceID = 0
+        if let deviceUID, !deviceUID.isEmpty {
+            guard let device = AudioDevices.outputDevices().first(where: { $0.uid == deviceUID }) else {
+                throw AudioCaptureError.outputDeviceUnavailable
+            }
+            targetDevice = device.id
+        }
+
+        var desc = AudioComponentDescription(
+            componentType: kAudioUnitType_Output,
+            componentSubType: kAudioUnitSubType_HALOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        guard let component = AudioComponentFindNext(nil, &desc) else {
+            throw AudioCaptureError.formatUnsupported
+        }
+        var newUnit: AudioComponentInstance?
+        guard AudioComponentInstanceNew(component, &newUnit) == noErr, let halUnit = newUnit else {
+            throw AudioCaptureError.formatUnsupported
+        }
+
+        if targetDevice != 0 {
+            var device = targetDevice
+            let status = AudioUnitSetProperty(
+                halUnit, kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global, 0,
+                &device, UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+            guard status == noErr else {
+                AudioComponentInstanceDispose(halUnit)
+                throw AudioCaptureError.deviceSelectionFailed(status)
+            }
+        }
+
+        // Client-side format: our 12 kHz mono float; the HAL unit converts
+        // to the device's native format
+        var format = AudioStreamBasicDescription(
+            mSampleRate: Float64(FT8Decoder.sampleRate),
+            mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            mBytesPerPacket: 4,
+            mFramesPerPacket: 1,
+            mBytesPerFrame: 4,
+            mChannelsPerFrame: 1,
+            mBitsPerChannel: 32,
+            mReserved: 0
+        )
+        guard AudioUnitSetProperty(
+            halUnit, kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Input, 0,
+            &format, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        ) == noErr else {
+            AudioComponentInstanceDispose(halUnit)
+            throw AudioCaptureError.formatUnsupported
+        }
+
+        var callback = AURenderCallbackStruct(
+            inputProc: audioOutputRenderCallback,
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+        )
+        guard AudioUnitSetProperty(
+            halUnit, kAudioUnitProperty_SetRenderCallback,
+            kAudioUnitScope_Input, 0,
+            &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)
+        ) == noErr, AudioUnitInitialize(halUnit) == noErr else {
+            AudioComponentInstanceDispose(halUnit)
+            throw AudioCaptureError.formatUnsupported
+        }
+
+        unit = halUnit
+        currentDeviceUID = deviceUID
+        boundDeviceID = targetDevice
+
+        // Verify against the initialized unit: the actual bound device
+        if targetDevice != 0, readBackDevice() != targetDevice {
+            shutdown()
+            throw AudioCaptureError.outputRoutingFailed
+        }
+    }
+
+    private func readBackDevice() -> AudioDeviceID {
+        guard let unit else { return 0 }
+        var device: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            unit, kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global, 0, &device, &size
+        )
+        return status == noErr ? device : 0
+    }
+
+    // MARK: - Render (audio thread)
+
+    fileprivate func render(frames: UInt32, into buffer: UnsafeMutablePointer<Float>) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var out = 0
+        let total = Int(frames)
+        if !finished {
+            while out < total {
+                if cursor >= samples.count {
+                    if looping {
+                        cursor = 0
+                    } else {
+                        finished = true
+                        if let done = completion {
+                            completion = nil
+                            DispatchQueue.main.async { done() }
+                        }
+                        break
+                    }
+                }
+                buffer[out] = samples[cursor]
+                out += 1
+                cursor += 1
+            }
+        }
+        while out < total {
+            buffer[out] = 0
+            out += 1
+        }
+    }
+}
+
+private func audioOutputRenderCallback(
+    inRefCon: UnsafeMutableRawPointer,
+    ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+    inTimeStamp: UnsafePointer<AudioTimeStamp>,
+    inBusNumber: UInt32,
+    inNumberFrames: UInt32,
+    ioData: UnsafeMutablePointer<AudioBufferList>?
+) -> OSStatus {
+    guard let ioData else { return noErr }
+    let output = Unmanaged<AudioOutput>.fromOpaque(inRefCon).takeUnretainedValue()
+    let buffers = UnsafeMutableAudioBufferListPointer(ioData)
+    guard let first = buffers.first, let data = first.mData else { return noErr }
+    output.render(frames: inNumberFrames, into: data.assumingMemoryBound(to: Float.self))
+    // Mirror into any additional buffers (non-interleaved stereo devices)
+    for extra in buffers.dropFirst() {
+        if let dst = extra.mData {
+            memcpy(dst, data, Int(first.mDataByteSize))
+        }
+    }
+    return noErr
 }
