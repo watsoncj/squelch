@@ -89,7 +89,7 @@ final class DecodeController: ObservableObject {
         }
         deviceName = device?.name ?? "Default input"
         isRunning = true
-        statusText = "Listening (\(mode.rawValue)) — decoding at each \(mode == .ft8 ? "15" : "7.5") s slot boundary"
+        statusText = "Listening (\(mode.rawValue)) — decoding at each \(String(format: "%g", mode.slotSeconds)) s slot boundary"
         scheduleSlotTimer()
     }
 

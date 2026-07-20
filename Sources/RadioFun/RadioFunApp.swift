@@ -49,6 +49,10 @@ final class AppModel: ObservableObject {
 
     @Published var pendingReply: PendingReply?
     @Published private(set) var wsprBeaconEnabled = false
+    /// Decided one window ahead so the panel can announce it (pure
+    /// per-window randomness read as "broken" during dry streaks).
+    @Published private(set) var beaconNextWindowWillTX = false
+    private var beaconWindowsSinceTX = 0
     private var beaconWork: DispatchWorkItem?
 
     /// Partner we gave up on mid-exchange; their straggling reply within
@@ -198,7 +202,27 @@ final class AppModel: ObservableObject {
         beaconWork = nil
         wsprBeaconEnabled = on
         if on {
+            beaconWindowsSinceTX = 0
+            decideNextBeaconWindow()
             scheduleBeaconTick()
+        }
+    }
+
+    /// Force the upcoming window to transmit (verification / impatience).
+    func forceBeaconNextWindow() {
+        guard wsprBeaconEnabled else { return }
+        beaconNextWindowWillTX = true
+    }
+
+    /// Duty-cycle roll with a bounded gap: after ~2× the expected interval
+    /// without a TX, the next window transmits regardless.
+    private func decideNextBeaconWindow() {
+        let duty = max(UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct), 1)
+        let maxGapWindows = max(2, 2 * Int((100.0 / Double(duty)).rounded()))
+        if beaconWindowsSinceTX + 1 >= maxGapWindows {
+            beaconNextWindowWillTX = true
+        } else {
+            beaconNextWindowWillTX = Double.random(in: 0..<100) < Double(duty)
         }
     }
 
@@ -215,24 +239,36 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + (next - now + 0.1), execute: work)
     }
 
-    /// Fires just after each even-minute boundary; transmits per duty cycle.
-    /// The encoded audio's 1 s lead keeps us inside WSPR's ±2 s tolerance.
+    /// Fires just after each even-minute boundary; transmits when this
+    /// window was pre-selected. The encoded audio's 1 s lead keeps us
+    /// inside WSPR's ±2 s tolerance.
     private func beaconWindowFired() {
-        defer { scheduleBeaconTick() }
+        defer {
+            decideNextBeaconWindow()
+            scheduleBeaconTick()
+        }
         guard wsprBeaconEnabled,
               DigiMode.current == .wspr,
               controller.isRunning,
               !transmit.anyTXActive,
-              !demoMode else { return }
-
-        let duty = UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct)
-        guard Double.random(in: 0..<100) < Double(max(duty, 1)) else { return }
+              !demoMode,
+              beaconNextWindowWillTX else {
+            beaconWindowsSinceTX += 1
+            return
+        }
 
         let call = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
         let grid4 = String((location.effectiveGrid ?? "").prefix(4))
-        guard grid4.count == 4 else { return }
+        guard grid4.count == 4 else {
+            beaconWindowsSinceTX += 1
+            return
+        }
         let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
-        transmit.transmitWSPR(call: call, grid4: grid4, dbm: dbm > 0 ? dbm : 37)
+        if transmit.transmitWSPR(call: call, grid4: grid4, dbm: dbm > 0 ? dbm : 37) {
+            beaconWindowsSinceTX = 0
+        } else {
+            beaconWindowsSinceTX += 1
+        }
     }
 
     func startCQ() {

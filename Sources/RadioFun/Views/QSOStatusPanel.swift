@@ -28,7 +28,7 @@ struct QSOStatusPanel: View {
     }
 
     private var beaconPanel: some View {
-        panel(tint: .blue) {
+        panel(tint: model.beaconNextWindowWillTX ? .orange : .blue) {
             HStack(spacing: 8) {
                 Image(systemName: "dot.radiowaves.up.forward")
                 VStack(alignment: .leading, spacing: 2) {
@@ -36,15 +36,23 @@ struct QSOStatusPanel: View {
                         .font(.callout.bold())
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let period = DigiMode.wspr.slotSeconds
-                        let remaining = period - context.date.timeIntervalSince1970
-                            .truncatingRemainder(dividingBy: period)
-                        Text(String(format: "%d%% duty · next window in %.0f s",
-                                    UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct),
-                                    remaining))
+                        let remaining = Int((period - context.date.timeIntervalSince1970
+                            .truncatingRemainder(dividingBy: period)).rounded(.down))
+                        let duty = UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct)
+                        Text(model.beaconNextWindowWillTX
+                             ? "TRANSMITTING next window — in \(remaining) s"
+                             : "listening next window · \(duty)% duty · \(remaining) s")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
+                }
+                if !model.beaconNextWindowWillTX {
+                    Button("TX next window") {
+                        model.forceBeaconNextWindow()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
                 Button("Stop") {
                     model.setWSPRBeacon(false)
