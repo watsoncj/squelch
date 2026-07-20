@@ -226,7 +226,9 @@ final class CATController: ObservableObject {
 
         var response = ""
         var buf = [CChar](repeating: 0, count: 64)
-        let deadline = Date().addingTimeInterval(0.5)
+        // Measured on the DR-891 passthrough: responses take ~250 ms and
+        // arrive with per-byte pacing right after open — give them room
+        let deadline = Date().addingTimeInterval(2.0)
         while Date() < deadline {
             let n = cserial_read(fd, &buf, Int32(buf.count), 100)
             if n < 0 { return nil }
