@@ -86,4 +86,6 @@ enum SettingsKeys {
     static let timeDisplay = "timeDisplay"
     static let distanceUnit = "distanceUnit"
     static let lastCQParity = "lastCQParity"
+    static let wsprPowerDBm = "wsprPowerDBm"
+    static let wsprDutyPct = "wsprDutyPct"
 }

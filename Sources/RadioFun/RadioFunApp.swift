@@ -13,6 +13,7 @@ struct QSYPreset: Identifiable {
     static let all: [QSYPreset] = [
         QSYPreset(label: "10m FT8 — 28.074", mhz: 28.074, mode: .ft8),
         QSYPreset(label: "10m FT4 — 28.180", mhz: 28.180, mode: .ft4),
+        QSYPreset(label: "10m WSPR — 28.1246", mhz: 28.1246, mode: .wspr),
         QSYPreset(label: "6m FT8 — 50.313", mhz: 50.313, mode: .ft8),
         QSYPreset(label: "6m FT4 — 50.318", mhz: 50.318, mode: .ft4),
         QSYPreset(label: "2m FT8 — 144.174", mhz: 144.174, mode: .ft8),
@@ -47,6 +48,8 @@ final class AppModel: ObservableObject {
     let stateResolver = StateResolver()
 
     @Published var pendingReply: PendingReply?
+    @Published private(set) var wsprBeaconEnabled = false
+    private var beaconWork: DispatchWorkItem?
 
     /// Partner we gave up on mid-exchange; their straggling reply within
     /// the grace window re-engages even with auto-answer off — the user
@@ -185,6 +188,50 @@ final class AppModel: ObservableObject {
         pendingReply = nil
     }
 
+    // MARK: - WSPR beacon
+
+    func setWSPRBeacon(_ on: Bool) {
+        beaconWork?.cancel()
+        beaconWork = nil
+        wsprBeaconEnabled = on
+        if on {
+            scheduleBeaconTick()
+        }
+    }
+
+    private func scheduleBeaconTick() {
+        guard wsprBeaconEnabled else { return }
+        let period = DigiMode.wspr.slotSeconds
+        let now = Date().timeIntervalSince1970
+        var next = (now / period).rounded(.up) * period
+        if next - now < 0.5 { next += period } // too close to key up cleanly
+        let work = DispatchWorkItem { [weak self] in
+            self?.beaconWindowFired()
+        }
+        beaconWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (next - now + 0.1), execute: work)
+    }
+
+    /// Fires just after each even-minute boundary; transmits per duty cycle.
+    /// The encoded audio's 1 s lead keeps us inside WSPR's ±2 s tolerance.
+    private func beaconWindowFired() {
+        defer { scheduleBeaconTick() }
+        guard wsprBeaconEnabled,
+              DigiMode.current == .wspr,
+              controller.isRunning,
+              !transmit.anyTXActive,
+              !demoMode else { return }
+
+        let duty = UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct)
+        guard Double.random(in: 0..<100) < Double(max(duty, 1)) else { return }
+
+        let call = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        let grid4 = String((location.effectiveGrid ?? "").prefix(4))
+        guard grid4.count == 4 else { return }
+        let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
+        transmit.transmitWSPR(call: call, grid4: grid4, dbm: dbm > 0 ? dbm : 37)
+    }
+
     func startCQ() {
         guard requireDecoding() else { return }
         pendingReply = nil
@@ -228,8 +275,12 @@ final class AppModel: ObservableObject {
 
     /// The sequencer only transmits from the decode loop's slot boundaries;
     /// arming it with the decoder stopped yields a countdown that never
-    /// fires. Refuse loudly instead.
+    /// fires. Refuse loudly instead. WSPR is a beacon mode with no QSOs.
     private func requireDecoding() -> Bool {
+        guard controller.mode.supportsQSO || !controller.isRunning else {
+            transmit.txError = "WSPR is a beacon mode — switch to FT8/FT4 for QSOs"
+            return false
+        }
         if controller.isRunning { return true }
         transmit.txError = "Start decoding first — the QSO sequencer transmits from receive slot boundaries"
         return false
@@ -260,6 +311,9 @@ final class AppModel: ObservableObject {
     /// Change frequency (and app mode). QSYs the radio when CAT is up.
     func qsy(to preset: QSYPreset) {
         haltTX()
+        if preset.mode != .wspr {
+            setWSPRBeacon(false)
+        }
         UserDefaults.standard.set(preset.mhz, forKey: SettingsKeys.dialFrequencyMHz)
         let modeChanged = preset.mode != DigiMode.current
         UserDefaults.standard.set(preset.mode.rawValue, forKey: SettingsKeys.digiMode)
@@ -311,6 +365,8 @@ struct RadioFunApp: App {
             SettingsKeys.dialFrequencyMHz: 28.074,
             SettingsKeys.digiMode: DigiMode.ft8.rawValue,
             SettingsKeys.catBaud: 4800,
+            SettingsKeys.wsprPowerDBm: 37,
+            SettingsKeys.wsprDutyPct: 20,
         ])
     }
 

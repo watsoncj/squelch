@@ -113,6 +113,38 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("WSPR Beacon") {
+                Picker("Reported power", selection: Binding(
+                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprPowerDBm) }
+                )) {
+                    Text("23 dBm (0.2 W)").tag(23)
+                    Text("27 dBm (0.5 W)").tag(27)
+                    Text("30 dBm (1 W)").tag(30)
+                    Text("33 dBm (2 W)").tag(33)
+                    Text("37 dBm (5 W)").tag(37)
+                    Text("40 dBm (10 W)").tag(40)
+                    Text("43 dBm (20 W)").tag(43)
+                }
+                .help("Encoded in the beacon message — set it to your actual TX power so receivers' propagation math is honest")
+
+                Picker("Duty cycle", selection: Binding(
+                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprDutyPct) }
+                )) {
+                    Text("10%").tag(10)
+                    Text("20%").tag(20)
+                    Text("25%").tag(25)
+                    Text("33%").tag(33)
+                    Text("50%").tag(50)
+                }
+                .help("Fraction of 2-minute windows that transmit; the rest receive. 20% is the community norm.")
+
+                Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("CAT Control (FT-891)") {
                 Picker("CAT serial port", selection: $catPortPath) {
                     Text("None").tag("")

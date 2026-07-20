@@ -26,13 +26,17 @@ final class DecodeController: ObservableObject {
     private let bufferLock = NSLock()
     private var sampleBuffer: [Float] = []
 
-    /// Mode is latched at start; switching FT8↔FT4 requires stop/start.
+    /// Mode is latched at start; switching modes requires stop/start.
     private(set) var mode: DigiMode = .ft8
     private var slotSeconds: Double { mode.slotSeconds }
     private var maxBufferedSamples: Int { Int((slotSeconds + 1) * Double(FT8Decoder.sampleRate)) }
     /// Decode partial slots — audio can glitch briefly around our own
     /// TX/RX turnaround, and half a slot still decodes most signals.
-    private var minDecodableSamples: Int { Int(0.5 * slotSeconds * Double(FT8Decoder.sampleRate)) }
+    /// WSPR needs nearly the whole 110.6 s transmission.
+    private var minDecodableSamples: Int {
+        let factor = mode == .wspr ? 0.9 : 0.5
+        return Int(factor * slotSeconds * Double(FT8Decoder.sampleRate))
+    }
 
     private var lastLevelUpdate = Date.distantPast
 
@@ -151,7 +155,24 @@ final class DecodeController: ObservableObject {
         // Always report the slot — even empty — so the QSO sequencer keeps
         // getting its transmit windows when a slot's audio is unusable.
         let results: [FT8Result]
-        if slotSamples.count >= minDecodableSamples, let decoder {
+        if slotSamples.count < minDecodableSamples {
+            results = []
+        } else if mode == .wspr {
+            let defaults = UserDefaults.standard
+            let rcall = defaults.string(forKey: SettingsKeys.myCallsign) ?? ""
+            let rgrid = String((defaults.string(forKey: SettingsKeys.myGrid) ?? "").prefix(4))
+            let dialHz = Int(defaults.double(forKey: SettingsKeys.dialFrequencyMHz) * 1_000_000)
+            results = WSPRDecoderEngine
+                .decodeSlot(slotSamples, rcall: rcall, rgrid: rgrid, dialHz: dialHz)
+                .map { spot in
+                    FT8Result(
+                        snr: spot.snr,
+                        timeOffset: spot.dt,
+                        freqHz: Float(spot.frequencyHz - Double(dialHz)),
+                        text: "WSPR \(spot.call) \(spot.grid) \(spot.powerDBm)dBm"
+                    )
+                }
+        } else if let decoder {
             results = decoder.decodeSlot(slotSamples)
         } else {
             results = []

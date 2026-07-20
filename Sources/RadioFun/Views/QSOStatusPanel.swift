@@ -20,8 +20,38 @@ struct QSOStatusPanel: View {
             pendingPanel(pending)
         } else if sequencer.mode != .idle {
             sessionPanel
+        } else if model.wsprBeaconEnabled {
+            beaconPanel
         } else if let error = transmit.txError {
             errorPanel(error)
+        }
+    }
+
+    private var beaconPanel: some View {
+        panel(tint: .blue) {
+            HStack(spacing: 8) {
+                Image(systemName: "dot.radiowaves.up.forward")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("WSPR beacon armed")
+                        .font(.callout.bold())
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let period = DigiMode.wspr.slotSeconds
+                        let remaining = period - context.date.timeIntervalSince1970
+                            .truncatingRemainder(dividingBy: period)
+                        Text(String(format: "%d%% duty · next window in %.0f s",
+                                    UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct),
+                                    remaining))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+                Button("Stop") {
+                    model.setWSPRBeacon(false)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 

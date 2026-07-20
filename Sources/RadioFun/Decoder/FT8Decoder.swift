@@ -13,10 +13,21 @@ struct FT8Result {
 enum DigiMode: String, CaseIterable, Identifiable {
     case ft8 = "FT8"
     case ft4 = "FT4"
+    case wspr = "WSPR"
 
     var id: String { rawValue }
-    var slotSeconds: Double { self == .ft8 ? 15.0 : 7.5 }
+
+    var slotSeconds: Double {
+        switch self {
+        case .ft8: return 15.0
+        case .ft4: return 7.5
+        case .wspr: return 120.0
+        }
+    }
+
     var isFT4: Bool { self == .ft4 }
+    /// WSPR is a beacon mode: no QSO sequencer, 2-minute slots.
+    var supportsQSO: Bool { self != .wspr }
 
     static var current: DigiMode {
         DigiMode(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.digiMode) ?? "") ?? .ft8

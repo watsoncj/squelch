@@ -94,28 +94,39 @@ struct ContentView: View {
                 .keyboardShortcut("r", modifiers: .command)
                 .help(controller.isRunning ? "Stop decoding" : "Start decoding FT8")
 
-                Button {
-                    if let message = selectedMessage {
-                        actions.reply(to: message)
+                if isWSPRMode {
+                    Button {
+                        actions.setWSPRBeacon(!actions.wsprBeaconEnabled)
+                    } label: {
+                        Label(actions.wsprBeaconEnabled ? "Stop Beacon" : "Beacon",
+                              systemImage: "dot.radiowaves.up.forward")
                     }
-                } label: {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left.fill")
-                }
-                .disabled(!canReplyToSelection)
-                .help(txDisabledReason ?? "Answer the selected CQ and run the QSO exchange automatically")
+                    .disabled(!actions.wsprBeaconEnabled && !txAvailable)
+                    .help(txDisabledReason ?? "Transmit WSPR at the configured duty cycle; spots of your signal appear on wsprnet receivers worldwide")
+                } else {
+                    Button {
+                        if let message = selectedMessage {
+                            actions.reply(to: message)
+                        }
+                    } label: {
+                        Label("Reply", systemImage: "arrowshape.turn.up.left.fill")
+                    }
+                    .disabled(!canReplyToSelection)
+                    .help(txDisabledReason ?? "Answer the selected CQ and run the QSO exchange automatically")
 
-                Button {
-                    if sequencer.mode == .idle {
-                        actions.startCQ()
-                    } else {
-                        actions.haltTX()
+                    Button {
+                        if sequencer.mode == .idle {
+                            actions.startCQ()
+                        } else {
+                            actions.haltTX()
+                        }
+                    } label: {
+                        Label(sequencer.mode == .idle ? "Call CQ" : "Stop CQ",
+                              systemImage: sequencer.mode == .idle ? "megaphone.fill" : "megaphone")
                     }
-                } label: {
-                    Label(sequencer.mode == .idle ? "Call CQ" : "Stop CQ",
-                          systemImage: sequencer.mode == .idle ? "megaphone.fill" : "megaphone")
+                    .disabled(sequencer.mode == .idle && !txAvailable)
+                    .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
-                .disabled(sequencer.mode == .idle && !txAvailable)
-                .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
 
                 Button {
                     if transmit.isTuning {
@@ -129,6 +140,11 @@ struct ContentView: View {
                 }
                 .disabled(!transmit.isTuning && (!txLegal || transmit.isTransmitting))
                 .help(txDisabledReason ?? "Key the radio with a steady tone to set drive level (watch the ALC)")
+            }
+        }
+        .onChange(of: digiMode) { _, raw in
+            if raw != DigiMode.wspr.rawValue {
+                actions.setWSPRBeacon(false)
             }
         }
         .onAppear {
@@ -163,6 +179,10 @@ struct ContentView: View {
     private var selectedMessage: DecodedMessage? {
         guard let id = selectedMessageID else { return nil }
         return store.messages.first { $0.id == id }
+    }
+
+    private var isWSPRMode: Bool {
+        digiMode == DigiMode.wspr.rawValue
     }
 
     private var txLegal: Bool {

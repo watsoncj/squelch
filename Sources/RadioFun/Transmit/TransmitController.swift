@@ -39,6 +39,24 @@ final class TransmitController: ObservableObject {
             txError = "Cannot encode message “\(text)” as \(mode.rawValue)"
             return false
         }
+        return performTransmission(samples: samples, label: text)
+    }
+
+    /// WSPR beacon: 110.6 s transmission at a random offset in the WSPR
+    /// audio sub-band (spreads beacons across the 200 Hz window).
+    @discardableResult
+    func transmitWSPR(call: String, grid4: String, dbm: Int) -> Bool {
+        guard !anyTXActive else { return false }
+        guard checkLegalAndConfigured() else { return false }
+        let f0 = Double.random(in: 1420...1580)
+        guard let samples = WSPREncoder.encode(call: call, grid4: grid4, dbm: dbm, frequencyHz: f0) else {
+            txError = "Cannot encode WSPR message for \(call) \(grid4)"
+            return false
+        }
+        return performTransmission(samples: samples, label: "WSPR \(call) \(grid4) \(dbm)dBm")
+    }
+
+    private func performTransmission(samples: [Float], label: String) -> Bool {
         guard keyPTT() else { return false }
 
         do {
@@ -51,12 +69,11 @@ final class TransmitController: ObservableObject {
             return false
         }
         isTransmitting = true
-        currentTXText = text
+        currentTXText = label
         txError = nil
         // AVAudioPlayerNode completion callbacks are unreliable across
-        // stop/reschedule cycles — when one is dropped, only the 16 s
-        // watchdog unkeys, leaving the TX indicator (and PTT) up ~3 s past
-        // the audio. End deterministically at the audio's actual duration.
+        // stop/reschedule cycles — when one is dropped, only the watchdog
+        // unkeys. End deterministically at the audio's actual duration.
         let duration = Double(samples.count) / Double(FT8Decoder.sampleRate)
         armWatchdog(after: duration + 0.35)
         return true

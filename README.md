@@ -97,6 +97,25 @@ PTT no matter what. Completed QSOs are logged to
    ALC barely moves (start low!). Power ≤ 25 W; 5–10 W is plenty for FT8.
 5. Antenna back on, find a clear audio offset, work someone.
 
+## WSPR (receive + 10m beacon)
+
+Switch the mode control to **WSPR** (or pick "10m WSPR — 28.1246" from the
+frequency menu, which sets both). Slots become 2 minutes; spots appear in
+the log as `WSPR CALL GRID PdBm` rows and light up the map like any other
+station — a live propagation view of who can hear whom.
+
+The **Beacon** button (replaces Reply/CQ in WSPR mode) transmits
+`W0CJW <grid> <power>` for 110.6 s in a fraction of the 2-minute windows
+(duty cycle and reported power in Settings → WSPR Beacon; set the reported
+power to your actual TX power). Transmissions use a random offset in the
+WSPR sub-band. The usual guards apply: Technician-legal dial, deterministic
+unkey at audio end, demo mode never keys.
+
+Decoding uses the `wsprd` chain (K1JT/K9AN, via VA2GKA's standalone port,
+GPL v3) vendored under `Sources/CFT8/wspr/` with kiss_fft substituted for
+FFTW. The encoder implements standard WSPR packing as the exact inverse of
+wsprd's unpackers, verified by loopback tests.
+
 ## CAT control & modes
 
 - **CAT (FT-891)**: Settings → CAT Control, pick the radio's *Enhanced* USB
