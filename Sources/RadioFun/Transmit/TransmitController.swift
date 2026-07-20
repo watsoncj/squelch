@@ -46,14 +46,13 @@ final class TransmitController: ObservableObject {
         return performTransmission(samples: samples, label: text)
     }
 
-    /// WSPR beacon: 110.6 s transmission at a random offset in the WSPR
-    /// audio sub-band (spreads beacons across the 200 Hz window).
+    /// WSPR beacon: 110.6 s transmission at the given audio offset (the
+    /// caller randomizes within the sub-band to spread beacons).
     @discardableResult
-    func transmitWSPR(call: String, grid4: String, dbm: Int) -> Bool {
+    func transmitWSPR(call: String, grid4: String, dbm: Int, offsetHz: Double) -> Bool {
         guard !anyTXActive else { return false }
         guard checkLegalAndConfigured() else { return false }
-        let f0 = Double.random(in: 1420...1580)
-        guard let samples = WSPREncoder.encode(call: call, grid4: grid4, dbm: dbm, frequencyHz: f0) else {
+        guard let samples = WSPREncoder.encode(call: call, grid4: grid4, dbm: dbm, frequencyHz: offsetHz) else {
             txError = "Cannot encode WSPR message for \(call) \(grid4)"
             return false
         }

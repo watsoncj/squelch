@@ -264,11 +264,35 @@ final class AppModel: ObservableObject {
             return
         }
         let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
-        if transmit.transmitWSPR(call: call, grid4: grid4, dbm: dbm > 0 ? dbm : 37) {
+        let power = dbm > 0 ? dbm : 37
+        let offset = Double.random(in: 1420...1580)
+        if transmit.transmitWSPR(call: call, grid4: grid4, dbm: power, offsetHz: offset) {
             beaconWindowsSinceTX = 0
+            logBeaconTransmission(call: call, grid4: grid4, dbm: power, offsetHz: offset)
         } else {
             beaconWindowsSinceTX += 1
         }
+    }
+
+    /// Deterministic log row for our own beacon — not dependent on the RF
+    /// loopback decoding. Carries no callsign/grid the parser recognizes,
+    /// so it never becomes a station or map cell.
+    private func logBeaconTransmission(call: String, grid4: String, dbm: Int, offsetHz: Double) {
+        let period = DigiMode.wspr.slotSeconds
+        let windowStart = Date(timeIntervalSince1970:
+            (Date().timeIntervalSince1970 / period).rounded(.down) * period)
+        let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+        store.ingest(
+            results: [FT8Result(
+                snr: 0,
+                timeOffset: 1.0,
+                freqHz: Float(offsetHz),
+                text: "TX WSPR \(call) \(grid4) \(dbm)dBm"
+            )],
+            slotStart: windowStart,
+            myCoordinate: location.effectiveCoordinate(),
+            dialFrequencyMHz: dial > 0 ? dial : 28.1246
+        )
     }
 
     func startCQ() {

@@ -67,6 +67,16 @@ final class WSPRTests: XCTestCase {
         XCTAssertNil(parsed.addressee) // "WSPR" is not a callsign
     }
 
+    /// The synthetic TX row must stay display-only: no sender, no grid,
+    /// no addressee — it can't become a station or map cell.
+    func testBeaconTXRowIsInert() {
+        let parsed = FT8MessageParser.parse("TX WSPR W0CJW DM79 37dBm")
+        XCTAssertNil(parsed.sender)
+        XCTAssertNil(parsed.grid)
+        XCTAssertNil(parsed.addressee)
+        XCTAssertFalse(parsed.isCQ)
+    }
+
     func testWSPRModeProperties() {
         XCTAssertEqual(DigiMode.wspr.slotSeconds, 120)
         XCTAssertFalse(DigiMode.wspr.supportsQSO)
