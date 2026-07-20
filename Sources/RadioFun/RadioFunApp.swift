@@ -67,6 +67,9 @@ final class AppModel: ObservableObject {
         sequencer.onQSOAbandoned = { [weak self] partner in
             self?.recentlyAbandoned = (partner, Date())
         }
+        transmit.preTransmitHook = { [cat] in
+            cat.ensureDataUSB()
+        }
         controller.audioTap = { [waterfall] samples in
             waterfall.ingest(samples)
         }
@@ -306,6 +309,31 @@ final class AppModel: ObservableObject {
             // They called us with a grid (or bare call) — we owe a report
             sequencer.engageAsCaller(call: call, grid: message.grid, snr: message.snr, theirParity: theirParity)
         }
+    }
+
+    /// Standard frequency for a mode on the same band as `dialMHz`, from
+    /// the preset table (nil when the band has no entry for that mode).
+    static func standardFrequency(near dialMHz: Double, mode: DigiMode) -> Double? {
+        let band = bandName(forMHz: dialMHz)
+        guard band != "?" else { return nil }
+        return QSYPreset.all.first { $0.mode == mode && bandName(forMHz: $0.mhz) == band }?.mhz
+    }
+
+    /// The user switched digital modes: if CAT is connected and we're on a
+    /// standard calling frequency, follow to the new mode's frequency on
+    /// the same band (switching to WSPR while parked on 28.074 would
+    /// otherwise decode silence).
+    func digiModeChanged(to newMode: DigiMode) {
+        guard cat.isConnected else { return }
+        let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+        // Only retune when sitting on some mode's standard frequency —
+        // never yank a deliberately hand-tuned dial
+        let onAStandardFreq = QSYPreset.all.contains { abs($0.mhz - dial) < 0.0005 }
+        guard onAStandardFreq,
+              let target = Self.standardFrequency(near: dial, mode: newMode),
+              abs(target - dial) > 0.0005 else { return }
+        UserDefaults.standard.set(target, forKey: SettingsKeys.dialFrequencyMHz)
+        cat.setFrequency(mhz: target)
     }
 
     /// Change frequency (and app mode). QSYs the radio when CAT is up.

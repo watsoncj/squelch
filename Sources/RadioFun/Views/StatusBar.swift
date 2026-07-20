@@ -64,13 +64,20 @@ struct StatusBar: View {
             Text(String(format: "%@ · %.3f MHz (%@)", digiMode, dialFrequencyMHz, bandName(forMHz: dialFrequencyMHz)))
                 .monospacedDigit()
 
-            if let cat, cat.isConnected {
-                Divider().frame(height: 14)
-                Label(cat.radioModeName ?? "CAT", systemImage: "cable.connector")
-                    .foregroundStyle(cat.radioModeName == "DATA-USB" ? Color.secondary : Color.orange)
-                    .help(cat.radioModeName == "DATA-USB"
-                          ? "CAT connected — dial follows the radio"
-                          : "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB")
+            if let cat {
+                if cat.isConnected {
+                    Divider().frame(height: 14)
+                    Label(cat.radioModeName ?? "CAT", systemImage: "cable.connector")
+                        .foregroundStyle(cat.radioModeName == "DATA-USB" ? Color.secondary : Color.orange)
+                        .help(cat.radioModeName == "DATA-USB"
+                              ? "CAT connected — dial follows the radio"
+                              : "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB")
+                } else if !cat.portPath.isEmpty {
+                    Divider().frame(height: 14)
+                    Label("CAT", systemImage: "cable.connector.slash")
+                        .foregroundStyle(.orange)
+                        .help(cat.lastError ?? "CAT not connected — radio off? Retrying automatically.")
+                }
             }
 
             if let grid = location.effectiveGrid {

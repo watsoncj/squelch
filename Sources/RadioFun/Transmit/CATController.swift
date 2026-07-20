@@ -61,6 +61,18 @@ final class CATController: ObservableObject {
     private let queue = DispatchQueue(label: "radiofun.cat", qos: .utility)
     private var pollTimer: DispatchSourceTimer?
     private var pendingFrequencyMHz: Double? // QSY requested before connect finished
+    private var retryWork: DispatchWorkItem?
+    private var wantsConnection = false // false after explicit disconnect
+
+    private func scheduleRetry() {
+        guard wantsConnection else { return }
+        retryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.connect()
+        }
+        retryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
+    }
 
     var portPath: String {
         UserDefaults.standard.string(forKey: SettingsKeys.catPortPath) ?? ""
@@ -78,6 +90,7 @@ final class CATController: ObservableObject {
     }
 
     func connect() {
+        wantsConnection = true
         let path = portPath
         guard !path.isEmpty, fd < 0 else { return }
         let baud = self.baud
@@ -95,6 +108,14 @@ final class CATController: ObservableObject {
         }
     }
 
+    /// Explicit user disconnect (Settings button) also stops auto-retry.
+    func disconnectManually() {
+        wantsConnection = false
+        retryWork?.cancel()
+        retryWork = nil
+        disconnect()
+    }
+
     func disconnect() {
         pollTimer?.cancel()
         pollTimer = nil
@@ -105,6 +126,17 @@ final class CATController: ObservableObject {
         radioModeName = nil
         if oldFD >= 0 {
             queue.async { cserial_close(oldFD) }
+        }
+    }
+
+    /// Ensure the radio is in DATA-USB (the mode our audio path requires).
+    /// Called right before transmissions; no-op when already correct.
+    func ensureDataUSB() {
+        guard isConnected, radioModeName != "DATA-USB" else { return }
+        let fd = self.fd
+        queue.async { [weak self] in
+            _ = Self.transact(fd: fd, command: FT891CAT.setDataUSB)
+            self?.pollOnce()
         }
     }
 
@@ -143,8 +175,12 @@ final class CATController: ObservableObject {
                         self.setFrequency(mhz: pending)
                     }
                 } else {
-                    self.lastError = "CAT: no response from radio (check port, baud, and that the radio is on)"
+                    self.lastError = "CAT: no response — radio off? (retrying every 30 s; check menu 05-06 CAT RATE matches Settings)"
                     self.disconnect()
+                    // The radio's USB bridge enumerates even with the radio
+                    // powered off — keep retrying so CAT comes up on its
+                    // own once the radio is switched on.
+                    self.scheduleRetry()
                 }
             }
         }

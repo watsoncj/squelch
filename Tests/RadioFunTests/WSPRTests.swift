@@ -34,6 +34,25 @@ final class WSPRTests: XCTestCase {
         XCTAssertEqual(spots.first?.powerDBm, 30)
     }
 
+    /// Regression: wsprd's stack frames (hashtab/loctab, subtraction
+    /// buffers) overflowed the 512 KB dispatch-queue stack in live use —
+    /// the CLI harness passed only because main threads get 8 MB.
+    func testDecodeOnDispatchQueueStack() throws {
+        var audio = try XCTUnwrap(
+            WSPREncoder.encode(call: "W0CJW", grid4: "DM79", dbm: 37, frequencyHz: 1500)
+        )
+        audio.append(contentsOf: [Float](repeating: 0, count: 119 * FT8Decoder.sampleRate - audio.count))
+
+        let expectation = expectation(description: "decode on worker stack")
+        var spots: [WSPRSpot] = []
+        DispatchQueue(label: "test.wspr.decode", qos: .userInitiated).async {
+            spots = WSPRDecoderEngine.decodeSlot(audio, rcall: "W0CJW", rgrid: "DM79", dialHz: 28_124_600)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 20)
+        XCTAssertEqual(spots.first?.call, "W0CJW")
+    }
+
     func testEncodeRejectsInvalidInput() {
         XCTAssertNil(WSPREncoder.encode(call: "NODIGITS", grid4: "DM79", dbm: 37, frequencyHz: 1500))
         XCTAssertNil(WSPREncoder.encode(call: "W0CJW", grid4: "ZZ99", dbm: 37, frequencyHz: 1500))

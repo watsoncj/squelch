@@ -164,7 +164,7 @@ struct SettingsView: View {
                 HStack {
                     Button(cat.isConnected ? "Disconnect" : "Connect") {
                         if cat.isConnected {
-                            cat.disconnect()
+                            cat.disconnectManually()
                         } else {
                             cat.connect()
                         }

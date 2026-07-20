@@ -146,6 +146,9 @@ struct ContentView: View {
             if raw != DigiMode.wspr.rawValue {
                 actions.setWSPRBeacon(false)
             }
+            if let mode = DigiMode(rawValue: raw) {
+                actions.digiModeChanged(to: mode)
+            }
         }
         .onAppear {
             devices = AudioDevices.inputDevices()

@@ -323,9 +323,14 @@ void subtract_signal2(float *id,
     float phi = 0.0;
     const int nfilt = 360;  // nfilt must be even number.
 
-    float refi[SIGNAL_SAMPLES] = {0}, refq[SIGNAL_SAMPLES] = {0},
-          ci[SIGNAL_SAMPLES]   = {0}, cq[SIGNAL_SAMPLES]   = {0},
-          cfi[SIGNAL_SAMPLES]  = {0}, cfq[SIGNAL_SAMPLES]  = {0};
+    /* Heap-allocated: six of these on a 512 KB dispatch-queue stack
+       overflowed (original code ran on 8 MB main-thread stacks) */
+    float *refi = calloc(SIGNAL_SAMPLES, sizeof(float));
+    float *refq = calloc(SIGNAL_SAMPLES, sizeof(float));
+    float *ci   = calloc(SIGNAL_SAMPLES, sizeof(float));
+    float *cq   = calloc(SIGNAL_SAMPLES, sizeof(float));
+    float *cfi  = calloc(SIGNAL_SAMPLES, sizeof(float));
+    float *cfq  = calloc(SIGNAL_SAMPLES, sizeof(float));
 
     /******************************************************************************
      Measured signal:                    s(t)=a(t)*exp( j*theta(t) )
@@ -409,6 +414,7 @@ void subtract_signal2(float *id,
         }
     }
     return;
+    free(refi); free(refq); free(ci); free(cq); free(cfi); free(cfq);
 }
 
 
@@ -474,8 +480,8 @@ int wspr_decode(float  *idat,
     /* Setup/Load hash tables */
     FILE  *fhash;
     int   nh;
-    char  hashtab[HASHTAB_SIZE * HASHTAB_ENTRY_LEN] = {0};
-    char  loctab[HASHTAB_SIZE * LOCTAB_ENTRY_LEN] = {0};
+    char *hashtab = calloc(HASHTAB_SIZE * HASHTAB_ENTRY_LEN, sizeof(char));
+    char *loctab  = calloc(HASHTAB_SIZE * LOCTAB_ENTRY_LEN, sizeof(char));
 
     if (options.usehashtable) {
         char line[80], hcall[12], hgrid[5];;
@@ -824,6 +830,8 @@ int wspr_decode(float  *idat,
     free(fftin);
     free(fftout);
     kiss_fft_free(fft_cfg);
+    free(hashtab);
+    free(loctab);
 
 
     

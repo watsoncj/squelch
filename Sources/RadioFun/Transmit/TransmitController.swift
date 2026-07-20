@@ -12,6 +12,10 @@ final class TransmitController: ObservableObject {
     private let ptt = SerialPTT()
     private var watchdog: DispatchWorkItem?
 
+    /// Invoked as each transmission starts — wired to CAT's ensureDataUSB
+    /// so a radio left in SSB/CW gets flipped back before the tones flow.
+    var preTransmitHook: (() -> Void)?
+
     /// Tune gets longer for antenna-tuner work, but still force-drops.
     private static let tuneWatchdogSeconds: TimeInterval = 60
 
@@ -57,6 +61,7 @@ final class TransmitController: ObservableObject {
     }
 
     private func performTransmission(samples: [Float], label: String) -> Bool {
+        preTransmitHook?()
         guard keyPTT() else { return false }
 
         do {

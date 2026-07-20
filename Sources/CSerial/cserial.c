@@ -55,6 +55,11 @@ int cserial_open_cat(const char* path, int baud)
         close(fd);
         return -1;
     }
+    // Assert RTS/DTR: the FT-891's CAT RTS menu (factory ENABLE) treats RTS
+    // as flow control and the radio stays silent without it. Safe here —
+    // PTT lives on the other CP2105 port.
+    int bits = TIOCM_RTS | TIOCM_DTR;
+    ioctl(fd, TIOCMBIS, &bits);
     tcflush(fd, TCIOFLUSH);
     return fd;
 }
