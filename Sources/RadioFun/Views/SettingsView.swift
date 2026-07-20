@@ -56,7 +56,7 @@ struct SettingsView: View {
             }
 
             Section("Radio") {
-                TextField("Dial frequency (MHz)", value: $dialFrequencyMHz, format: .number.precision(.fractionLength(3)))
+                TextField("Dial frequency (MHz)", value: $dialFrequencyMHz, format: .number.precision(.fractionLength(0...4)))
                     .help("Set to match the FT-891's VFO so log entries record the band. FT8 on 10m is 28.074 MHz.")
                 Text("Common FT8 frequencies: 28.074 (10m, Technician-legal), 21.074 (15m), 14.074 (20m), 7.074 (40m)")
                     .font(.caption)
@@ -173,7 +173,7 @@ struct SettingsView: View {
 
                     if cat.isConnected {
                         Label(
-                            String(format: "%.3f MHz · %@", cat.radioFrequencyMHz ?? 0, cat.radioModeName ?? "—"),
+                            "\(mhzText(cat.radioFrequencyMHz ?? 0)) MHz · \(cat.radioModeName ?? "—")",
                             systemImage: "checkmark.circle.fill"
                         )
                         .foregroundStyle(.green)

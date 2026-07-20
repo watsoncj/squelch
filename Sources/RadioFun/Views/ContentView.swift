@@ -53,7 +53,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label(String(format: "%.3f MHz", dialFrequencyMHz), systemImage: "dial.medium")
+                    Label("\(mhzText(dialFrequencyMHz)) MHz", systemImage: "dial.medium")
                         .monospacedDigit()
                         .labelStyle(.titleAndIcon)
                 }

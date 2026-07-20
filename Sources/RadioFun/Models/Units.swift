@@ -47,6 +47,20 @@ enum TimeDisplay: String, CaseIterable, Identifiable {
     }
 }
 
+/// Dial frequency for display: up to 4 decimals, trailing zeros trimmed
+/// (28.074 stays "28.074", 28.1246 stays "28.1246" — never rounded to
+/// 3 places).
+func mhzText(_ mhz: Double) -> String {
+    var s = String(format: "%.4f", mhz)
+    while s.hasSuffix("0") {
+        s.removeLast()
+    }
+    if s.hasSuffix(".") {
+        s += "0"
+    }
+    return s
+}
+
 /// Ham band name for a dial frequency.
 func bandName(forMHz mhz: Double) -> String {
     switch mhz {

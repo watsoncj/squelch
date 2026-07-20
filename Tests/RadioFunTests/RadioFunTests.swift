@@ -180,6 +180,13 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertFalse(message("K1ABC KJ6QBD CM98").isAnswerable(by: "W0CJW")) // not for me
     }
 
+    func testMHzText() {
+        XCTAssertEqual(mhzText(28.1246), "28.1246") // never rounded to 3 places
+        XCTAssertEqual(mhzText(28.074), "28.074")
+        XCTAssertEqual(mhzText(14.080), "14.08")
+        XCTAssertEqual(mhzText(50.0), "50.0")
+    }
+
     func testDistanceUnits() {
         XCTAssertEqual(DistanceUnit.miles.text(fromKm: 100), "62 mi")
         XCTAssertEqual(DistanceUnit.kilometers.text(fromKm: 100), "100 km")

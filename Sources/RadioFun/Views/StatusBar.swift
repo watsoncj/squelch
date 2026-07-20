@@ -46,7 +46,7 @@ struct StatusBar: View {
                         Image(systemName: "clock")
                         CapsuleBar(fraction: seconds / slotPeriod, tint: .blue)
                             .frame(width: 70, height: 4)
-                        Text(String(format: "%04.1fs", seconds))
+                        Text(String(format: "%.0fs", seconds.rounded(.down)))
                             .monospacedDigit()
                             .frame(width: 34, alignment: .trailing)
                     }
@@ -61,7 +61,7 @@ struct StatusBar: View {
 
             Spacer()
 
-            Text(String(format: "%@ · %.3f MHz (%@)", digiMode, dialFrequencyMHz, bandName(forMHz: dialFrequencyMHz)))
+            Text("\(digiMode) · \(mhzText(dialFrequencyMHz)) MHz (\(bandName(forMHz: dialFrequencyMHz)))")
                 .monospacedDigit()
 
             if let cat {
