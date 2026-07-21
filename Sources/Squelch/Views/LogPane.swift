@@ -124,6 +124,8 @@ struct LogPane: View {
                     }
                 }
             }
+            // Let the floating sidebar's material show through the table
+            .scrollContentBackground(.hidden)
         }
     }
 

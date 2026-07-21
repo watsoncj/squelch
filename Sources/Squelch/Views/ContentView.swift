@@ -24,20 +24,25 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HSplitView {
-                MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
-                    .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
-                    .frame(minWidth: 400)
-                    .layoutPriority(1)
-                LogPane(
-                    store: store,
-                    stateResolver: actions.stateResolver,
-                    selection: $selectedMessageID,
-                    onReply: { message in actions.reply(to: message) },
-                    replyEnabled: txAvailable && sequencer.mode == .idle
-                )
-                .frame(minWidth: 490, idealWidth: 540)
-            }
+            // Apple Maps treatment: the map fills the window and the log
+            // floats over it as a translucent sidebar
+            MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
+                .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
+                .overlay(alignment: .topTrailing) {
+                    LogPane(
+                        store: store,
+                        stateResolver: actions.stateResolver,
+                        selection: $selectedMessageID,
+                        onReply: { message in actions.reply(to: message) },
+                        replyEnabled: txAvailable && sequencer.mode == .idle
+                    )
+                    .frame(width: 540)
+                    .frame(maxHeight: .infinity)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.top, 52) // below the floating toolbar row
+                    .padding([.trailing, .bottom], 10)
+                }
             if showWaterfall {
                 Divider()
                 WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
