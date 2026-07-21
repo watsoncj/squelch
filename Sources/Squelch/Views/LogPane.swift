@@ -13,6 +13,10 @@ struct SearchField: NSViewRepresentable {
         field.placeholderString = prompt
         field.delegate = context.coordinator
         field.sendsSearchStringImmediately = true
+        // The cancel (X) button reports through target/action, not the
+        // text-change delegate
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searchChanged(_:))
         return field
     }
 
@@ -31,6 +35,10 @@ struct SearchField: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSSearchField else { return }
             text.wrappedValue = field.stringValue
+        }
+
+        @objc func searchChanged(_ sender: NSSearchField) {
+            text.wrappedValue = sender.stringValue
         }
     }
 }
