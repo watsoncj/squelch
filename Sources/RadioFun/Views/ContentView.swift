@@ -47,9 +47,17 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Menu {
-                    ForEach(QSYPreset.all) { preset in
+                    ForEach(QSYPreset.transmitLegal) { preset in
                         Button(preset.label) {
                             actions.qsy(to: preset)
+                        }
+                    }
+                    Divider()
+                    Section("Receive only") {
+                        ForEach(QSYPreset.receiveOnly) { preset in
+                            Button(preset.label) {
+                                actions.qsy(to: preset)
+                            }
                         }
                     }
                 } label: {
