@@ -47,7 +47,9 @@ struct ContentView: View {
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
-            ToolbarItemGroup {
+            // primaryAction pins the group to the trailing edge, over the
+            // log pane's opaque background rather than the map
+            ToolbarItemGroup(placement: .primaryAction) {
                 Menu {
                     ForEach(QSYPreset.transmitLegal) { preset in
                         Button(preset.label) {
@@ -129,19 +131,6 @@ struct ContentView: View {
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
-
-                Button {
-                    if transmit.isTuning {
-                        transmit.stopTune()
-                    } else {
-                        transmit.startTune()
-                    }
-                } label: {
-                    Label(transmit.isTuning ? "Stop Tune" : "Tune",
-                          systemImage: "dot.radiowaves.right")
-                }
-                .disabled(!transmit.isTuning && (!txLegal || transmit.isTransmitting))
-                .help(txDisabledReason ?? "Key the radio with a steady tone to set drive level (watch the ALC)")
             }
         }
         .onChange(of: digiMode) { _, raw in
