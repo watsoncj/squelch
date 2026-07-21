@@ -111,11 +111,14 @@ struct LogPane<Header: View>: View {
         // NSTableView-backed Lists.) Applied BEFORE the header inset so
         // the header itself stays fully opaque.
         .mask {
+            // The gradient must sit ABOVE the list's resting top (over the
+            // header region, where rows under-scroll): extend the mask up
+            // by the header height. Resting rows get the solid section.
             VStack(spacing: 0) {
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .clear, location: 0.45),
+                        .init(color: .clear, location: 0.35),
                         .init(color: .black, location: 1),
                     ],
                     startPoint: .top, endPoint: .bottom
@@ -123,6 +126,7 @@ struct LogPane<Header: View>: View {
                 .frame(height: headerInsetHeight)
                 Color.black
             }
+            .padding(.top, -headerInsetHeight)
         }
         // Maps-style under-scroll: the header is the list's top inset, so
         // rows rest below it but slide beneath its glass while scrolling
