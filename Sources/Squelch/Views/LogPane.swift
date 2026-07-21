@@ -47,10 +47,10 @@ struct LogPane: View {
 
             Table(visibleRows, selection: $selection) {
                 TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { msg in
-                    Text(TimeDisplay.current(timeDisplayRaw).formatter.string(from: msg.slotStart))
+                    Text(TimeDisplay.current(timeDisplayRaw).logTimestamp(for: msg.slotStart))
                         .monospacedDigit()
                 }
-                .width(min: 60, ideal: 65, max: 80)
+                .width(min: 60, ideal: 70, max: 110)
 
                 TableColumn("SNR") { msg in
                     Text(String(format: "%+.0f", msg.snr))

@@ -197,6 +197,19 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(TimeDisplay.utc.formatter.timeZone.secondsFromGMT(), 0)
     }
 
+    func testLogTimestampDateAware() {
+        // 2026-07-21 08:46:00 UTC, "now" later the same UTC day
+        let slot = Date(timeIntervalSince1970: 1_784_623_560)
+        let sameDay = slot.addingTimeInterval(6 * 3600)
+        XCTAssertEqual(TimeDisplay.utc.logTimestamp(for: slot, now: sameDay), "08:46:00")
+        // next UTC day → date takes over, seconds drop
+        let nextDay = slot.addingTimeInterval(24 * 3600)
+        XCTAssertEqual(TimeDisplay.utc.logTimestamp(for: slot, now: nextDay), "Jul 21  08:46")
+        // local mode judges "same day" in the local zone, not UTC
+        let localSame = TimeDisplay.local.logTimestamp(for: slot, now: slot)
+        XCTAssertFalse(localSame.contains("Jul"))
+    }
+
     func testUnknownPrefix() {
         XCTAssertNil(CallsignCountry.lookup("S01WS")) // Western Sahara: not in the table
         XCTAssertNil(CallsignCountry.lookup(""))

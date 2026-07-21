@@ -176,6 +176,10 @@ struct MapPane: View {
                                     .font(.caption.monospaced())
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .gridColumnAlignment(.leading)
+                                Text(row.ageText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .gridColumnAlignment(.trailing)
                                 Text(row.snrText)
                                     .font(.caption.monospaced())
                                     .gridColumnAlignment(.trailing)
@@ -192,7 +196,7 @@ struct MapPane: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .frame(width: 240, alignment: .leading)
+                .frame(width: 264, alignment: .leading)
                 .padding(8)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(10)
@@ -322,7 +326,7 @@ struct MapPane: View {
 
     private func computeGridCells() -> [GridCell] {
         var byGrid: [String: [Station]] = [:]
-        for station in store.stations.values {
+        for station in store.stations.values where Self.withinRecencyWindow(station.lastHeard) {
             byGrid[String(station.grid.prefix(4)).uppercased(), default: []].append(station)
         }
         // Sorted so repeated computations compare equal (dictionary order
@@ -349,6 +353,7 @@ struct MapPane: View {
     /// Hover roster, computed only for the cell under the cursor.
     private struct HoverRow: Identifiable {
         let call: String
+        let ageText: String
         let snrText: String
         let country: String
         var id: String { call }
@@ -356,7 +361,10 @@ struct MapPane: View {
 
     private func hoverRows(forGrid grid: String) -> [HoverRow] {
         store.stations.values
-            .filter { String($0.grid.prefix(4)).uppercased() == grid }
+            .filter {
+                String($0.grid.prefix(4)).uppercased() == grid
+                    && Self.withinRecencyWindow($0.lastHeard)
+            }
             .sorted { $0.lastHeard > $1.lastHeard }
             .map { st in
                 var countryText = ""
@@ -370,17 +378,39 @@ struct MapPane: View {
                 }
                 return HoverRow(
                     call: st.callsign,
+                    ageText: Self.ageText(for: st.lastHeard),
                     snrText: String(format: "%+.0f dB", st.lastSNR),
                     country: countryText
                 )
             }
     }
 
+    /// The map shows current propagation, not the archive: stations age off
+    /// entirely after this. (The log keeps full history.)
+    static let recencyWindowSeconds: TimeInterval = 3600
+
+    /// Red → orange → gray, with gray fading in coarse steps toward the
+    /// window edge. Steps (not a continuous ramp) so quiet 30 s ticks
+    /// usually change nothing and the overlay set stays untouched.
     static func recencyColor(for lastHeard: Date) -> Color {
         let age = Date().timeIntervalSince(lastHeard)
         if age < 120 { return .red }
         if age < 600 { return .orange }
-        return .gray
+        if age < 1500 { return .gray }
+        if age < 2400 { return .gray.opacity(0.7) }
+        return .gray.opacity(0.45)
+    }
+
+    static func withinRecencyWindow(_ lastHeard: Date) -> Bool {
+        Date().timeIntervalSince(lastHeard) < recencyWindowSeconds
+    }
+
+    /// "now", "12m", "1h" — for the hover roster.
+    static func ageText(for lastHeard: Date) -> String {
+        let age = Date().timeIntervalSince(lastHeard)
+        if age < 60 { return "now" }
+        if age < 3600 { return "\(Int(age / 60))m" }
+        return "\(Int(age / 3600))h"
     }
 }
 

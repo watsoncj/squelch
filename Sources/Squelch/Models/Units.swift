@@ -45,6 +45,39 @@ enum TimeDisplay: String, CaseIterable, Identifiable {
     static func current(_ raw: String) -> TimeDisplay {
         TimeDisplay(rawValue: raw) ?? .utc
     }
+
+    static let utcDayTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d  HH:mm"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    static let localDayTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d  HH:mm"
+        return f
+    }()
+
+    private static let utcCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }()
+
+    var calendar: Calendar {
+        self == .utc ? Self.utcCalendar : Calendar.current
+    }
+
+    /// Log-table timestamp: "08:46:00" for today (in this zone),
+    /// "Jul 20  08:46" for older rows — seconds give way to the date.
+    func logTimestamp(for date: Date, now: Date = Date()) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return formatter.string(from: date)
+        }
+        return (self == .utc ? Self.utcDayTimeFormatter : Self.localDayTimeFormatter)
+            .string(from: date)
+    }
 }
 
 /// Dial frequency for display: up to 4 decimals, trailing zeros trimmed
