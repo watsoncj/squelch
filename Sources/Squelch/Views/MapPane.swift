@@ -157,13 +157,6 @@ struct MapPane: View {
             }
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
-        .overlay(alignment: .topTrailing) {
-            Text("\(store.stations.count) stations heard")
-                .font(.caption)
-                .padding(6)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                .padding(10)
-        }
         .overlay(alignment: .bottomLeading) {
             if let key = hoveredGrid, cellsByGrid[key] != nil {
                 let rows = hoverRows(forGrid: key)
