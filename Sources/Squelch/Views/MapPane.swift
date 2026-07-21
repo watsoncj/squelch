@@ -20,6 +20,21 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
     }
 }
 
+extension View {
+    /// Liquid Glass capsule that adapts to the backdrop's luminance the way
+    /// native map controls do (a plain material follows the system scheme
+    /// and stays dark over a light map). Fallback for pre-macOS 26.
+    @ViewBuilder
+    func glassCapsule() -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular, in: Capsule())
+        } else {
+            self.background(.regularMaterial, in: Capsule())
+                .clipShape(Capsule())
+        }
+    }
+}
+
 struct MapPane: View {
     @ObservedObject var store: DecodeStore
     @ObservedObject var location: LocationProvider
@@ -138,8 +153,7 @@ struct MapPane: View {
             }
             .padding(.vertical, 8) // inset the end icons from the capsule's round ends
             .buttonStyle(.borderless)
-            .background(.regularMaterial, in: Capsule())
-            .clipShape(Capsule())
+            .glassCapsule()
 
             MapZoomStepper(scope: mapScope)
 

@@ -63,7 +63,7 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .background(.regularMaterial, in: Capsule())
+                        .glassCapsule()
                         .help("Show the sidebar")
                         .padding(.leading, 84)
                         .padding(.top, 11)
@@ -99,7 +99,7 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .background(.regularMaterial, in: Capsule())
+                        .glassCapsule()
                         .help("Show the waterfall")
                         .padding(.trailing, 10)
                         .padding(.bottom, 10)
