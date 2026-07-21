@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import AppKit
 
 /// Apple Maps-style detail card for one heard station: identity, stats,
 /// worked-before badge, primary Reply action, and the message thread —
@@ -83,6 +84,20 @@ struct StationDetailView: View {
                 .font(.callout)
             }
             Spacer()
+            // QRZ web lookup: free, worldwide, no API key — the richest
+            // "who is this" answer available for a callsign
+            Button {
+                if let url = URL(string: "https://www.qrz.com/db/\(callsign)") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Label("QRZ", systemImage: "arrow.up.right.square")
+                    .font(.callout)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Look up \(callsign) on QRZ.com")
+
             Button {
                 onClose()
             } label: {
