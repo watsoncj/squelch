@@ -15,14 +15,11 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
-    @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
-    @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
-    @State private var showMapModes = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -74,11 +71,6 @@ struct ContentView: View {
                     if showSidebar {
                         panelStack
                     }
-                }
-                .overlay(alignment: .topTrailing) {
-                    mapSideControls
-                        .padding(.top, 10)
-                        .padding(.trailing, 10)
                 }
                 .overlay(alignment: .bottom) {
                     // Waterfall floats over the map like the other panels
@@ -320,91 +312,6 @@ struct ContentView: View {
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
             }
-    }
-
-    /// Apple Maps-style right-edge control stack: map mode + view toggles
-    /// in one vertical material capsule.
-    private var mapSideControls: some View {
-        VStack(spacing: 0) {
-            Button {
-                showMapModes.toggle()
-            } label: {
-                Image(systemName: "globe.americas.fill")
-                    .frame(width: 40, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .help("Map appearance")
-            .popover(isPresented: $showMapModes, arrowEdge: .leading) {
-                MapModeFlyout(mapStyleRaw: $mapStyleRaw)
-            }
-
-            sideToggle("square.grid.3x3", isOn: $showGridCells,
-                       help: "Show heard stations as highlighted grid squares")
-            sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
-                       help: "Show the waterfall strip (double-click it to move your TX offset)")
-        }
-        .buttonStyle(.borderless)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func sideToggle(_ systemImage: String, isOn: Binding<Bool>, help: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            Image(systemName: systemImage)
-                .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.secondary)
-                .frame(width: 40, height: 36)
-                .contentShape(Rectangle())
-        }
-        .help(help)
-    }
-
-    /// Apple Maps-style "Map Modes" flyout: one tile per style.
-    private struct MapModeFlyout: View {
-        @Binding var mapStyleRaw: String
-
-        private func icon(for choice: MapStyleChoice) -> String {
-            switch choice {
-            case .standard: return "map"
-            case .hybrid: return "square.3.layers.3d.top.filled"
-            case .satellite: return "globe.americas.fill"
-            }
-        }
-
-        var body: some View {
-            VStack(spacing: 10) {
-                Text("Map Mode")
-                    .font(.headline)
-                HStack(spacing: 14) {
-                    ForEach(MapStyleChoice.allCases) { choice in
-                        let selected = mapStyleRaw == choice.rawValue
-                        Button {
-                            mapStyleRaw = choice.rawValue
-                        } label: {
-                            VStack(spacing: 5) {
-                                Image(systemName: icon(for: choice))
-                                    .font(.title2)
-                                    .frame(width: 58, height: 42)
-                                    .background(
-                                        selected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06),
-                                        in: RoundedRectangle(cornerRadius: 9)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 9)
-                                            .stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
-                                    )
-                                Text(choice.rawValue)
-                                    .font(.caption)
-                                    .foregroundStyle(selected ? .primary : .secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(14)
-        }
     }
 
     /// Invisible grab strip on the sidebar's leading edge; drag to resize,

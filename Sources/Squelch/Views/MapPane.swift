@@ -35,6 +35,9 @@ struct MapPane: View {
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
+    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
+    @State private var showMapModes = false
+    @Namespace private var mapScope
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var hasAutoFitted = false
@@ -93,10 +96,82 @@ struct MapPane: View {
                     }
                 }
         }
+        .overlay(alignment: .topTrailing) {
+            sideControls
+                .padding(.top, 62) // below the toolbar's radio actions
+                .padding(.trailing, 10)
+        }
+        .mapScope(mapScope)
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { mapWidth = $0 }
         .onAppear { rebuildCellsIfChanged() }
         .onChange(of: store.totalDecodes) { _, _ in rebuildCellsIfChanged() }
         .onReceive(Self.colorAgingTick) { _ in rebuildCellsIfChanged() }
+    }
+
+    /// Apple Maps-style right-edge stack: view controls capsule, native
+    /// zoom stepper, compass (reset-north) at the bottom.
+    private var sideControls: some View {
+        VStack(spacing: 8) {
+            VStack(spacing: 0) {
+                Button {
+                    showMapModes.toggle()
+                } label: {
+                    Image(systemName: "globe.americas.fill")
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .help("Map appearance")
+                .popover(isPresented: $showMapModes, arrowEdge: .leading) {
+                    MapModeFlyout(mapStyleRaw: $mapStyleRaw)
+                }
+
+                Button {
+                    zoomToMyStation()
+                } label: {
+                    Image(systemName: "location")
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .help("Center the map on your station")
+
+                sideToggle("square.grid.3x3", isOn: $showGridCells,
+                           help: "Show heard stations as highlighted grid squares")
+                sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
+                           help: "Show the waterfall strip (double-click it to move your TX offset)")
+            }
+            .buttonStyle(.borderless)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            MapZoomStepper(scope: mapScope)
+
+            MapCompass(scope: mapScope)
+        }
+    }
+
+    private func sideToggle(_ systemImage: String, isOn: Binding<Bool>, help: String) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Image(systemName: systemImage)
+                .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.secondary)
+                .frame(width: 40, height: 36)
+                .contentShape(Rectangle())
+        }
+        .help(help)
+    }
+
+    private func zoomToMyStation() {
+        guard let me = location.effectiveCoordinate() else { return }
+        withAnimation(.easeInOut(duration: 0.6)) {
+            camera = .region(adjustedForObscuredEdge(
+                MKCoordinateRegion(
+                    center: me,
+                    span: MKCoordinateSpan(latitudeDelta: 6, longitudeDelta: 8)
+                ),
+                fitAll: false
+            ))
+        }
     }
 
     /// Recenter `region` so its target sits in the middle of the un-obscured
@@ -161,7 +236,7 @@ struct MapPane: View {
     }
 
     private var mapContent: some View {
-        Map(position: $camera) {
+        Map(position: $camera, scope: mapScope) {
             // Heard stations light up their Maidenhead grid squares
             if showGridCells {
                 ForEach(cells) { cell in
@@ -207,6 +282,7 @@ struct MapPane: View {
             }
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
+        .mapControls { } // defaults off — the side stack provides them
         .overlay(alignment: .bottomTrailing) {
             if showGridCells, let key = hoveredGrid, cellsByGrid[key] != nil {
                 let rows = hoverRows(forGrid: key)
@@ -463,6 +539,53 @@ struct MapPane: View {
         if age < 60 { return "now" }
         if age < 3600 { return "\(Int(age / 60))m" }
         return "\(Int(age / 3600))h"
+    }
+}
+
+/// Apple Maps-style "Map Modes" flyout: one tile per style.
+struct MapModeFlyout: View {
+    @Binding var mapStyleRaw: String
+
+    private func icon(for choice: MapStyleChoice) -> String {
+        switch choice {
+        case .standard: return "map"
+        case .hybrid: return "square.3.layers.3d.top.filled"
+        case .satellite: return "globe.americas.fill"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Map Mode")
+                .font(.headline)
+            HStack(spacing: 14) {
+                ForEach(MapStyleChoice.allCases) { choice in
+                    let selected = mapStyleRaw == choice.rawValue
+                    Button {
+                        mapStyleRaw = choice.rawValue
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: icon(for: choice))
+                                .font(.title2)
+                                .frame(width: 58, height: 42)
+                                .background(
+                                    selected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06),
+                                    in: RoundedRectangle(cornerRadius: 9)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 9)
+                                        .stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
+                                )
+                            Text(choice.rawValue)
+                                .font(.caption)
+                                .foregroundStyle(selected ? .primary : .secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(14)
     }
 }
 
