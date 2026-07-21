@@ -10,6 +10,7 @@ struct StatusBar: View {
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @Environment(\.openWindow) private var openWindow
+    @State private var showCheatsheet = false
 
     private var slotPeriod: Double {
         (DigiMode(rawValue: digiMode) ?? .ft8).slotSeconds
@@ -97,6 +98,22 @@ struct StatusBar: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Completed contacts — click to open the QSO log (⌘L)")
+            }
+
+            Button {
+                showCheatsheet.toggle()
+            } label: {
+                Image(systemName: "questionmark.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("How to read FT8 messages")
+            .popover(isPresented: $showCheatsheet, arrowEdge: .top) {
+                CheatsheetView()
+            }
+            .onAppear {
+                if CommandLine.arguments.contains("--demo") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { showCheatsheet = true }
+                }
             }
         }
         .font(.callout)

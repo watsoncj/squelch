@@ -46,32 +46,13 @@ struct LogPane: View {
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
     @State private var searchText = ""
-    @State private var showCheatsheet = false
 
     var body: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                SearchField(text: $searchText, prompt: "Search call or message…")
-
-                Button {
-                    showCheatsheet.toggle()
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                }
-                .buttonStyle(.borderless)
-                .help("How to read FT8 messages")
-                .popover(isPresented: $showCheatsheet, arrowEdge: .bottom) {
-                    CheatsheetView()
-                }
-                .onAppear {
-                    if CommandLine.arguments.contains("--demo") {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { showCheatsheet = true }
-                    }
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+            SearchField(text: $searchText, prompt: "Search call or message…")
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
 
             List(visibleRows, selection: $selection) { msg in
                 FeedRow(
