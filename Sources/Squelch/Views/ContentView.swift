@@ -30,7 +30,8 @@ struct ContentView: View {
             // Apple Maps treatment: the map fills the window and the log
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
-                    onSelectStation: { selectedStationCall = $0 })
+                    onSelectStation: { selectedStationCall = $0 },
+                    trailingObscuredWidth: sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0))
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and

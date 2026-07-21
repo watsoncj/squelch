@@ -26,6 +26,9 @@ struct MapPane: View {
     @ObservedObject var stateResolver: StateResolver
     var selectedMessage: DecodedMessage?
     var onSelectStation: ((String) -> Void)? = nil
+    /// Points of the map covered by the floating panels on the right —
+    /// focus/fit regions shift so targets center in the visible strip.
+    var trailingObscuredWidth: CGFloat = 0
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
@@ -38,6 +41,7 @@ struct MapPane: View {
     /// MapKit overlays on every view update leaks GPU buffers in VectorKit
     /// until Metal allocation aborts (seen after an overnight session).
     @State private var cells: [GridCell] = []
+    @State private var mapWidth: CGFloat = 0
 
     private static let colorAgingTick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
@@ -86,9 +90,23 @@ struct MapPane: View {
                     }
                 }
         }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { mapWidth = $0 }
         .onAppear { rebuildCellsIfChanged() }
         .onChange(of: store.totalDecodes) { _, _ in rebuildCellsIfChanged() }
         .onReceive(Self.colorAgingTick) { _ in rebuildCellsIfChanged() }
+    }
+
+    /// Recenter `region` so its target sits in the middle of the un-obscured
+    /// strip, widening the span when fitting so nothing hides behind panels.
+    private func adjustedForObscuredEdge(_ region: MKCoordinateRegion, fitAll: Bool) -> MKCoordinateRegion {
+        guard mapWidth > 0, trailingObscuredWidth > 0, trailingObscuredWidth < mapWidth else { return region }
+        var region = region
+        let fraction = trailingObscuredWidth / mapWidth
+        if fitAll {
+            region.span.longitudeDelta = min(region.span.longitudeDelta / (1 - fraction), 360)
+        }
+        region.center.longitude += region.span.longitudeDelta * fraction / 2
+        return region
     }
 
     /// Avoid touching @State (and re-diffing map content) on every mouse move.
@@ -133,7 +151,8 @@ struct MapPane: View {
             latitudeDelta: max((maxLat - minLat) * 1.15, 4),
             longitudeDelta: max((maxLon - minLon) * 1.15, 4)
         )
-        return .region(MKCoordinateRegion(center: center, span: span))
+        return .region(adjustedForObscuredEdge(
+            MKCoordinateRegion(center: center, span: span), fitAll: true))
     }
 
     private var mapContent: some View {
@@ -314,7 +333,8 @@ struct MapPane: View {
             longitudeDelta: max((maxLon - minLon) * 1.6, 4)
         )
         withAnimation(.easeInOut(duration: 0.6)) {
-            camera = .region(MKCoordinateRegion(center: center, span: span))
+            camera = .region(adjustedForObscuredEdge(
+                MKCoordinateRegion(center: center, span: span), fitAll: false))
         }
     }
 
