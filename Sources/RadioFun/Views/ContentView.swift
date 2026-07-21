@@ -69,15 +69,6 @@ struct ContentView: View {
                       ? "QSY the radio via CAT (connected)"
                       : "Set the working frequency. Connect CAT in Settings to also tune the radio.")
 
-                Picker("Mode", selection: $digiMode) {
-                    ForEach(DigiMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(controller.isRunning)
-                .help(controller.isRunning ? "Stop decoding to switch modes" : "FT8: 15 s slots · FT4: 7.5 s slots, ~2.5× faster QSOs")
-
                 Toggle(isOn: $showWaterfall) {
                     Label("Waterfall", systemImage: "water.waves")
                 }
