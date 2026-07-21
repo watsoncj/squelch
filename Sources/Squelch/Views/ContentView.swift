@@ -18,6 +18,8 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
+    @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 540.0
+    @State private var sidebarDragStartWidth: Double?
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -36,12 +38,17 @@ struct ContentView: View {
                         onReply: { message in actions.reply(to: message) },
                         replyEnabled: txAvailable && sequencer.mode == .idle
                     )
-                    .frame(width: 540)
+                    .frame(width: sidebarWidth)
                     .frame(maxHeight: .infinity)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    // safe area already clears the toolbar row; no extra top gap
-                    .padding([.trailing, .bottom], 10)
+                    .overlay(alignment: .leading) {
+                        sidebarResizeHandle
+                    }
+                    // toolbar items all sit left, so the sidebar can run the
+                    // full window height, traffic-light row included
+                    .padding([.top, .trailing, .bottom], 10)
+                    .ignoresSafeArea(edges: .top)
                 }
             if showWaterfall {
                 Divider()
@@ -55,9 +62,8 @@ struct ContentView: View {
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
-            // Map style picker leads (over the map, next to the traffic
-            // lights); the flexible space pushes everything else to the
-            // trailing edge over the log pane.
+            // Everything left-aligned over the map, so the floating sidebar
+            // on the right can run the full window height.
             ToolbarItemGroup {
                 Picker("Map style", selection: $mapStyleRaw) {
                     ForEach(MapStyleChoice.allCases) { choice in
@@ -73,8 +79,6 @@ struct ContentView: View {
                 }
                 .toggleStyle(.button)
                 .help("Show heard stations as highlighted grid squares")
-
-                Spacer()
 
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
@@ -210,6 +214,31 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Squelch")
+    }
+
+    /// Invisible grab strip on the sidebar's leading edge; drag to resize,
+    /// width persists across launches.
+    private var sidebarResizeHandle: some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: 8)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = sidebarDragStartWidth ?? sidebarWidth
+                        sidebarDragStartWidth = start
+                        sidebarWidth = min(900, max(460, start - value.translation.width))
+                    }
+                    .onEnded { _ in sidebarDragStartWidth = nil }
+            )
     }
 
     private var selectedMessage: DecodedMessage? {
