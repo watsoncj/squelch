@@ -32,7 +32,8 @@ struct ContentView: View {
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
                     onSelectStation: { selectedStationCall = $0 },
-                    trailingObscuredWidth: showSidebar ? sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0) : 0)
+                    trailingObscuredWidth: panelObscuredWidth,
+                    bottomObscuredHeight: showWaterfall ? 130 : 0)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
@@ -49,10 +50,17 @@ struct ContentView: View {
                         panelStack
                     }
                 }
-            if showWaterfall {
-                Divider()
-                WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
-            }
+                .overlay(alignment: .bottomLeading) {
+                    // Waterfall floats over the map like the other panels
+                    if showWaterfall {
+                        WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .padding(.leading, 10)
+                            .padding(.bottom, 10)
+                            .padding(.trailing, max(10, panelObscuredWidth))
+                    }
+                }
             Divider()
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
@@ -98,6 +106,11 @@ struct ContentView: View {
             }
         }
         .navigationTitle("Squelch")
+    }
+
+    /// Points of the map covered by the right-side floating panels.
+    private var panelObscuredWidth: CGFloat {
+        showSidebar ? sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0) : 0
     }
 
     private var panelStack: some View {

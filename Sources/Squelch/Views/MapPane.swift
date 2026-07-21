@@ -29,6 +29,9 @@ struct MapPane: View {
     /// Points of the map covered by the floating panels on the right —
     /// focus/fit regions shift so targets center in the visible strip.
     var trailingObscuredWidth: CGFloat = 0
+    /// Points covered along the bottom (floating waterfall) — the hover
+    /// card anchors above it.
+    var bottomObscuredHeight: CGFloat = 0
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
@@ -245,6 +248,7 @@ struct MapPane: View {
                 .padding(8)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(10)
+                .padding(.bottom, bottomObscuredHeight) // clear the waterfall
                 .allowsHitTesting(false)
             }
         }
