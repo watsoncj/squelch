@@ -30,7 +30,6 @@ struct WaterfallPane: View {
                         .resizable()
                         .interpolation(.none)
                         .frame(width: geo.size.width, height: geo.size.height)
-                        .opacity(0.88) // let the map ghost through, like the other panels
                 } else {
                     // No fill: the panel's material shows through, matching
                     // the sidebar's translucent look
