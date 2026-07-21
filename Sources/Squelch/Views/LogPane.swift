@@ -18,12 +18,10 @@ struct LogPane: View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
                 TextField("Search call or message…", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-
-                Text(countLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
 
                 Button {
                     showCheatsheet.toggle()
@@ -147,14 +145,6 @@ struct LogPane: View {
 
     private var visibleRows: [DecodedMessage] {
         Array(filtered.prefix(Self.maxTableRows))
-    }
-
-    private var countLabel: String {
-        let matching = filtered.count
-        if matching > Self.maxTableRows {
-            return "showing \(Self.maxTableRows) of \(matching)"
-        }
-        return "\(matching) of \(store.messages.count)"
     }
 
     /// "🇺🇸 UT, USA" once a US station's grid has resolved to a state;

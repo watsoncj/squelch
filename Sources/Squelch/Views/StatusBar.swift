@@ -87,7 +87,7 @@ struct StatusBar: View {
             }
 
             Divider().frame(height: 14)
-            Text("\(store.totalDecodes) decodes · \(store.stations.count) stations")
+            Text("\(store.stations.count) stations")
                 .monospacedDigit()
 
             if let qsoLog, !qsoLog.records.isEmpty {
