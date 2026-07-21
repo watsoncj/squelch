@@ -19,9 +19,23 @@ struct LogPane: View {
             HStack(spacing: 8) {
                 TextField("Search call or message…", text: $searchText)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 8)
+                    .padding(.leading, 8)
+                    .padding(.trailing, 24) // room for the clear button
                     .padding(.vertical, 5)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                    .overlay(alignment: .trailing) {
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.trailing, 6)
+                            .help("Clear search")
+                        }
+                    }
 
                 Button {
                     showCheatsheet.toggle()
