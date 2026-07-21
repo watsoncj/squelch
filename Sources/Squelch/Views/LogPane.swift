@@ -7,19 +7,9 @@ import AppKit
 /// can't hold static stored properties.)
 private let maxFeedRows = 1200
 
-extension View {
-    /// The system's progressive blur+fade where content scrolls under a
-    /// top safe-area inset (what Apple Maps' sidebar header uses).
-    /// macOS 26 API; earlier systems just skip it.
-    @ViewBuilder
-    func softTopScrollEdgeEffect() -> some View {
-        if #available(macOS 26.0, *) {
-            self.scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            self
-        }
-    }
-}
+/// Height of the sidebar header inset (toggle row 48 + search capsule 40);
+/// the under-scroll fade mask must match it.
+private let headerInsetHeight: CGFloat = 88
 
 /// The standard mac search input (magnifier icon, built-in clear button,
 /// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
@@ -115,10 +105,25 @@ struct LogPane<Header: View>: View {
             }
         // Let the floating sidebar's material show through
         .scrollContentBackground(.hidden)
-        // The Maps look: rows sliding under the header get a progressive
-        // system blur+fade at the top edge (Liquid Glass scroll edge
-        // effect) — without this they stay fully legible under the field
-        .softTopScrollEdgeEffect()
+        // The Maps under-scroll fade, done deterministically: rows lose
+        // opacity as they climb into the header region and are gone by
+        // its midpoint. (The macOS 26 scroll-edge-effect API doesn't touch
+        // NSTableView-backed Lists.) Applied BEFORE the header inset so
+        // the header itself stays fully opaque.
+        .mask {
+            VStack(spacing: 0) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .clear, location: 0.45),
+                        .init(color: .black, location: 1),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: headerInsetHeight)
+                Color.black
+            }
+        }
         // Maps-style under-scroll: the header is the list's top inset, so
         // rows rest below it but slide beneath its glass while scrolling
         .safeAreaInset(edge: .top, spacing: 0) {
