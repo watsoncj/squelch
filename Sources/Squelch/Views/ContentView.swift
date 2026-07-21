@@ -307,16 +307,6 @@ struct ContentView: View {
                     .help(txDisabledReason ?? "Transmit WSPR at the configured duty cycle; spots of your signal appear on wsprnet receivers worldwide")
                 } else {
                     Button {
-                        if let message = selectedMessage {
-                            actions.reply(to: message)
-                        }
-                    } label: {
-                        Label("Reply", systemImage: "arrowshape.turn.up.left.fill")
-                    }
-                    .disabled(!canReplyToSelection)
-                    .help(txDisabledReason ?? "Answer the selected CQ and run the QSO exchange automatically")
-
-                    Button {
                         if sequencer.mode == .idle {
                             actions.startCQ()
                         } else {
@@ -348,10 +338,8 @@ struct ContentView: View {
                 MapModeFlyout(mapStyleRaw: $mapStyleRaw)
             }
 
-            Divider().frame(width: 26)
             sideToggle("square.grid.3x3", isOn: $showGridCells,
                        help: "Show heard stations as highlighted grid squares")
-            Divider().frame(width: 26)
             sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
                        help: "Show the waterfall strip (double-click it to move your TX offset)")
         }
