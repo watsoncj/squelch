@@ -182,7 +182,7 @@ struct LogPane<Header: View>: View {
                     Spacer(minLength: 8)
                     Text(String(format: "%+.0f dB", message.snr))
                         .font(.caption.monospaced())
-                        .foregroundStyle(message.snr >= 0 ? .green : .secondary)
+                        .foregroundStyle(message.snr >= 0 ? AnyShapeStyle(.green) : AnyShapeStyle(.primary.opacity(0.75)))
                 }
                 HStack(spacing: 4) {
                     // .secondary gets vibrancy-dimmed on the panel material;

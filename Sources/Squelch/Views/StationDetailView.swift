@@ -127,7 +127,7 @@ struct StationDetailView: View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label)
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.primary.opacity(0.6))
             Text(value)
                 .font(.callout.monospacedDigit())
         }
@@ -165,7 +165,7 @@ struct StationDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Messages")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.primary.opacity(0.6))
             ForEach(thread) { msg in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(msg.text)
@@ -173,7 +173,7 @@ struct StationDetailView: View {
                         .foregroundStyle(msg.callsign == callsign ? Color.primary : Color.secondary)
                     Text("\(TimeDisplay.current(timeDisplayRaw).logTimestamp(for: msg.slotStart)) · \(String(format: "%+.0f dB · DT %.1f · %.0f Hz", msg.snr, msg.timeOffset, msg.audioFrequency))")
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.primary.opacity(0.65))
                 }
             }
         }
