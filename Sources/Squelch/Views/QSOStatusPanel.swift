@@ -34,19 +34,20 @@ struct QSOStatusPanel: View {
         chip(tint: .red, prominent: true) {
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .symbolEffect(.variableColor.iterative, options: .repeating)
+                .foregroundStyle(.red)
             Text(transmit.isTuning
                  ? "TUNING"
                  : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText))
                 .font(.callout.weight(.semibold).monospaced())
+                .foregroundStyle(.red)
             Button("Halt") {
                 model.haltTX()
             }
             .keyboardShortcut(.space, modifiers: [])
             .buttonStyle(.borderedProminent)
-            .tint(.white.opacity(0.3))
+            .tint(.red)
             .controlSize(.small)
         }
-        .foregroundStyle(.white)
         .help(sequencer.mode != .idle ? sequencer.stateDescription : "Transmitting — Halt with Space")
     }
 
@@ -162,19 +163,12 @@ struct QSOStatusPanel: View {
         }
     }
 
+    /// Content only — the toolbar's native glass container provides the
+    /// chrome; drawing our own background/border doubled it up.
     private func chip<Content: View>(tint: Color, prominent: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             content()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(
-            prominent ? AnyShapeStyle(tint) : AnyShapeStyle(.thinMaterial),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(tint.opacity(prominent ? 0 : 0.6), lineWidth: 1)
-        )
+        .padding(.horizontal, 2)
     }
 }
