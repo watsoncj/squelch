@@ -64,6 +64,60 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
     }
 }
 
+extension DecodedMessage {
+    /// Human reading of the message for the feed's second line:
+    /// "Calling CQ from EN53", "→ W5TSU: report −17", "→ you: RR73 · QSO complete".
+    /// Falls back to the raw text when the grammar doesn't match.
+    func feedSummary(myCall: String) -> String {
+        let upper = text.uppercased()
+        let tokens = upper.split(separator: " ").map(String.init)
+
+        if upper.hasPrefix("TX WSPR") {
+            return "WSPR beacon transmission"
+        }
+        if upper.hasPrefix("WSPR ") {
+            let power = tokens.first { $0.hasSuffix("DBM") }
+                .map { $0.replacingOccurrences(of: "DBM", with: " dBm") }
+            return "WSPR beacon" + (power.map { " · \($0)" } ?? "")
+        }
+        if isCQ {
+            let parsed = FT8MessageParser.parse(text)
+            // "CQ DX CALL GRID" — the modifier is whatever sits between CQ
+            // and the sender's call
+            var summary = "Calling CQ"
+            if tokens.count >= 2, let sender = parsed.sender, tokens[1] != sender {
+                summary += " \(tokens[1])"
+            }
+            if let grid {
+                summary += " from \(grid.uppercased())"
+            }
+            return summary
+        }
+        guard let addr = addressee else { return text }
+        let target = addr == myCall.uppercased() ? "you" : addr
+        let payload = payloadToken
+        let described: String
+        if Maidenhead.isValidGrid(payload) {
+            described = "grid \(payload)"
+        } else if payload.range(of: #"^[+-]\d{1,2}$"#, options: .regularExpression) != nil {
+            described = "report \(payload.replacingOccurrences(of: "-", with: "−"))"
+        } else if payload.range(of: #"^R[+-]\d{1,2}$"#, options: .regularExpression) != nil {
+            described = "roger, report \(String(payload.dropFirst()).replacingOccurrences(of: "-", with: "−"))"
+        } else if payload == "RRR" {
+            described = "roger-roger"
+        } else if payload == "RR73" {
+            described = "RR73 · QSO complete"
+        } else if payload == "73" {
+            described = "73"
+        } else if payload.isEmpty {
+            return text
+        } else {
+            described = payload
+        }
+        return "→ \(target): \(described)"
+    }
+}
+
 /// A station we've heard, aggregated across decodes. One map pin each.
 struct Station: Identifiable {
     let callsign: String

@@ -43,69 +43,22 @@ struct LogPane: View {
             .padding(.top, 6)
             .padding(.bottom, 2)
 
-            Table(visibleRows, selection: $selection) {
-                TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { msg in
-                    Text(TimeDisplay.current(timeDisplayRaw).logTimestamp(for: msg.slotStart))
-                        .monospacedDigit()
-                }
-                .width(min: 60, ideal: 70, max: 110)
-
-                TableColumn("SNR") { msg in
-                    Text(String(format: "%+.0f", msg.snr))
-                        .monospacedDigit()
-                        .foregroundStyle(msg.snr >= 0 ? .green : .secondary)
-                }
-                .width(min: 36, ideal: 42, max: 50)
-
-                TableColumn("DT") { msg in
-                    Text(String(format: "%.1f", msg.timeOffset))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                .width(min: 32, ideal: 36, max: 44)
-
-                TableColumn("Freq") { msg in
-                    Text(String(format: "%.0f", msg.audioFrequency))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                .width(min: 42, ideal: 48, max: 60)
-
-                TableColumn("Message") { msg in
-                    Text(msg.text)
-                        .font(.body.monospaced())
-                        .fontWeight(msg.mentions(myCallsign) ? .bold : .regular)
-                        .foregroundStyle(msg.mentions(myCallsign) ? Color.accentColor : (msg.isCQ ? Color.green : Color.primary))
-                }
-                .width(min: 220, ideal: 320)
-
-                TableColumn("Country") { msg in
-                    if let text = countryText(for: msg) {
-                        Text(text)
-                            .lineLimit(1)
-                            .help(text)
-                    } else {
-                        Text("").accessibilityHidden(true)
-                    }
-                }
-                .width(min: 50, ideal: 110, max: 160)
-
-                TableColumn("Grid") { msg in
-                    Text(msg.grid ?? "")
-                        .monospaced()
-                }
-                .width(min: 40, ideal: 46, max: 60)
-
-                TableColumn("Distance") { msg in
-                    if let km = msg.distanceKm {
-                        Text(DistanceUnit.current(distanceUnitRaw).text(fromKm: km))
-                            .monospacedDigit()
-                    } else {
-                        Text("—").foregroundStyle(.tertiary)
-                    }
-                }
-                .width(min: 56, ideal: 64, max: 90)
+            List(visibleRows, selection: $selection) { msg in
+                FeedRow(
+                    message: msg,
+                    myCall: myCallsign,
+                    countryText: countryText(for: msg),
+                    distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) }
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(
+                    msg.mentions(myCallsign)
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.clear
+                )
+                .help(msg.text) // raw FT8 text one hover away
             }
+            .listStyle(.plain)
             .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
                 if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
                     if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
@@ -122,10 +75,64 @@ struct LogPane: View {
                     }
                 }
             }
-            // Let the floating sidebar's material show through the table:
-            // hide the scroll background AND the opaque alternating row stripes
+            // Let the floating sidebar's material show through
             .scrollContentBackground(.hidden)
-            .alternatingRowBackgrounds(.disabled)
+        }
+    }
+
+    /// Two-line feed row: who + how strong, then what it means + when.
+    private struct FeedRow: View {
+        let message: DecodedMessage
+        let myCall: String
+        let countryText: String?
+        let distanceText: String?
+
+        private var callColor: Color {
+            if message.mentions(myCall) && message.callsign != myCall { return .accentColor }
+            if message.callsign == myCall { return .blue }
+            if message.isCQ { return .green }
+            return .primary
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(message.country?.flag ?? " ")
+                    Text(message.callsign ?? "—")
+                        .font(.body.monospaced().bold())
+                        .foregroundStyle(callColor)
+                    if message.callsign == myCall {
+                        Text("you")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(.blue.opacity(0.25), in: Capsule())
+                    }
+                    Spacer(minLength: 8)
+                    Text(String(format: "%+.0f dB", message.snr))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(message.snr >= 0 ? .green : .secondary)
+                }
+                HStack(spacing: 4) {
+                    Text(secondLine)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(relativeAgeText(for: message.slotStart))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.vertical, 2)
+        }
+
+        private var secondLine: String {
+            var parts = [message.feedSummary(myCall: myCall)]
+            if let countryText { parts.append(countryText) }
+            if let distanceText { parts.append(distanceText) }
+            return parts.joined(separator: " · ")
         }
     }
 

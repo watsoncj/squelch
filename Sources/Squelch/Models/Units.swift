@@ -80,6 +80,22 @@ enum TimeDisplay: String, CaseIterable, Identifiable {
     }
 }
 
+private let feedDayFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MMM d"
+    return f
+}()
+
+/// Compact age for feed rows: "now", "45s", "12m", "3h", then "Jul 20".
+func relativeAgeText(for date: Date, now: Date = Date()) -> String {
+    let age = now.timeIntervalSince(date)
+    if age < 15 { return "now" }
+    if age < 60 { return "\(Int(age))s" }
+    if age < 3600 { return "\(Int(age / 60))m" }
+    if age < 86400 { return "\(Int(age / 3600))h" }
+    return feedDayFormatter.string(from: date)
+}
+
 /// Dial frequency for display: up to 4 decimals, trailing zeros trimmed
 /// (28.074 stays "28.074", 28.1246 stays "28.1246" — never rounded to
 /// 3 places).

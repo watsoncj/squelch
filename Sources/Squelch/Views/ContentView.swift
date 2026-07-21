@@ -20,6 +20,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 540.0
     @State private var sidebarDragStartWidth: Double?
+    @State private var selectedStationCall: String?
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -28,7 +29,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             // Apple Maps treatment: the map fills the window and the log
             // floats over it as a translucent sidebar
-            MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
+            MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
+                    onSelectStation: { selectedStationCall = $0 })
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
@@ -41,19 +43,38 @@ struct ContentView: View {
                         .ignoresSafeArea(edges: .top)
                 }
                 .overlay(alignment: .topTrailing) {
-                    LogPane(
-                        store: store,
-                        stateResolver: actions.stateResolver,
-                        selection: $selectedMessageID,
-                        onReply: { message in actions.reply(to: message) },
-                        replyEnabled: txAvailable && sequencer.mode == .idle
-                    )
-                    .frame(width: sidebarWidth)
-                    .frame(maxHeight: .infinity)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(alignment: .leading) {
-                        sidebarResizeHandle
+                    HStack(alignment: .top, spacing: 10) {
+                        // Apple Maps-style detail card beside the sidebar
+                        if let call = selectedStationCall {
+                            StationDetailView(
+                                callsign: call,
+                                store: store,
+                                stateResolver: actions.stateResolver,
+                                qsoLog: qsoLog,
+                                location: location,
+                                onClose: { selectedStationCall = nil },
+                                onReply: { message in actions.reply(to: message) },
+                                replyEnabled: txAvailable && sequencer.mode == .idle
+                            )
+                            .frame(width: 320)
+                            .frame(maxHeight: .infinity)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        LogPane(
+                            store: store,
+                            stateResolver: actions.stateResolver,
+                            selection: $selectedMessageID,
+                            onReply: { message in actions.reply(to: message) },
+                            replyEnabled: txAvailable && sequencer.mode == .idle
+                        )
+                        .frame(width: sidebarWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(alignment: .leading) {
+                            sidebarResizeHandle
+                        }
                     }
                     // toolbar items all sit left, so the sidebar can run the
                     // full window height, traffic-light row included
@@ -187,6 +208,12 @@ struct ContentView: View {
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
+            }
+        }
+        .onChange(of: selectedMessageID) { _, _ in
+            // Selecting a feed row opens (or retargets) the station card
+            if let call = selectedMessage?.callsign, call != myCallsign {
+                selectedStationCall = call
             }
         }
         .onChange(of: digiMode) { _, raw in

@@ -25,6 +25,7 @@ struct MapPane: View {
     @ObservedObject var location: LocationProvider
     @ObservedObject var stateResolver: StateResolver
     var selectedMessage: DecodedMessage?
+    var onSelectStation: ((String) -> Void)? = nil
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
@@ -60,6 +61,28 @@ struct MapPane: View {
                         }
                     case .ended:
                         setHoveredGrid(nil)
+                    }
+                }
+                .onTapGesture { point in
+                    // Click a lit grid square → open the detail card for its
+                    // most recently heard station
+                    guard showGridCells,
+                          let coordinate = proxy.convert(point, from: .local),
+                          (-90.0...90.0).contains(coordinate.latitude) else { return }
+                    var lon = coordinate.longitude.truncatingRemainder(dividingBy: 360)
+                    if lon >= 180 { lon -= 360 }
+                    if lon < -180 { lon += 360 }
+                    let normalized = CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: lon)
+                    let key = String(Maidenhead.grid(for: normalized).prefix(4)).uppercased()
+                    guard cellsByGrid[key] != nil else { return }
+                    let best = store.stations.values
+                        .filter {
+                            String($0.grid.prefix(4)).uppercased() == key
+                                && Self.withinRecencyWindow($0.lastHeard)
+                        }
+                        .max { $0.lastHeard < $1.lastHeard }
+                    if let best {
+                        onSelectStation?(best.callsign)
                     }
                 }
         }

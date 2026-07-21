@@ -210,6 +210,40 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertFalse(localSame.contains("Jul"))
     }
 
+    func testFeedSummaries() {
+        func msg(_ text: String) -> DecodedMessage {
+            DecodedMessage(id: UUID(), slotStart: Date(timeIntervalSince1970: 0), snr: -10,
+                           timeOffset: 0, audioFrequency: 1500, dialFrequencyMHz: 28.074,
+                           text: text, callsign: FT8MessageParser.parse(text).sender,
+                           grid: FT8MessageParser.parse(text).grid, latitude: nil, longitude: nil, distanceKm: nil)
+        }
+        XCTAssertEqual(msg("CQ KD9WI EN53").feedSummary(myCall: "W0CJW"), "Calling CQ from EN53")
+        XCTAssertEqual(msg("CQ DX KD7YOX DM41").feedSummary(myCall: "W0CJW"), "Calling CQ DX from DM41")
+        XCTAssertEqual(msg("W5TSU VE2DPF -17").feedSummary(myCall: "W0CJW"), "→ W5TSU: report −17")
+        XCTAssertEqual(msg("W0CJW N5IF EM11").feedSummary(myCall: "W0CJW"), "→ you: grid EM11")
+        XCTAssertEqual(msg("W5TSU KC1UVP R-07").feedSummary(myCall: "W0CJW"), "→ W5TSU: roger, report −07")
+        XCTAssertEqual(msg("N5IF AJ0Z RR73").feedSummary(myCall: "W0CJW"), "→ N5IF: RR73 · QSO complete")
+        XCTAssertEqual(msg("WSPR K0CFW EN34 23dBm").feedSummary(myCall: "W0CJW"), "WSPR beacon · 23 dBm")
+    }
+
+    func testRelativeAge() {
+        let base = Date(timeIntervalSince1970: 1_784_623_560)
+        XCTAssertEqual(relativeAgeText(for: base, now: base.addingTimeInterval(5)), "now")
+        XCTAssertEqual(relativeAgeText(for: base, now: base.addingTimeInterval(45)), "45s")
+        XCTAssertEqual(relativeAgeText(for: base, now: base.addingTimeInterval(720)), "12m")
+        XCTAssertEqual(relativeAgeText(for: base, now: base.addingTimeInterval(7200)), "2h")
+        XCTAssertEqual(relativeAgeText(for: base, now: base.addingTimeInterval(200_000)), "Jul 21")
+    }
+
+    func testBearing() {
+        let denver = CLLocationCoordinate2D(latitude: 39.7, longitude: -105.0)
+        let north = CLLocationCoordinate2D(latitude: 45.0, longitude: -105.0)
+        XCTAssertEqual(Maidenhead.bearingDegrees(from: denver, to: north), 0, accuracy: 0.5)
+        let east = CLLocationCoordinate2D(latitude: 39.7, longitude: -95.0)
+        let toEast = Maidenhead.bearingDegrees(from: denver, to: east)
+        XCTAssertEqual(toEast, 87, accuracy: 3) // great circle bows slightly north
+    }
+
     func testUnknownPrefix() {
         XCTAssertNil(CallsignCountry.lookup("S01WS")) // Western Sahara: not in the table
         XCTAssertNil(CallsignCountry.lookup(""))
