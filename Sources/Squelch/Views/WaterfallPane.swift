@@ -43,17 +43,24 @@ struct WaterfallPane: View {
 
                 // TX offset marker
                 if txLegal {
+                    // Same red treatment as the map's active grid cells:
+                    // 0.30 fill, 0.8 stroke
                     let txX = WaterfallProcessor.x(forFrequency: txOffsetHz, width: geo.size.width)
                     Rectangle()
-                        .fill(.red)
+                        .fill(.red.opacity(0.8))
                         .frame(width: 1.5, height: geo.size.height)
                         .position(x: txX, y: geo.size.height / 2)
                     Text(String(format: "TX %.0f", txOffsetHz))
                         .font(.caption2.monospacedDigit())
                         .padding(.horizontal, 3)
-                        .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.vertical, 1)
+                        .background(.red.opacity(0.30), in: RoundedRectangle(cornerRadius: 3))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(.red.opacity(0.8), lineWidth: 1)
+                        )
                         .foregroundStyle(.white)
-                        .position(x: min(max(txX, 26), geo.size.width - 26), y: 8)
+                        .position(x: min(max(txX, 26), geo.size.width - 26), y: 9)
                 }
 
                 // Hover crosshair + frequency readout
