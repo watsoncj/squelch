@@ -190,6 +190,21 @@ struct ContentView: View {
                 .toggleStyle(.button)
                 .help("Show heard stations as highlighted grid squares")
 
+                Toggle(isOn: $showWaterfall) {
+                    Label("Waterfall", systemImage: "rectangle.bottomthird.inset.filled")
+                }
+                .toggleStyle(.button)
+                .help("Show the waterfall strip (double-click it to move your TX offset)")
+
+                Toggle(isOn: $showSidebar) {
+                    Label("Messages", systemImage: "sidebar.trailing")
+                }
+                .toggleStyle(.button)
+                .help("Show or hide the messages panel")
+            }
+
+            // Radio actions
+            ToolbarItemGroup {
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
                     ForEach(txList) { preset in
@@ -228,12 +243,6 @@ struct ContentView: View {
                 .help(cat.isConnected
                       ? "QSY the radio via CAT (connected)"
                       : "Set the working frequency. Connect CAT in Settings to also tune the radio.")
-
-                Toggle(isOn: $showWaterfall) {
-                    Label("Waterfall", systemImage: "rectangle.bottomthird.inset.filled")
-                }
-                .toggleStyle(.button)
-                .help("Show the waterfall strip (double-click it to move your TX offset)")
 
                 Button {
                     openWindow(id: "qso-log")
@@ -287,12 +296,6 @@ struct ContentView: View {
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
-
-                Toggle(isOn: $showSidebar) {
-                    Label("Messages", systemImage: "sidebar.trailing")
-                }
-                .toggleStyle(.button)
-                .help("Show or hide the messages panel")
             }
     }
 
