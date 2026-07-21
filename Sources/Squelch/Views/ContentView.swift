@@ -254,8 +254,10 @@ struct ContentView: View {
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
                     ForEach(txList) { preset in
-                        Button(preset.label) {
+                        Button {
                             actions.qsy(to: preset)
+                        } label: {
+                            Text(preset.menuTitle).monospaced()
                         }
                     }
                     let rxOnly = QSYPreset.receiveOnly(for: licenseClass)
@@ -267,15 +269,19 @@ struct ContentView: View {
                         // (license class None — the whole menu is RX)
                         if txList.isEmpty {
                             ForEach(rxOnly) { preset in
-                                Button(preset.label) {
+                                Button {
                                     actions.qsy(to: preset)
+                                } label: {
+                                    Text(preset.menuTitle).monospaced()
                                 }
                             }
                         } else {
                             Section("Receive only") {
                                 ForEach(rxOnly) { preset in
-                                    Button(preset.label) {
+                                    Button {
                                         actions.qsy(to: preset)
+                                    } label: {
+                                        Text(preset.menuTitle).monospaced()
                                     }
                                 }
                             }
