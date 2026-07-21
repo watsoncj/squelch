@@ -124,8 +124,10 @@ struct LogPane: View {
                     }
                 }
             }
-            // Let the floating sidebar's material show through the table
+            // Let the floating sidebar's material show through the table:
+            // hide the scroll background AND the opaque alternating row stripes
             .scrollContentBackground(.hidden)
+            .alternatingRowBackgrounds(.disabled)
         }
     }
 

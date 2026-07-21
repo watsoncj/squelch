@@ -40,7 +40,7 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.top, 52) // below the floating toolbar row
+                    // safe area already clears the toolbar row; no extra top gap
                     .padding([.trailing, .bottom], 10)
                 }
             if showWaterfall {
