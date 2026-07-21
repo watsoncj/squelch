@@ -27,6 +27,7 @@ struct MapPane: View {
     var selectedMessage: DecodedMessage?
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
+    @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var hasAutoFitted = false
@@ -115,18 +116,20 @@ struct MapPane: View {
     private var mapContent: some View {
         Map(position: $camera) {
             // Heard stations light up their Maidenhead grid squares
-            ForEach(cells) { cell in
-                MapPolygon(coordinates: cell.corners)
-                    .foregroundStyle(cell.color.opacity(0.30))
-                    .stroke(cell.color.opacity(0.8), lineWidth: 1)
-            }
+            if showGridCells {
+                ForEach(cells) { cell in
+                    MapPolygon(coordinates: cell.corners)
+                        .foregroundStyle(cell.color.opacity(0.30))
+                        .stroke(cell.color.opacity(0.8), lineWidth: 1)
+                }
 
-            // Hover highlight: one extra polygon, so pointing at a cell
-            // never restyles the whole overlay set
-            if let hoveredGrid, let cell = cellsByGrid[hoveredGrid] {
-                MapPolygon(coordinates: cell.corners)
-                    .foregroundStyle(cell.color.opacity(0.25))
-                    .stroke(.white.opacity(0.9), lineWidth: 2)
+                // Hover highlight: one extra polygon, so pointing at a cell
+                // never restyles the whole overlay set
+                if let hoveredGrid, let cell = cellsByGrid[hoveredGrid] {
+                    MapPolygon(coordinates: cell.corners)
+                        .foregroundStyle(cell.color.opacity(0.25))
+                        .stroke(.white.opacity(0.9), lineWidth: 2)
+                }
             }
 
             // Selected log row: highlight the stations involved in the
@@ -158,7 +161,7 @@ struct MapPane: View {
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
         .overlay(alignment: .bottomLeading) {
-            if let key = hoveredGrid, cellsByGrid[key] != nil {
+            if showGridCells, let key = hoveredGrid, cellsByGrid[key] != nil {
                 let rows = hoverRows(forGrid: key)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {

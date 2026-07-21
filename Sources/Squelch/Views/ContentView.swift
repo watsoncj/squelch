@@ -17,6 +17,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
+    @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -61,6 +62,12 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .help("Map appearance")
+
+                Toggle(isOn: $showGridCells) {
+                    Label("Grids", systemImage: "square.grid.3x3")
+                }
+                .toggleStyle(.button)
+                .help("Show heard stations as highlighted grid squares")
 
                 Spacer()
 
