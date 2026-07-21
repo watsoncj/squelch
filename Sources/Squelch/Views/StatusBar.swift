@@ -9,6 +9,7 @@ struct StatusBar: View {
     var cat: CATController? = nil
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
+    @Environment(\.openWindow) private var openWindow
 
     private var slotPeriod: Double {
         (DigiMode(rawValue: digiMode) ?? .ft8).slotSeconds
@@ -61,7 +62,8 @@ struct StatusBar: View {
 
             Spacer()
 
-            Text("\(digiMode) · \(mhzText(dialFrequencyMHz)) MHz (\(bandName(forMHz: dialFrequencyMHz)))")
+            // MHz lives in the toolbar's frequency menu; here just mode + band
+            Text("\(digiMode) · \(bandName(forMHz: dialFrequencyMHz))")
                 .monospacedDigit()
 
             if let cat {
@@ -92,9 +94,15 @@ struct StatusBar: View {
 
             if let qsoLog, !qsoLog.records.isEmpty {
                 Divider().frame(height: 14)
-                Label("\(qsoLog.records.count) QSOs", systemImage: "checkmark.seal")
-                    .monospacedDigit()
-                    .help("Completed contacts, logged to qsos.jsonl")
+                Button {
+                    openWindow(id: "qso-log")
+                } label: {
+                    Label("\(qsoLog.records.count) QSOs", systemImage: "checkmark.seal")
+                        .monospacedDigit()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Completed contacts — click to open the QSO log (⌘L)")
             }
         }
         .font(.callout)
