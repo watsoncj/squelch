@@ -83,10 +83,11 @@ final class QSOSequencer: ObservableObject {
         describe("Calling CQ (\(parityName(parity)) slots)")
     }
 
-    func replyTo(call: String, snr: Float, cqParity: Int) {
+    func replyTo(call: String, snr: Float, cqParity: Int, grid: String? = nil) {
         reset()
         mode = .qsoAsAnswerer
         partner = call
+        partnerGrid = grid // from their CQ — they won't send it again
         txParity = 1 - cqParity
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
@@ -117,10 +118,11 @@ final class QSOSequencer: ObservableObject {
     /// Engage with a station that sent us a signal report: we owe them a
     /// roger. Enters mid-exchange as the answerer side (the "late reply
     /// after give-up" recovery).
-    func engageAsAnswerer(call: String, report: String, snr: Float, theirParity: Int) {
+    func engageAsAnswerer(call: String, report: String, snr: Float, theirParity: Int, grid: String? = nil) {
         reset()
         mode = .qsoAsAnswerer
         partner = call
+        partnerGrid = grid
         reportReceived = report
         txParity = 1 - theirParity
         reportSent = Self.formatReport(snr)

@@ -171,8 +171,8 @@ final class QSOSequencerTests: XCTestCase {
         var completed: QSORecord?
         seq.onQSOComplete = { completed = $0 }
 
-        // K1ABC called CQ in even slots (parity 0) at -3 dB → we TX odd
-        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        // K1ABC called CQ from EN52 in even slots (parity 0) at -3 dB → we TX odd
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0, grid: "EN52")
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW DM79")
         XCTAssertNil(seq.transmission(forSlotParity: 0))
 
@@ -183,6 +183,7 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW 73")
         XCTAssertEqual(completed?.partner, "K1ABC")
         XCTAssertEqual(completed?.reportReceived, "-05")
+        XCTAssertEqual(completed?.partnerGrid, "EN52") // grid rides in from their CQ
 
         // 73 sent once, then idle
         seq.ingest(decodes: [], slotParity: 0)

@@ -80,7 +80,19 @@ final class AppModel: ObservableObject {
     let demoMode = CommandLine.arguments.contains("--demo")
 
     init() {
-        sequencer.onQSOComplete = { [qsoLog] record in
+        sequencer.onQSOComplete = { [qsoLog, store] record in
+            var record = record
+            // The exchange itself often never carries the grid (answerer
+            // side, mid-exchange entries) — backfill from the station cache
+            if record.partnerGrid == nil, let grid = store.stations[record.partner]?.grid {
+                record = QSORecord(
+                    id: record.id, partner: record.partner,
+                    partnerGrid: String(grid.prefix(4)).uppercased(),
+                    reportSent: record.reportSent, reportReceived: record.reportReceived,
+                    start: record.start, end: record.end,
+                    dialFrequencyMHz: record.dialFrequencyMHz, mode: record.mode
+                )
+            }
             qsoLog.append(record)
         }
         sequencer.onQSOAbandoned = { [weak self] partner in
@@ -381,7 +393,7 @@ final class AppModel: ObservableObject {
         let theirParity = message.slotParity(slotSeconds: period)
 
         if message.isCQ {
-            sequencer.replyTo(call: call, snr: message.snr, cqParity: theirParity)
+            sequencer.replyTo(call: call, snr: message.snr, cqParity: theirParity, grid: message.grid)
         } else if QSOSequencer.isReport(message.payloadToken) {
             // They sent us a report — we owe a roger
             sequencer.engageAsAnswerer(call: call, report: message.payloadToken, snr: message.snr, theirParity: theirParity)
