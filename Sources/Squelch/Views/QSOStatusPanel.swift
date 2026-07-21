@@ -55,13 +55,12 @@ struct QSOStatusPanel: View {
         chip(tint: .orange) {
             Image(systemName: "phone.arrow.down.left.fill")
                 .foregroundStyle(.orange)
+            Text("\(pending.call) calling · answering in")
+                .font(.callout)
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
-                let remaining = pending.fireAt.timeIntervalSince(context.date)
-                Text(remaining > 0
-                     ? String(format: "%@ calling · answering in %.0f s", pending.call, remaining.rounded(.up))
-                     : "\(pending.call) calling · answering at next slot…")
+                let remaining = max(0, pending.fireAt.timeIntervalSince(context.date).rounded(.up))
+                counterText(Int(remaining))
                     .font(.callout)
-                    .monospacedDigit()
             }
             Button("Cancel") {
                 model.cancelPendingReply()
@@ -92,15 +91,14 @@ struct QSOStatusPanel: View {
         chip(tint: model.beaconNextWindowWillTX ? .orange : .blue) {
             Image(systemName: "dot.radiowaves.up.forward")
                 .foregroundStyle(model.beaconNextWindowWillTX ? .orange : .blue)
+            Text(model.beaconNextWindowWillTX ? "Beacon: TX next window ·" : "Beacon armed ·")
+                .font(.callout)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let period = DigiMode.wspr.slotSeconds
                 let remaining = Int((period - context.date.timeIntervalSince1970
                     .truncatingRemainder(dividingBy: period)).rounded(.down))
-                Text(model.beaconNextWindowWillTX
-                     ? "Beacon: TX next window · \(remaining) s"
-                     : "Beacon armed · \(remaining) s")
+                counterText(remaining)
                     .font(.callout)
-                    .monospacedDigit()
             }
             if !model.beaconNextWindowWillTX {
                 Button("TX next") {
@@ -148,19 +146,23 @@ struct QSOStatusPanel: View {
     }
 
     private var nextTXCountdown: some View {
-        TimelineView(.periodic(from: .now, by: 0.25)) { context in
-            let next = QSOSequencer.nextTXWindow(
-                parity: sequencer.txParity,
-                period: period,
-                after: context.date,
-                minLead: 0
-            )
-            let remaining = next.timeIntervalSince(context.date)
-            Text(String(format: "TX in %.0f s", remaining.rounded(.up)))
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+        HStack(spacing: 3) {
+            Text("TX in")
+            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                let next = QSOSequencer.nextTXWindow(
+                    parity: sequencer.txParity,
+                    period: period,
+                    after: context.date,
+                    minLead: 0
+                )
+                let remaining = next.timeIntervalSince(context.date)
+                Text(String(format: "%.0f s", remaining.rounded(.up)))
+                    .monospacedDigit()
+                    .frame(width: 30, alignment: .trailing)
+            }
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     /// Content only — the toolbar's native glass container provides the
@@ -169,6 +171,14 @@ struct QSOStatusPanel: View {
         HStack(spacing: 8) {
             content()
         }
-        .padding(.horizontal, 2)
+        .padding(.leading, 8) // breathing room between capsule edge and icon
+        .padding(.trailing, 2)
+    }
+
+    /// Fixed-width seconds counter so ticking never changes the chip width.
+    private func counterText(_ seconds: Int) -> some View {
+        Text("\(seconds) s")
+            .monospacedDigit()
+            .frame(width: 42, alignment: .trailing)
     }
 }
