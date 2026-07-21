@@ -70,9 +70,10 @@ struct ContentView: View {
                       : "Set the working frequency. Connect CAT in Settings to also tune the radio.")
 
                 Toggle(isOn: $showWaterfall) {
-                    Label("Waterfall", systemImage: "water.waves")
+                    Label("Waterfall", systemImage: "rectangle.bottomthird.inset.filled")
                 }
-                .help("Show the passband spectrogram (double-click it to move your TX offset)")
+                .toggleStyle(.button)
+                .help("Show the waterfall strip (double-click it to move your TX offset)")
 
                 Button {
                     openWindow(id: "qso-log")
