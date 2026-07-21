@@ -136,9 +136,10 @@ struct MapPane: View {
                 sideToggle("square.grid.3x3", isOn: $showGridCells,
                            help: "Show heard stations as highlighted grid squares")
             }
+            .padding(.vertical, 8) // inset the end icons from the capsule's round ends
             .buttonStyle(.borderless)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(.regularMaterial, in: Capsule())
+            .clipShape(Capsule())
 
             MapZoomStepper(scope: mapScope)
 

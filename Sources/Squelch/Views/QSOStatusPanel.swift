@@ -39,13 +39,14 @@ struct QSOStatusPanel: View {
                  ? "TUNING"
                  : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText))
                 .font(.callout.weight(.semibold).monospaced())
-                .foregroundStyle(.red)
+            // Plain bordered: a prominent red tint here bleeds across the
+            // whole toolbar glass container and drowns the text
             Button("Halt") {
                 model.haltTX()
             }
             .keyboardShortcut(.space, modifiers: [])
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(.bordered)
+            .foregroundStyle(.red)
             .controlSize(.small)
         }
         .help(sequencer.mode != .idle ? sequencer.stateDescription : "Transmitting — Halt with Space")

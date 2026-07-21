@@ -60,7 +60,7 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(.regularMaterial, in: Capsule())
                         .help("Show the sidebar")
                         .padding(.leading, 84)
                         .padding(.top, 11)
@@ -96,7 +96,7 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(.regularMaterial, in: Capsule())
                         .help("Show the waterfall")
                         .padding(.trailing, 10)
                         .padding(.bottom, 10)
