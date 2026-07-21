@@ -1,13 +1,15 @@
 import Foundation
 import CoreLocation
 
-/// My station's location: CoreLocation when authorized, otherwise the grid
-/// square entered in Settings.
+/// My station's position IS the grid square in Settings. Location Services
+/// is only touched when the user clicks the Settings button that fills the
+/// grid from a one-shot fix — never automatically at launch.
 final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
-    @Published var systemCoordinate: CLLocationCoordinate2D?
-    @Published var authorizationDenied = false
+    @Published var isQuerying = false
+    @Published var queryError: String?
 
     private let manager = CLLocationManager()
+    private var queryRequested = false
 
     override init() {
         super.init()
@@ -15,22 +17,24 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
         manager.desiredAccuracy = kCLLocationAccuracyKilometer
     }
 
-    func requestLocation() {
+    /// One-shot: authorize if needed, take a fix, write the grid square to
+    /// Settings. Overwrites the stored grid — that's what the button is for.
+    func queryGridFromLocation() {
+        queryRequested = true
+        isQuerying = true
+        queryError = nil
         manager.requestWhenInUseAuthorization()
         if isAuthorized(manager.authorizationStatus) {
             manager.startUpdatingLocation()
         }
     }
 
-    /// System location if we have it, else the manual grid from Settings.
     func effectiveCoordinate() -> CLLocationCoordinate2D? {
-        if let systemCoordinate { return systemCoordinate }
         let grid = UserDefaults.standard.string(forKey: SettingsKeys.myGrid) ?? ""
         return Maidenhead.coordinate(forGrid: grid)
     }
 
     var effectiveGrid: String? {
-        if let systemCoordinate { return Maidenhead.grid(for: systemCoordinate) }
         let grid = UserDefaults.standard.string(forKey: SettingsKeys.myGrid) ?? ""
         return Maidenhead.isValidGrid(grid) ? grid.uppercased() : nil
     }
@@ -38,30 +42,30 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
     // MARK: CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard queryRequested else { return } // no auto-start at launch
         if isAuthorized(manager.authorizationStatus) {
-            authorizationDenied = false
             manager.startUpdatingLocation()
         } else if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
-            authorizationDenied = true
+            isQuerying = false
+            queryRequested = false
+            queryError = "Location access denied — enable it in System Settings › Privacy, or type the grid manually"
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
-        systemCoordinate = latest.coordinate
         manager.stopUpdatingLocation() // one fix is plenty for a fixed station
-
-        // Initialize the manual grid setting from the fix so the station
-        // still has a position when Location Services is unavailable later.
-        // Never overwrites a grid the user typed themselves.
-        let stored = UserDefaults.standard.string(forKey: SettingsKeys.myGrid) ?? ""
-        if stored.isEmpty {
-            UserDefaults.standard.set(Maidenhead.grid(for: latest.coordinate), forKey: SettingsKeys.myGrid)
-        }
+        guard queryRequested else { return }
+        queryRequested = false
+        isQuerying = false
+        UserDefaults.standard.set(Maidenhead.grid(for: latest.coordinate), forKey: SettingsKeys.myGrid)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Fall back to the manual grid; nothing to do.
+        guard queryRequested else { return }
+        queryRequested = false
+        isQuerying = false
+        queryError = "Location fix failed: \(error.localizedDescription)"
     }
 
     private func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {

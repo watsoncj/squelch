@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var cat: CATController
+    @ObservedObject var location: LocationProvider
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -30,8 +31,26 @@ struct SettingsView: View {
                 }
                 .help("Sets the TX frequency lock and the frequency menu's transmit/receive-only split (Advanced holders: pick General)")
 
-                TextField("Grid square (fallback)", text: $myGrid, prompt: Text("e.g. EN35"))
-                    .help("Used for your map position and distances when Location Services is unavailable")
+                HStack {
+                    TextField("Grid square", text: $myGrid, prompt: Text("e.g. EN35"))
+                        .help("Your station position — map dot and distances come from this")
+                    Button {
+                        location.queryGridFromLocation()
+                    } label: {
+                        if location.isQuerying {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Use My Location", systemImage: "location.fill")
+                        }
+                    }
+                    .disabled(location.isQuerying)
+                    .help("One-shot Location Services fix, converted to a Maidenhead grid")
+                }
+                if let error = location.queryError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 if !myGrid.isEmpty && !Maidenhead.isValidGrid(myGrid) {
                     Text("Not a valid Maidenhead grid (expected like EN35 or EN35fd)")
                         .font(.caption)

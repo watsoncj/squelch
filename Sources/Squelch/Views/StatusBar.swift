@@ -82,12 +82,6 @@ struct StatusBar: View {
                 }
             }
 
-            if let grid = location.effectiveGrid {
-                Divider().frame(height: 14)
-                Label(grid, systemImage: "location")
-                    .help(location.systemCoordinate != nil ? "From Location Services" : "From your grid in Settings")
-            }
-
             Divider().frame(height: 14)
             Text("\(store.stations.count) stations")
                 .monospacedDigit()

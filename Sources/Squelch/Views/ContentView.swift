@@ -200,7 +200,6 @@ struct ContentView: View {
         .onAppear {
             devices = AudioDevices.inputDevices()
             autoSelectDigirig()
-            location.requestLocation()
             if !cat.portPath.isEmpty {
                 cat.connect()
             }

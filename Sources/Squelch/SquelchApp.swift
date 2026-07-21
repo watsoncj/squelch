@@ -528,7 +528,7 @@ struct SquelchApp: App {
         .keyboardShortcut("l", modifiers: .command)
 
         Settings {
-            SettingsView(cat: model.cat)
+            SettingsView(cat: model.cat, location: model.location)
         }
     }
 }
