@@ -33,8 +33,7 @@ struct ContentView: View {
                         selectedStationCall = call
                         showSidebar = true // detail docks in the sidebar now
                     },
-                    leadingObscuredWidth: panelObscuredWidth,
-                    bottomObscuredHeight: showWaterfall ? 130 : 46) // 46 clears the reopen button
+                    leadingObscuredWidth: panelObscuredWidth)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and

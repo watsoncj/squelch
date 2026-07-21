@@ -44,9 +44,6 @@ struct MapPane: View {
     /// Points of the map covered by the floating panels on the left —
     /// focus/fit regions shift so targets center in the visible strip.
     var leadingObscuredWidth: CGFloat = 0
-    /// Points covered along the bottom (floating waterfall) — the hover
-    /// card anchors above it.
-    var bottomObscuredHeight: CGFloat = 0
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
@@ -55,7 +52,6 @@ struct MapPane: View {
 
     @State private var camera: MapCameraPosition = .automatic
     @State private var hasAutoFitted = false
-    @State private var hoveredGrid: String?
     /// Snapshot of the rendered squares. Rebuilt only when decodes arrive or
     /// on the aging timer — NEVER derived live in the map content. Rebuilding
     /// MapKit overlays on every view update leaks GPU buffers in VectorKit
@@ -71,25 +67,6 @@ struct MapPane: View {
     var body: some View {
         MapReader { proxy in
             mapContent
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let point):
-                        if let coordinate = proxy.convert(point, from: .local),
-                           (-90.0...90.0).contains(coordinate.latitude) {
-                            // Normalize longitude — a wrapped map can yield values beyond ±180
-                            var lon = coordinate.longitude.truncatingRemainder(dividingBy: 360)
-                            if lon >= 180 { lon -= 360 }
-                            if lon < -180 { lon += 360 }
-                            let normalized = CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: lon)
-                            let key = String(Maidenhead.grid(for: normalized).prefix(4)).uppercased()
-                            setHoveredGrid(cellsByGrid[key] != nil ? key : nil)
-                        } else {
-                            setHoveredGrid(nil)
-                        }
-                    case .ended:
-                        setHoveredGrid(nil)
-                    }
-                }
                 .onTapGesture { point in
                     // Click a lit grid square → open the detail card for its
                     // most recently heard station
@@ -236,13 +213,6 @@ struct MapPane: View {
         return region
     }
 
-    /// Avoid touching @State (and re-diffing map content) on every mouse move.
-    private func setHoveredGrid(_ key: String?) {
-        if hoveredGrid != key {
-            hoveredGrid = key
-        }
-    }
-
     /// Recompute the snapshot; assign only when something actually changed
     /// so MapKit sees no overlay update at all on quiet ticks.
     private func rebuildCellsIfChanged() {
@@ -291,14 +261,6 @@ struct MapPane: View {
                         .foregroundStyle(cell.color.opacity(0.30))
                         .stroke(cell.color.opacity(0.8), lineWidth: 1)
                 }
-
-                // Hover highlight: one extra polygon, so pointing at a cell
-                // never restyles the whole overlay set
-                if let hoveredGrid, let cell = cellsByGrid[hoveredGrid] {
-                    MapPolygon(coordinates: cell.corners)
-                        .foregroundStyle(cell.color.opacity(0.25))
-                        .stroke(.white.opacity(0.9), lineWidth: 2)
-                }
             }
 
             // Selected log row: highlight the involved stations' GRID
@@ -332,53 +294,6 @@ struct MapPane: View {
         .mapControls { } // defaults off — the side stack provides them
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if showGridCells, let key = hoveredGrid, cellsByGrid[key] != nil {
-                let rows = hoverRows(forGrid: key)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(key)
-                            .font(.caption.bold())
-                        Spacer(minLength: 16)
-                        Text("\(rows.count) station\(rows.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Grid(horizontalSpacing: 10, verticalSpacing: 2) {
-                        ForEach(rows.prefix(8)) { row in
-                            GridRow {
-                                Text(row.call)
-                                    .font(.caption.monospaced())
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .gridColumnAlignment(.leading)
-                                Text(row.ageText)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .gridColumnAlignment(.trailing)
-                                Text(row.snrText)
-                                    .font(.caption.monospaced())
-                                    .gridColumnAlignment(.trailing)
-                                Text(row.country)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                    .gridColumnAlignment(.trailing)
-                            }
-                        }
-                    }
-                    if rows.count > 8 {
-                        Text("and \(rows.count - 8) more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(width: 264, alignment: .leading)
-                .padding(8)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .padding(10)
-                .padding(.bottom, bottomObscuredHeight) // clear the waterfall
-                .allowsHitTesting(false)
-            }
         }
         .onChange(of: selectedMessage?.id) { _, _ in
             focusOnSelection()
@@ -552,40 +467,6 @@ struct MapPane: View {
     }
 
     /// Hover roster, computed only for the cell under the cursor.
-    private struct HoverRow: Identifiable {
-        let call: String
-        let ageText: String
-        let snrText: String
-        let country: String
-        var id: String { call }
-    }
-
-    private func hoverRows(forGrid grid: String) -> [HoverRow] {
-        store.stations.values
-            .filter {
-                String($0.grid.prefix(4)).uppercased() == grid
-                    && Self.withinRecencyWindow($0.lastHeard)
-            }
-            .sorted { $0.lastHeard > $1.lastHeard }
-            .map { st in
-                var countryText = ""
-                if let country = CallsignCountry.lookup(st.callsign) {
-                    if FT8MessageParser.isUSCallsign(st.callsign),
-                       let state = stateResolver.state(forGrid: st.grid, isUS: true) {
-                        countryText = "\(country.flag) \(state), USA"
-                    } else {
-                        countryText = "\(country.flag) \(country.name)"
-                    }
-                }
-                return HoverRow(
-                    call: st.callsign,
-                    ageText: Self.ageText(for: st.lastHeard),
-                    snrText: String(format: "%+.0f dB", st.lastSNR),
-                    country: countryText
-                )
-            }
-    }
-
     /// The map shows current propagation, not the archive: stations age off
     /// entirely after this. (The log keeps full history.)
     static let recencyWindowSeconds: TimeInterval = 3600
@@ -606,13 +487,6 @@ struct MapPane: View {
         Date().timeIntervalSince(lastHeard) < recencyWindowSeconds
     }
 
-    /// "now", "12m", "1h" — for the hover roster.
-    static func ageText(for lastHeard: Date) -> String {
-        let age = Date().timeIntervalSince(lastHeard)
-        if age < 60 { return "now" }
-        if age < 3600 { return "\(Int(age / 60))m" }
-        return "\(Int(age / 3600))h"
-    }
 }
 
 /// Apple Maps-style "Map Modes" flyout: one tile per style.
