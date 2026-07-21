@@ -7,9 +7,19 @@ import AppKit
 /// can't hold static stored properties.)
 private let maxFeedRows = 1200
 
-/// Height of the sidebar header inset (toggle row 48 + search capsule 40);
-/// the under-scroll fade mask must match it.
-private let headerInsetHeight: CGFloat = 88
+extension View {
+    /// Top header over a scrolling view, with the system scroll edge
+    /// effect (progressive blur) beneath it. safeAreaBar is the macOS 26
+    /// API that enables the effect; safeAreaInset (the fallback) does not.
+    @ViewBuilder
+    func headerBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(macOS 26.0, *) {
+            self.safeAreaBar(edge: .top, spacing: 0, content: bar)
+        } else {
+            self.safeAreaInset(edge: .top, spacing: 0, content: bar)
+        }
+    }
+}
 
 /// The standard mac search input (magnifier icon, built-in clear button,
 /// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
@@ -105,49 +115,28 @@ struct LogPane<Header: View>: View {
             }
         // Let the floating sidebar's material show through
         .scrollContentBackground(.hidden)
-        // The Maps under-scroll fade, done deterministically: rows lose
-        // opacity as they climb into the header region and are gone by
-        // its midpoint. (The macOS 26 scroll-edge-effect API doesn't touch
-        // NSTableView-backed Lists.) Applied BEFORE the header inset so
-        // the header itself stays fully opaque.
-        .mask {
-            // The gradient must sit ABOVE the list's resting top (over the
-            // header region, where rows under-scroll): extend the mask up
-            // by the header height. Resting rows get the solid section.
-            VStack(spacing: 0) {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .clear, location: 0.35),
-                        .init(color: .black, location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: headerInsetHeight)
-                Color.black
-            }
-            .padding(.top, -headerInsetHeight)
+        // The idiomatic Maps under-scroll: a safe-area BAR (not inset)
+        // makes the scroll view apply the system's progressive blur+fade
+        // edge effect beneath the header automatically (macOS 26).
+        .headerBar {
+            headerContent
         }
-        // Maps-style under-scroll: the header is the list's top inset, so
-        // rows rest below it but slide beneath its glass while scrolling
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // No extra material here: rows show through the panel's own
-            // glass while under-scrolling, exactly like Maps — the search
-            // capsule's fill provides its own contrast
-            VStack(spacing: 0) {
-                header()
-                HStack(spacing: 5) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    SearchField(text: $searchText, prompt: "Search call or message…")
-                        .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+    }
+
+    private var headerContent: some View {
+        VStack(spacing: 0) {
+            header()
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                SearchField(text: $searchText, prompt: "Search call or message…")
+                    .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
         }
     }
 
