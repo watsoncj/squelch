@@ -86,12 +86,6 @@ struct ContentView: View {
             Divider()
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
-        .overlay(alignment: .topTrailing) {
-            // Panels live on the left now; QSO status floats over the map's
-            // top-right, inboard of the side control stack
-            QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
-                .padding(.trailing, 58)
-        }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar { toolbarItems }
         .onChange(of: digiMode) { _, raw in
@@ -229,6 +223,9 @@ struct ContentView: View {
             // live in the floating stack on the map's right side
             ToolbarItemGroup {
                 Spacer()
+
+                // TX / QSO / beacon status chip — appears only when active
+                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
 
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
