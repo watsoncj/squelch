@@ -29,7 +29,10 @@ struct ContentView: View {
             // Apple Maps treatment: the map fills the window and the log
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
-                    onSelectStation: { selectedStationCall = $0 },
+                    onSelectStation: { call in
+                        selectedStationCall = call
+                        showSidebar = true // detail docks in the sidebar now
+                    },
                     leadingObscuredWidth: panelObscuredWidth,
                     bottomObscuredHeight: showWaterfall ? 130 : 46) // 46 clears the reopen button
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
@@ -146,16 +149,22 @@ struct ContentView: View {
         .navigationTitle("Squelch")
     }
 
-    /// Points of the map covered by the left-side floating panels.
+    /// Points of the map covered by the left-side floating panel.
     private var panelObscuredWidth: CGFloat {
-        showSidebar ? sidebarWidth + (selectedStationCall != nil ? 330 : 0) : 0
+        showSidebar ? sidebarWidth : 0
     }
 
+    /// Apple Maps sidebar: flush to the window's top-left, traffic lights
+    /// floating over its header, toggle button top-right of the header.
+    /// The header rides as the list's top inset, so rows under-scroll
+    /// beneath its glass exactly like Maps. Selecting a station docks its
+    /// detail into the panel's bottom half (stacked master-detail) — the
+    /// feed stays live above it.
     private var panelStack: some View {
-        HStack(alignment: .top, spacing: 10) {
-            sidebar
-            // Apple Maps-style detail card beside the sidebar
+        VStack(spacing: 0) {
+            feedPane
             if let call = selectedStationCall {
+                Divider()
                 StationDetailView(
                     callsign: call,
                     store: store,
@@ -166,22 +175,24 @@ struct ContentView: View {
                     onReply: { message in actions.reply(to: message) },
                     replyEnabled: txAvailable && sequencer.mode == .idle
                 )
-                .frame(width: 320)
-                .frame(maxHeight: .infinity)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding(.top, 62) // clear the titlebar drag region
-                .padding(.bottom, 10)
+                .frame(height: 380)
             }
         }
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+        .clipShape(UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: 12,
+            bottomTrailingRadius: 12, topTrailingRadius: 0
+        ))
+        .overlay(alignment: .trailing) {
+            sidebarResizeHandle
+        }
+        .padding(.bottom, 10)
         .ignoresSafeArea(edges: .top)
     }
 
-    /// Apple Maps sidebar: flush to the window's top-left, traffic lights
-    /// floating over its header, toggle button top-right of the header.
-    /// The header rides as the list's top inset, so rows under-scroll
-    /// beneath its glass exactly like Maps.
-    private var sidebar: some View {
+    private var feedPane: some View {
         LogPane(
             store: store,
             stateResolver: actions.stateResolver,
@@ -221,17 +232,6 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .gesture(WindowDragGesture()) // header drags the window, like Apple Maps
         }
-        .frame(width: sidebarWidth)
-        .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
-        .clipShape(UnevenRoundedRectangle(
-            topLeadingRadius: 0, bottomLeadingRadius: 12,
-            bottomTrailingRadius: 12, topTrailingRadius: 0
-        ))
-        .overlay(alignment: .trailing) {
-            sidebarResizeHandle
-        }
-        .padding(.bottom, 10)
     }
 
     // Everything left-aligned over the map, so the floating sidebar
