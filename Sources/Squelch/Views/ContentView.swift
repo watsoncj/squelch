@@ -22,6 +22,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
+    @State private var showMapModes = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -173,14 +174,15 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
             ToolbarItemGroup {
-                Picker("Map style", selection: $mapStyleRaw) {
-                    ForEach(MapStyleChoice.allCases) { choice in
-                        Text(choice.rawValue).tag(choice.rawValue)
-                    }
+                Button {
+                    showMapModes.toggle()
+                } label: {
+                    Label("Map Mode", systemImage: "globe.americas.fill")
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 .help("Map appearance")
+                .popover(isPresented: $showMapModes, arrowEdge: .bottom) {
+                    MapModeFlyout(mapStyleRaw: $mapStyleRaw)
+                }
 
                 Toggle(isOn: $showGridCells) {
                     Label("Grids", systemImage: "square.grid.3x3")
@@ -292,6 +294,53 @@ struct ContentView: View {
                 .toggleStyle(.button)
                 .help("Show or hide the messages panel")
             }
+    }
+
+    /// Apple Maps-style "Map Modes" flyout: one tile per style.
+    private struct MapModeFlyout: View {
+        @Binding var mapStyleRaw: String
+
+        private func icon(for choice: MapStyleChoice) -> String {
+            switch choice {
+            case .standard: return "map"
+            case .hybrid: return "square.3.layers.3d.top.filled"
+            case .satellite: return "globe.americas.fill"
+            }
+        }
+
+        var body: some View {
+            VStack(spacing: 10) {
+                Text("Map Mode")
+                    .font(.headline)
+                HStack(spacing: 14) {
+                    ForEach(MapStyleChoice.allCases) { choice in
+                        let selected = mapStyleRaw == choice.rawValue
+                        Button {
+                            mapStyleRaw = choice.rawValue
+                        } label: {
+                            VStack(spacing: 5) {
+                                Image(systemName: icon(for: choice))
+                                    .font(.title2)
+                                    .frame(width: 58, height: 42)
+                                    .background(
+                                        selected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06),
+                                        in: RoundedRectangle(cornerRadius: 9)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 9)
+                                            .stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
+                                    )
+                                Text(choice.rawValue)
+                                    .font(.caption)
+                                    .foregroundStyle(selected ? .primary : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(14)
+        }
     }
 
     /// Invisible grab strip on the sidebar's leading edge; drag to resize,
