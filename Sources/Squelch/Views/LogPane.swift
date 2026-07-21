@@ -11,42 +11,14 @@ struct LogPane: View {
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
-    @State private var filter: LogFilter = .all
     @State private var searchText = ""
     @State private var showCheatsheet = false
 
-    enum LogFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case cq = "CQ"
-        case mentionsMe = "Me"
-        case withGrid = "Grid"
-        case international = "Intl"
-        var id: String { rawValue }
-
-        var help: String {
-            switch self {
-            case .all: return "All decodes"
-            case .cq: return "CQ calls only"
-            case .mentionsMe: return "Messages calling me"
-            case .withGrid: return "Messages carrying a grid square"
-            case .international: return "Stations outside the US (by callsign prefix)"
-            }
-        }
-    }
-
     var body: some View {
         VStack(spacing: 6) {
-            HStack {
-                Picker("Filter", selection: $filter) {
-                    ForEach(LogFilter.allCases) { f in
-                        Text(f.rawValue).tag(f)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .help(filter.help)
-
-                Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                TextField("Search call or message…", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
 
                 Text(countLabel)
                     .font(.caption)
@@ -71,11 +43,7 @@ struct LogPane: View {
             }
             .padding(.horizontal, 10)
             .padding(.top, 6)
-
-            TextField("Search call or message…", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 2)
+            .padding(.bottom, 2)
 
             Table(visibleRows, selection: $selection) {
                 TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { msg in
@@ -161,14 +129,6 @@ struct LogPane: View {
 
     private var filtered: [DecodedMessage] {
         var result = store.messages
-        switch filter {
-        case .all: break
-        case .cq: result = result.filter(\.isCQ)
-        case .mentionsMe: result = result.filter { $0.mentions(myCallsign) }
-        case .withGrid: result = result.filter { $0.grid != nil }
-        case .international:
-            result = result.filter { $0.callsign.map { !FT8MessageParser.isUSCallsign($0) } == true }
-        }
         let query = searchText.trimmingCharacters(in: .whitespaces).uppercased()
         if !query.isEmpty {
             result = result.filter { $0.text.uppercased().contains(query) }
