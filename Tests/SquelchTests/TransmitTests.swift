@@ -83,8 +83,8 @@ final class LicenseLegalityTests: XCTestCase {
         XCTAssertFalse(TransmitController.isTXLegalMHz(21.074, license: .technician)) // 15 m
     }
 
-    func testVHFAndUpAllClasses() {
-        for license in LicenseClass.allCases {
+    func testVHFAndUpAllLicensedClasses() {
+        for license in LicenseClass.allCases where license != .unlicensed {
             XCTAssertTrue(TransmitController.isTXLegalMHz(50.313, license: license)) // 6 m FT8
             XCTAssertTrue(TransmitController.isTXLegalMHz(144.174, license: license))
         }
@@ -113,6 +113,14 @@ final class LicenseLegalityTests: XCTestCase {
                        QSYPreset.all.count)
         XCTAssertTrue(QSYPreset.receiveOnly(for: .general).isEmpty)
         XCTAssertTrue(QSYPreset.receiveOnly(for: .extra).isEmpty)
+    }
+
+    func testUnlicensedIsReceiveOnlyEverywhere() {
+        for preset in QSYPreset.all {
+            XCTAssertFalse(TransmitController.isTXLegalMHz(preset.mhz, license: .unlicensed))
+        }
+        XCTAssertTrue(QSYPreset.transmitLegal(for: .unlicensed).isEmpty)
+        XCTAssertEqual(QSYPreset.receiveOnly(for: .unlicensed).count, QSYPreset.all.count)
     }
 
     func testDefaultsToTechnicianWhenUnset() {

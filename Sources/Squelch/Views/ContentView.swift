@@ -65,18 +65,31 @@ struct ContentView: View {
                 Spacer()
 
                 Menu {
-                    ForEach(QSYPreset.transmitLegal(for: licenseClass)) { preset in
+                    let txList = QSYPreset.transmitLegal(for: licenseClass)
+                    ForEach(txList) { preset in
                         Button(preset.label) {
                             actions.qsy(to: preset)
                         }
                     }
                     let rxOnly = QSYPreset.receiveOnly(for: licenseClass)
                     if !rxOnly.isEmpty {
-                        Divider()
-                        Section("Receive only") {
+                        if !txList.isEmpty {
+                            Divider()
+                        }
+                        // No "Receive only" header needed when everything is
+                        // (license class None — the whole menu is RX)
+                        if txList.isEmpty {
                             ForEach(rxOnly) { preset in
                                 Button(preset.label) {
                                     actions.qsy(to: preset)
+                                }
+                            }
+                        } else {
+                            Section("Receive only") {
+                                ForEach(rxOnly) { preset in
+                                    Button(preset.label) {
+                                        actions.qsy(to: preset)
+                                    }
                                 }
                             }
                         }
@@ -215,6 +228,9 @@ struct ContentView: View {
     }
 
     private var txDisabledReason: String? {
+        if licenseClass == .unlicensed {
+            return "License class is None — receive only (set yours in Settings)"
+        }
         if !txLegal {
             return String(format: "%.3f MHz is outside %@ data privileges — TX disabled", dialFrequencyMHz, licenseClass.rawValue)
         }

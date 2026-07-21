@@ -136,10 +136,10 @@ final class TransmitController: ObservableObject {
     private func checkLegalAndConfigured() -> Bool {
         let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
         guard Self.isTXLegalMHz(dial) else {
-            txError = String(
-                format: "TX blocked: %.3f MHz is outside %@ data privileges",
-                dial, LicenseClass.current.rawValue
-            )
+            txError = LicenseClass.current == .unlicensed
+                ? "TX blocked: license class is None (receive only)"
+                : String(format: "TX blocked: %.3f MHz is outside %@ data privileges",
+                         dial, LicenseClass.current.rawValue)
             return false
         }
         guard !pttPortPath.isEmpty else {

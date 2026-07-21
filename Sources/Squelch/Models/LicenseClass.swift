@@ -3,7 +3,9 @@ import Foundation
 /// US amateur license classes and where each may transmit data modes.
 /// Drives the hard TX lock and the frequency menu's transmit/receive-only
 /// split. Advanced-class holders: pick General (data privileges match).
+/// "None" is for unlicensed listeners (SWL): everything works except TX.
 enum LicenseClass: String, CaseIterable, Identifiable {
+    case unlicensed = "None (receive only)"
     case technician = "Technician"
     case general = "General"
     case extra = "Amateur Extra"
@@ -21,6 +23,8 @@ enum LicenseClass: String, CaseIterable, Identifiable {
             420.0...450.0,    // 70 cm
         ]
         switch self {
+        case .unlicensed:
+            return []
         case .technician:
             return [28.000...28.300] + vhfUp
         case .general:
