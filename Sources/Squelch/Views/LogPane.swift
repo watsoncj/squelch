@@ -40,9 +40,10 @@ struct SearchField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 13)
-        // Chromeless mode draws the magnifier without reserving space for
-        // it — drop it entirely; the SwiftUI wrapper supplies the icon
+        // Chromeless mode breaks the cell's own button layout/hit-testing —
+        // drop both built-ins; the SwiftUI wrapper supplies icon and clear
         (field.cell as? NSSearchFieldCell)?.searchButtonCell = nil
+        (field.cell as? NSSearchFieldCell)?.cancelButtonCell = nil
         return field
     }
 
@@ -131,6 +132,16 @@ struct LogPane<Header: View>: View {
                     .foregroundStyle(.secondary)
                 SearchField(text: $searchText, prompt: "Search call or message…")
                     .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
