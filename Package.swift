@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Squelch",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)], // WindowDragGesture (titlebar drag vs map pan)
     targets: [
         .target(
             name: "CFT8",

@@ -30,6 +30,16 @@ struct ContentView: View {
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
+                .overlay(alignment: .top) {
+                    // The hidden-titlebar drag region sits over the map, and
+                    // a window-move drag would otherwise ALSO pan the map.
+                    // This strip claims those drags as pure window moves.
+                    Color.clear
+                        .frame(height: 52)
+                        .contentShape(Rectangle())
+                        .gesture(WindowDragGesture())
+                        .ignoresSafeArea(edges: .top)
+                }
                 .overlay(alignment: .topTrailing) {
                     LogPane(
                         store: store,
