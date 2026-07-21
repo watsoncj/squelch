@@ -1,6 +1,40 @@
 import SwiftUI
 import AppKit
 
+/// The standard mac search input (magnifier icon, built-in clear button,
+/// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
+/// doesn't fit a floating panel.
+struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    var prompt: String = "Search"
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.delegate = context.coordinator
+        field.sendsSearchStringImmediately = true
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+    }
+}
+
 struct LogPane: View {
     @ObservedObject var store: DecodeStore
     @ObservedObject var stateResolver: StateResolver
@@ -17,25 +51,7 @@ struct LogPane: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Search call or message…", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 24) // room for the clear button
-                    .padding(.vertical, 5)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(alignment: .trailing) {
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, 6)
-                            .help("Clear search")
-                        }
-                    }
+                SearchField(text: $searchText, prompt: "Search call or message…")
 
                 Button {
                     showCheatsheet.toggle()
