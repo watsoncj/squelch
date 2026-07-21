@@ -8,6 +8,7 @@ struct QSOStatusPanel: View {
     @ObservedObject var sequencer: QSOSequencer
     @ObservedObject var transmit: TransmitController
     @ObservedObject var model: AppModel
+    @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
 
     private var period: Double {
@@ -25,6 +26,57 @@ struct QSOStatusPanel: View {
             beaconChip
         } else if let error = transmit.txError {
             errorChip(error)
+        } else if controller.isRunning {
+            decodingChip
+        }
+    }
+
+    /// Lowest priority: decoding vitals (was the status bar) — slot
+    /// countdown, input level, last slot's decode count.
+    private var decodingChip: some View {
+        chip(tint: .green) {
+            Circle()
+                .fill(.green)
+                .frame(width: 7, height: 7)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let seconds = context.date.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: period)
+                counterText(Int(seconds))
+                    .font(.callout)
+            }
+            CapsuleBar(fraction: levelFraction, tint: levelFraction > 0.9 ? .red : .green)
+                .frame(width: 56, height: 4)
+                .help(String(format: "Input level: %.0f dBFS", controller.audioLevelDB))
+            if let count = controller.lastSlotCount {
+                Text("\(count) dec")
+                    .font(.callout)
+                    .monospacedDigit()
+                    .frame(width: 52, alignment: .trailing)
+            }
+        }
+        .help("Decoding — seconds into the current \(digiMode) slot, input level, decodes last slot")
+    }
+
+    private var levelFraction: Double {
+        // Map -60…0 dBFS to 0…1
+        min(1, max(0, (Double(controller.audioLevelDB) + 60) / 60))
+    }
+
+    /// Animation-free progress bar: draws in one pass, invalidates nothing.
+    private struct CapsuleBar: View {
+        let fraction: Double
+        let tint: Color
+
+        var body: some View {
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.15))
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: max(4, geo.size.width * min(max(fraction, 0), 1)))
+                }
+            }
+            .animation(nil, value: fraction)
         }
     }
 

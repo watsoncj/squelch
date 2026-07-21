@@ -19,6 +19,20 @@ extension View {
             self.safeAreaInset(edge: .top, spacing: 0, content: bar)
         }
     }
+
+    /// A slim invisible bottom bar so the system draws the same soft
+    /// scroll-edge fade where rows leave the panel's bottom edge.
+    @ViewBuilder
+    func bottomFadeBar() -> some View {
+        if #available(macOS 26.0, *) {
+            self.safeAreaBar(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: 14)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            self
+        }
+    }
 }
 
 /// The standard mac search input (magnifier icon, built-in clear button,
@@ -122,6 +136,8 @@ struct LogPane<Header: View>: View {
         .headerBar {
             headerContent
         }
+        // Symmetry: same soft fade where rows exit at the panel's bottom
+        .bottomFadeBar()
     }
 
     private var headerContent: some View {

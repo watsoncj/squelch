@@ -20,6 +20,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
+    @State private var showCheatsheet = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -104,8 +105,6 @@ struct ContentView: View {
                         .padding(.bottom, 10)
                     }
                 }
-            Divider()
-            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar { toolbarItems }
@@ -180,15 +179,10 @@ struct ContentView: View {
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(.thickMaterial) // regular lets bright map bleed through in light mode
-        .clipShape(UnevenRoundedRectangle(
-            topLeadingRadius: 0, bottomLeadingRadius: 12,
-            bottomTrailingRadius: 12, topTrailingRadius: 0
-        ))
         .overlay(alignment: .trailing) {
             sidebarResizeHandle
         }
-        .padding(.bottom, 10)
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: .top) // full window height, flush corners
     }
 
     private var feedPane: some View {
@@ -242,8 +236,20 @@ struct ContentView: View {
             ToolbarItemGroup {
                 Spacer()
 
-                // TX / QSO / beacon status chip — appears only when active
-                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
+                // CAT trouble light: appears only when CAT is configured
+                // but disconnected, or the radio wandered off DATA-USB
+                if !cat.portPath.isEmpty,
+                   !cat.isConnected || (cat.radioModeName != nil && cat.radioModeName != "DATA-USB") {
+                    Image(systemName: cat.isConnected ? "cable.connector" : "cable.connector.slash")
+                        .foregroundStyle(.orange)
+                        .help(cat.isConnected
+                              ? "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB"
+                              : (cat.lastError ?? "CAT not connected — radio off? Retrying automatically."))
+                }
+
+                // Status chip: TX / answer / session / beacon / error /
+                // decoding vitals — appears only when something is happening
+                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller)
 
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
@@ -276,7 +282,8 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label("\(mhzText(dialFrequencyMHz)) MHz", systemImage: "dial.medium")
+                    Label("\(mhzText(dialFrequencyMHz)) MHz · \(digiMode) · \(bandName(forMHz: dialFrequencyMHz))",
+                          systemImage: "dial.medium")
                         .monospacedDigit()
                         .labelStyle(.titleAndIcon)
                 }
@@ -287,7 +294,9 @@ struct ContentView: View {
                 Button {
                     openWindow(id: "qso-log")
                 } label: {
-                    Label("QSO Log", systemImage: "checkmark.seal")
+                    Label(qsoLog.records.isEmpty ? "QSO Log" : "\(qsoLog.records.count) QSOs",
+                          systemImage: "checkmark.seal")
+                        .monospacedDigit()
                 }
                 .help("Completed contacts (⌘L) — add off-app QSOs from there")
 
@@ -325,6 +334,16 @@ struct ContentView: View {
                     }
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
+                }
+
+                Button {
+                    showCheatsheet.toggle()
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .help("How to read FT8 messages")
+                .popover(isPresented: $showCheatsheet, arrowEdge: .bottom) {
+                    CheatsheetView()
                 }
             }
     }
