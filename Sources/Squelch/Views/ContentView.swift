@@ -51,6 +51,11 @@ struct ContentView: View {
                         panelStack
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    mapSideControls
+                        .padding(.top, 10)
+                        .padding(.trailing, 10)
+                }
                 .overlay(alignment: .bottom) {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
@@ -67,8 +72,9 @@ struct ContentView: View {
         }
         .overlay(alignment: .topTrailing) {
             // Panels live on the left now; QSO status floats over the map's
-            // free top-right corner
+            // top-right, inboard of the side control stack
             QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
+                .padding(.trailing, 58)
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar { toolbarItems }
@@ -175,38 +181,11 @@ struct ContentView: View {
     // on the right can run the full window height.
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
+            // Radio actions, pushed to the trailing edge; view controls
+            // live in the floating stack on the map's right side
             ToolbarItemGroup {
-                Button {
-                    showMapModes.toggle()
-                } label: {
-                    Label("Map Mode", systemImage: "globe.americas.fill")
-                }
-                .help("Map appearance")
-                .popover(isPresented: $showMapModes, arrowEdge: .bottom) {
-                    MapModeFlyout(mapStyleRaw: $mapStyleRaw)
-                }
+                Spacer()
 
-                Toggle(isOn: $showGridCells) {
-                    Label("Grids", systemImage: "square.grid.3x3")
-                }
-                .toggleStyle(.button)
-                .help("Show heard stations as highlighted grid squares")
-
-                Toggle(isOn: $showWaterfall) {
-                    Label("Waterfall", systemImage: "rectangle.bottomthird.inset.filled")
-                }
-                .toggleStyle(.button)
-                .help("Show the waterfall strip (double-click it to move your TX offset)")
-
-                Toggle(isOn: $showSidebar) {
-                    Label("Messages", systemImage: "sidebar.trailing")
-                }
-                .toggleStyle(.button)
-                .help("Show or hide the messages panel")
-            }
-
-            // Radio actions
-            ToolbarItemGroup {
                 Menu {
                     let txList = QSYPreset.transmitLegal(for: licenseClass)
                     ForEach(txList) { preset in
@@ -299,6 +278,49 @@ struct ContentView: View {
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
             }
+    }
+
+    /// Apple Maps-style right-edge control stack: map mode + view toggles
+    /// in one vertical material capsule.
+    private var mapSideControls: some View {
+        VStack(spacing: 0) {
+            Button {
+                showMapModes.toggle()
+            } label: {
+                Image(systemName: "globe.americas.fill")
+                    .frame(width: 40, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .help("Map appearance")
+            .popover(isPresented: $showMapModes, arrowEdge: .leading) {
+                MapModeFlyout(mapStyleRaw: $mapStyleRaw)
+            }
+
+            Divider().frame(width: 26)
+            sideToggle("square.grid.3x3", isOn: $showGridCells,
+                       help: "Show heard stations as highlighted grid squares")
+            Divider().frame(width: 26)
+            sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
+                       help: "Show the waterfall strip (double-click it to move your TX offset)")
+            Divider().frame(width: 26)
+            sideToggle("sidebar.leading", isOn: $showSidebar,
+                       help: "Show or hide the messages panel")
+        }
+        .buttonStyle(.borderless)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func sideToggle(_ systemImage: String, isOn: Binding<Bool>, help: String) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Image(systemName: systemImage)
+                .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.secondary)
+                .frame(width: 40, height: 36)
+                .contentShape(Rectangle())
+        }
+        .help(help)
     }
 
     /// Apple Maps-style "Map Modes" flyout: one tile per style.
