@@ -88,6 +88,7 @@ enum SettingsKeys {
     static let mapStyle = "mapStyle"
     static let showGridCells = "showGridCells"
     static let sidebarWidth = "sidebarWidth"
+    static let showSidebar = "showSidebar"
     static let autoAnswer = "autoAnswer"
     static let showWaterfall = "showWaterfall"
     static let timeDisplay = "timeDisplay"

@@ -19,6 +19,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
+    @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
     @State private var devices: [AudioDevice] = []
@@ -31,7 +32,7 @@ struct ContentView: View {
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
                     onSelectStation: { selectedStationCall = $0 },
-                    trailingObscuredWidth: sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0))
+                    trailingObscuredWidth: showSidebar ? sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0) : 0)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
@@ -44,7 +45,63 @@ struct ContentView: View {
                         .ignoresSafeArea(edges: .top)
                 }
                 .overlay(alignment: .topTrailing) {
-                    HStack(alignment: .top, spacing: 10) {
+                    if showSidebar {
+                        panelStack
+                    }
+                }
+            if showWaterfall {
+                Divider()
+                WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
+            }
+            Divider()
+            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
+        }
+        .overlay(alignment: .topLeading) {
+            QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
+        }
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        .toolbar { toolbarItems }
+        .onChange(of: digiMode) { _, raw in
+            if raw != DigiMode.wspr.rawValue {
+                actions.setWSPRBeacon(false)
+            }
+            if let mode = DigiMode(rawValue: raw) {
+                actions.digiModeChanged(to: mode)
+            }
+        }
+        .onAppear {
+            // Feed-era migration: the column-table default width (540) reads
+            // as the new narrow default once
+            if sidebarWidth == 540 { sidebarWidth = 360 }
+            devices = AudioDevices.inputDevices()
+            autoSelectDigirig()
+            if !cat.portPath.isEmpty {
+                cat.connect()
+            }
+            if CommandLine.arguments.contains("--demo") {
+                // Exercise the click-to-map path in demo screenshots:
+                // prefer a directed message whose addressee is also mapped
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    let twoPin = store.messages.first {
+                        $0.coordinate != nil && !$0.isCQ
+                            && $0.addressee.map { a in
+                                a != "W0CJW" && store.stations[a] != nil
+                            } == true
+                    }
+                    selectedMessageID = (twoPin ?? store.messages.first { $0.coordinate != nil })?.id
+                }
+                // Show the QSO status panel (AppModel.demoMode guarantees
+                // demo never keys the radio)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    actions.startCQ()
+                }
+            }
+        }
+        .navigationTitle("Squelch")
+    }
+
+    private var panelStack: some View {
+        HStack(alignment: .top, spacing: 10) {
                         // Apple Maps-style detail card beside the sidebar
                         if let call = selectedStationCall {
                             StationDetailView(
@@ -91,26 +148,17 @@ struct ContentView: View {
                         .overlay(alignment: .leading) {
                             sidebarResizeHandle
                         }
-                    }
-                    // toolbar items all sit left, so the sidebar can run the
-                    // full window height, traffic-light row included
-                    .padding([.top, .trailing, .bottom], 10)
-                    .ignoresSafeArea(edges: .top)
-                }
-            if showWaterfall {
-                Divider()
-                WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
-            }
-            Divider()
-            StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
-        .overlay(alignment: .topLeading) {
-            QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
-        }
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        .toolbar {
-            // Everything left-aligned over the map, so the floating sidebar
-            // on the right can run the full window height.
+        // toolbar items all sit left, so the sidebar can run the full
+        // window height, traffic-light row included
+        .padding([.top, .trailing, .bottom], 10)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    // Everything left-aligned over the map, so the floating sidebar
+    // on the right can run the full window height.
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
             ToolbarItemGroup {
                 Picker("Map style", selection: $mapStyleRaw) {
                     ForEach(MapStyleChoice.allCases) { choice in
@@ -224,45 +272,13 @@ struct ContentView: View {
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
-            }
-        }
-        .onChange(of: digiMode) { _, raw in
-            if raw != DigiMode.wspr.rawValue {
-                actions.setWSPRBeacon(false)
-            }
-            if let mode = DigiMode(rawValue: raw) {
-                actions.digiModeChanged(to: mode)
-            }
-        }
-        .onAppear {
-            // Feed-era migration: the column-table default width (540) reads
-            // as the new narrow default once
-            if sidebarWidth == 540 { sidebarWidth = 360 }
-            devices = AudioDevices.inputDevices()
-            autoSelectDigirig()
-            if !cat.portPath.isEmpty {
-                cat.connect()
-            }
-            if CommandLine.arguments.contains("--demo") {
-                // Exercise the click-to-map path in demo screenshots:
-                // prefer a directed message whose addressee is also mapped
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    let twoPin = store.messages.first {
-                        $0.coordinate != nil && !$0.isCQ
-                            && $0.addressee.map { a in
-                                a != "W0CJW" && store.stations[a] != nil
-                            } == true
-                    }
-                    selectedMessageID = (twoPin ?? store.messages.first { $0.coordinate != nil })?.id
+
+                Toggle(isOn: $showSidebar) {
+                    Label("Messages", systemImage: "sidebar.trailing")
                 }
-                // Show the QSO status panel (AppModel.demoMode guarantees
-                // demo never keys the radio)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    actions.startCQ()
-                }
+                .toggleStyle(.button)
+                .help("Show or hide the messages panel")
             }
-        }
-        .navigationTitle("Squelch")
     }
 
     /// Invisible grab strip on the sidebar's leading edge; drag to resize,
