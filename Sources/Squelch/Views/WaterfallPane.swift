@@ -9,8 +9,18 @@ struct WaterfallPane: View {
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
 
     @State private var hoverX: CGFloat?
+
+    /// No TX marker (or offset setting) on frequencies we can't transmit on.
+    private var txLegal: Bool {
+        TransmitController.isTXLegalMHz(
+            dialFrequencyMHz,
+            license: LicenseClass(rawValue: licenseClassRaw) ?? .technician
+        )
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -32,17 +42,19 @@ struct WaterfallPane: View {
                 }
 
                 // TX offset marker
-                let txX = WaterfallProcessor.x(forFrequency: txOffsetHz, width: geo.size.width)
-                Rectangle()
-                    .fill(.red)
-                    .frame(width: 1.5, height: geo.size.height)
-                    .position(x: txX, y: geo.size.height / 2)
-                Text(String(format: "TX %.0f", txOffsetHz))
-                    .font(.caption2.monospacedDigit())
-                    .padding(.horizontal, 3)
-                    .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
-                    .foregroundStyle(.white)
-                    .position(x: min(max(txX, 26), geo.size.width - 26), y: 8)
+                if txLegal {
+                    let txX = WaterfallProcessor.x(forFrequency: txOffsetHz, width: geo.size.width)
+                    Rectangle()
+                        .fill(.red)
+                        .frame(width: 1.5, height: geo.size.height)
+                        .position(x: txX, y: geo.size.height / 2)
+                    Text(String(format: "TX %.0f", txOffsetHz))
+                        .font(.caption2.monospacedDigit())
+                        .padding(.horizontal, 3)
+                        .background(.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(.white)
+                        .position(x: min(max(txX, 26), geo.size.width - 26), y: 8)
+                }
 
                 // Hover crosshair + frequency readout
                 if let hoverX {
@@ -73,7 +85,7 @@ struct WaterfallPane: View {
                     }
             )
             .contextMenu {
-                if let hoverX {
+                if txLegal, let hoverX {
                     let freq = WaterfallProcessor.frequency(forX: hoverX, width: geo.size.width)
                     Button(String(format: "Set TX offset to %.0f Hz", freq)) {
                         setOffset(atX: hoverX, width: geo.size.width)
@@ -81,7 +93,9 @@ struct WaterfallPane: View {
                     .disabled(transmit.anyTXActive)
                 }
             }
-            .help("Double-click (or right-click) to move the TX offset. Single clicks do nothing.")
+            .help(txLegal
+                  ? "Double-click (or right-click) to move the TX offset. Single clicks do nothing."
+                  : "Receive only on this frequency")
         }
         .frame(height: 110)
         .clipped()
@@ -94,6 +108,7 @@ struct WaterfallPane: View {
     }
 
     private func setOffset(atX x: CGFloat, width: CGFloat) {
+        guard txLegal else { return }
         guard !transmit.anyTXActive else { return } // never retune mid-transmission
         txOffsetHz = WaterfallProcessor.frequency(forX: x, width: width).rounded()
     }
