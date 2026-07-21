@@ -47,9 +47,11 @@ struct ContentView: View {
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
-            // primaryAction pins the group to the trailing edge, over the
-            // log pane's opaque background rather than the map
-            ToolbarItemGroup(placement: .primaryAction) {
+            // Leading flexible space pushes the whole group to the trailing
+            // edge (macOS ignores placement-based alignment hints)
+            ToolbarItemGroup {
+                Spacer()
+
                 Menu {
                     ForEach(QSYPreset.transmitLegal) { preset in
                         Button(preset.label) {
