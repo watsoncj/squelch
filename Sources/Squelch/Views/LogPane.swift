@@ -7,6 +7,20 @@ import AppKit
 /// can't hold static stored properties.)
 private let maxFeedRows = 1200
 
+extension View {
+    /// The system's progressive blur+fade where content scrolls under a
+    /// top safe-area inset (what Apple Maps' sidebar header uses).
+    /// macOS 26 API; earlier systems just skip it.
+    @ViewBuilder
+    func softTopScrollEdgeEffect() -> some View {
+        if #available(macOS 26.0, *) {
+            self.scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+}
+
 /// The standard mac search input (magnifier icon, built-in clear button,
 /// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
 /// doesn't fit a floating panel.
@@ -101,6 +115,10 @@ struct LogPane<Header: View>: View {
             }
         // Let the floating sidebar's material show through
         .scrollContentBackground(.hidden)
+        // The Maps look: rows sliding under the header get a progressive
+        // system blur+fade at the top edge (Liquid Glass scroll edge
+        // effect) — without this they stay fully legible under the field
+        .softTopScrollEdgeEffect()
         // Maps-style under-scroll: the header is the list's top inset, so
         // rows rest below it but slide beneath its glass while scrolling
         .safeAreaInset(edge: .top, spacing: 0) {
