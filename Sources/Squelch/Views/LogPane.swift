@@ -154,15 +154,15 @@ struct LogPane: View {
         Array(filtered.prefix(Self.maxTableRows))
     }
 
-    /// "🇺🇸 UT, USA" once a US station's grid has resolved to a state;
-    /// otherwise the country name.
+    /// "UT, USA" once a US station's grid has resolved to a state; otherwise
+    /// the country name. No flag — line 1 already carries it.
     private func countryText(for msg: DecodedMessage) -> String? {
         guard let country = msg.country else { return nil }
         if let call = msg.callsign, FT8MessageParser.isUSCallsign(call),
            let grid = msg.grid,
            let state = stateResolver.state(forGrid: grid, isUS: true) {
-            return "\(country.flag) \(state), USA"
+            return "\(state), USA"
         }
-        return "\(country.flag) \(country.name)"
+        return country.name
     }
 }
