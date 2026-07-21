@@ -459,10 +459,11 @@ final class AppModel: ObservableObject {
 }
 
 @main
-struct RadioFunApp: App {
+struct SquelchApp: App {
     @StateObject private var model = AppModel()
 
     init() {
+        Self.migrateRadioFunSettings()
         // First-run defaults
         UserDefaults.standard.register(defaults: [
             SettingsKeys.myCallsign: "W0CJW",
@@ -472,6 +473,29 @@ struct RadioFunApp: App {
             SettingsKeys.wsprPowerDBm: 37,
             SettingsKeys.wsprDutyPct: 20,
         ])
+    }
+
+    /// The bundle-ID change moved us to a fresh defaults domain; pull the
+    /// RadioFun-era settings across once so nothing resets.
+    private static func migrateRadioFunSettings() {
+        let marker = "didMigrateFromRadioFun"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: marker),
+              let legacy = UserDefaults(suiteName: "com.watsoncj.radiofun") else { return }
+        let keys = [
+            SettingsKeys.myCallsign, SettingsKeys.myGrid, SettingsKeys.dialFrequencyMHz,
+            SettingsKeys.audioDeviceUID, SettingsKeys.audioOutputUID, SettingsKeys.pttPortPath,
+            SettingsKeys.txOffsetHz, SettingsKeys.digiMode, SettingsKeys.catPortPath,
+            SettingsKeys.catBaud, SettingsKeys.mapStyle, SettingsKeys.autoAnswer,
+            SettingsKeys.showWaterfall, SettingsKeys.timeDisplay, SettingsKeys.distanceUnit,
+            SettingsKeys.lastCQParity, SettingsKeys.wsprPowerDBm, SettingsKeys.wsprDutyPct,
+        ]
+        for key in keys where defaults.object(forKey: key) == nil {
+            if let value = legacy.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: marker)
     }
 
     var body: some Scene {

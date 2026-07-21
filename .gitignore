@@ -1,6 +1,6 @@
 .build/
 .DS_Store
-RadioFun.app/
+Squelch.app/
 *.xcodeproj
 .swiftpm/
 crash*.txt

@@ -19,7 +19,7 @@ final class DecodeController: ObservableObject {
     var audioTap: (([Float]) -> Void)?
 
     private let capture = AudioCapture()
-    private let decodeQueue = DispatchQueue(label: "radiofun.ft8.decode", qos: .userInitiated)
+    private let decodeQueue = DispatchQueue(label: "squelch.ft8.decode", qos: .userInitiated)
     private var decoder: FT8Decoder? // confined to decodeQueue
     private var timer: DispatchSourceTimer?
 

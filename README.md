@@ -1,6 +1,6 @@
-# RadioFun
+# Squelch
 
-Native macOS FT8 receive monitor for W0CJW. Decodes FT8 from a Digirig
+Native macOS digital-mode station for W0CJW (formerly "Squelch"). Decodes FT8 from a Digirig
 audio interface connected to a Yaesu FT-891, plots heard stations on a map,
 and keeps a persistent decode log.
 
@@ -10,8 +10,8 @@ under `Sources/CFT8/`.
 ## Build & run
 
 ```sh
-Scripts/make_app.sh      # builds release + creates RadioFun.app
-open RadioFun.app
+Scripts/make_app.sh      # builds release + creates Squelch.app
+open Squelch.app
 ```
 
 For development: `swift build`, `swift test`, or open `Package.swift` in Xcode.
@@ -27,7 +27,7 @@ For development: `swift build`, `swift test`, or open `Package.swift` in Xcode.
    - Menu `08-01 GM DISPLAY`… not needed; the relevant ones are
      `11-06 SSB PORT SELECT = USB` only matters for CAT/TX. For RX only,
      no menu changes are required.
-3. In RadioFun, pick the Digirig input (it shows up as "USB Audio Device" /
+3. In Squelch, pick the Digirig input (it shows up as "USB Audio Device" /
    "USB PnP Sound Device") and press **Start** (⌘R).
 4. Watch the input level meter in the status bar: adjust the radio's volume /
    Digirig RX level so it sits mid-scale, not pinned red.
@@ -45,7 +45,7 @@ keep the Mac's clock synced; FT8 depends on it).
   distance for every decode. Filter to CQ calls, messages calling W0CJW, or
   messages with grids; free-text search. Messages mentioning your call are
   highlighted. The log persists to
-  `~/Library/Application Support/RadioFun/decodes.jsonl`.
+  `~/Library/Application Support/Squelch/decodes.jsonl`.
 - **Settings** (⌘,): callsign, fallback grid square, dial frequency (for band
   logging), audio input device.
 
@@ -53,13 +53,13 @@ keep the Mac's clock synced; FT8 depends on it).
 
 - `Sources/CFT8/` — vendored ft8_lib + `glue.c`, a small C API
   (`cft8_feed` / `cft8_decode`) that Swift calls.
-- `Sources/RadioFun/Audio/` — CoreAudio device enumeration and AVAudioEngine
+- `Sources/Squelch/Audio/` — CoreAudio device enumeration and AVAudioEngine
   capture, resampled to the decoder's 12 kHz mono.
-- `Sources/RadioFun/Decoder/` — slot-aligned buffering and decode
+- `Sources/Squelch/Decoder/` — slot-aligned buffering and decode
   orchestration (`DecodeController`) plus the Swift wrapper (`FT8Decoder`).
-- `Sources/RadioFun/Parsing/` — FT8 message parsing and Maidenhead grid math.
-- `Sources/RadioFun/Store/` — decode log, station aggregation, persistence.
-- `Sources/RadioFun/Views/` — SwiftUI map, log table, status bar, settings.
+- `Sources/Squelch/Parsing/` — FT8 message parsing and Maidenhead grid math.
+- `Sources/Squelch/Store/` — decode log, station aggregation, persistence.
+- `Sources/Squelch/Views/` — SwiftUI map, log table, status bar, settings.
 
 ## Transmit (Reply / CQ / Tune)
 
@@ -68,7 +68,7 @@ via RTS on its serial port (`cu.usbserial-…`, auto-detected in Settings).
 A hard guard blocks TX unless the dial frequency is within Technician data
 privileges (28.000–28.300 MHz or 50 MHz+), and a 16 s watchdog force-drops
 PTT no matter what. Completed QSOs are logged to
-`~/Library/Application Support/RadioFun/qsos.jsonl`.
+`~/Library/Application Support/Squelch/qsos.jsonl`.
 
 - **Reply**: select a CQ row (toolbar button or right-click) — the app
   answers in the correct alternate slot and runs the standard exchange

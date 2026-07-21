@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>RadioFun</string>
+	<string>Squelch</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.watsoncj.radiofun</string>
+	<string>com.watsoncj.squelch</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>RadioFun</string>
+	<string>Squelch</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleDisplayName</key>
-	<string>RadioFun</string>
+	<string>Squelch</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -31,10 +31,10 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>RadioFun listens to the Digirig audio interface to decode FT8 transmissions from your radio.</string>
+	<string>Squelch listens to the Digirig audio interface to decode FT8 transmissions from your radio.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>RadioFun shows your station location on the map and computes distances to stations you hear.</string>
+	<string>Squelch shows your station location on the map and computes distances to stations you hear.</string>
 	<key>NSLocationUsageDescription</key>
-	<string>RadioFun shows your station location on the map and computes distances to stations you hear.</string>
+	<string>Squelch shows your station location on the map and computes distances to stations you hear.</string>
 </dict>
 </plist>

@@ -18,9 +18,7 @@ final class StateResolver: ObservableObject {
         if let fileURL {
             self.fileURL = fileURL
         } else {
-            let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("RadioFun", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = squelchSupportDirectory()
             self.fileURL = dir.appendingPathComponent("grid-states.json")
         }
         load()

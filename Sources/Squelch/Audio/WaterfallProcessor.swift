@@ -17,7 +17,7 @@ final class WaterfallProcessor: ObservableObject {
     private let hop = 1800 // 150 ms per row
     private let historyRows = 360 // ~54 s of history
 
-    private let queue = DispatchQueue(label: "radiofun.waterfall", qos: .utility)
+    private let queue = DispatchQueue(label: "squelch.waterfall", qos: .utility)
     private var fftSetup: FFTSetup?
     private var window = [Float]()
     private var pending = [Float]()

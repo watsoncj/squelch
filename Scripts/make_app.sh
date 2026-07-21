@@ -1,19 +1,19 @@
 #!/bin/zsh
-# Build RadioFun.app from the SwiftPM executable.
+# Build Squelch.app from the SwiftPM executable.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${1:-release}"
-APP="$ROOT/RadioFun.app"
+APP="$ROOT/Squelch.app"
 
 echo "Building ($CONFIG)…"
 swift build --package-path "$ROOT" -c "$CONFIG"
 
-BIN="$ROOT/.build/$CONFIG/RadioFun"
+BIN="$ROOT/.build/$CONFIG/Squelch"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/RadioFun"
+cp "$BIN" "$APP/Contents/MacOS/Squelch"
 cp "$ROOT/Scripts/Info.plist" "$APP/Contents/Info.plist"
 
 # App icon: rendered from the script so it's always regenerable

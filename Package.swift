@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "RadioFun",
+    name: "Squelch",
     platforms: [.macOS(.v14)],
     targets: [
         .target(
@@ -20,17 +20,17 @@ let package = Package(
             publicHeadersPath: "include"
         ),
         .executableTarget(
-            name: "RadioFun",
+            name: "Squelch",
             dependencies: ["CFT8", "CSerial"],
-            path: "Sources/RadioFun",
+            path: "Sources/Squelch",
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]
         ),
         .testTarget(
-            name: "RadioFunTests",
-            dependencies: ["RadioFun"],
-            path: "Tests/RadioFunTests",
+            name: "SquelchTests",
+            dependencies: ["Squelch"],
+            path: "Tests/SquelchTests",
             resources: [
                 .copy("Fixtures"),
             ],

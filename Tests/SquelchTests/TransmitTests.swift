@@ -1,5 +1,5 @@
 import XCTest
-@testable import RadioFun
+@testable import Squelch
 
 final class FT8EncoderTests: XCTestCase {
     /// Full round trip through our own DSP: encode → decode.

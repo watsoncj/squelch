@@ -1,6 +1,6 @@
 import XCTest
 import CoreLocation
-@testable import RadioFun
+@testable import Squelch
 
 final class FT8DecoderTests: XCTestCase {
     func testDecodesGeneratedWav() throws {

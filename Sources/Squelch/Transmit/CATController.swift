@@ -60,7 +60,7 @@ final class CATController: ObservableObject {
     @Published var lastError: String?
 
     private var fd: Int32 = -1
-    private let queue = DispatchQueue(label: "radiofun.cat", qos: .utility)
+    private let queue = DispatchQueue(label: "squelch.cat", qos: .utility)
     private var pollTimer: DispatchSourceTimer?
     private var pendingFrequencyMHz: Double? // QSY requested before connect finished
     private var retryWork: DispatchWorkItem?

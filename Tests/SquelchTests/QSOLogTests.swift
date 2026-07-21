@@ -1,5 +1,5 @@
 import XCTest
-@testable import RadioFun
+@testable import Squelch
 
 final class DecodeStoreTests: XCTestCase {
     func testOwnLoopbackStaysInLogButNotStations() {

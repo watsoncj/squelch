@@ -176,7 +176,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("RadioFun — FT8 Monitor")
+        .navigationTitle("Squelch")
     }
 
     private var selectedMessage: DecodedMessage? {

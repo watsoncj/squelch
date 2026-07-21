@@ -1,5 +1,5 @@
 import XCTest
-@testable import RadioFun
+@testable import Squelch
 
 final class WSPRTests: XCTestCase {
     /// Full round trip through the Swift wrappers and the vendored decoder.

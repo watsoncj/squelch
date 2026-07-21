@@ -1,4 +1,4 @@
-// Renders the RadioFun app icon at all required sizes.
+// Renders the Squelch app icon at all required sizes.
 // Usage: swift Scripts/make_icon.swift <output-dir>
 // Design: blue→teal gradient squircle, faint Maidenhead-grid texture,
 // concentric radio-wave arcs from a station dot, one amber "heard" cell.
