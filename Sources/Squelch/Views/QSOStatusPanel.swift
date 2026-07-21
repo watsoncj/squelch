@@ -32,8 +32,10 @@ struct QSOStatusPanel: View {
 
     private var transmittingChip: some View {
         chip(tint: .red, prominent: true) {
+            // Static icon on purpose: a repeating symbolEffect inside the
+            // toolbar re-commits the whole window every frame (main thread
+            // spent 44% blocked in CA commit waits — sluggish scrolling)
             Image(systemName: "antenna.radiowaves.left.and.right")
-                .symbolEffect(.variableColor.iterative, options: .repeating)
                 .foregroundStyle(.red)
             Text(transmit.isTuning
                  ? "TUNING"
@@ -58,7 +60,7 @@ struct QSOStatusPanel: View {
                 .foregroundStyle(.orange)
             Text("\(pending.call) calling · answering in")
                 .font(.callout)
-            TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            TimelineView(.periodic(from: .now, by: 1)) { context in
                 let remaining = max(0, pending.fireAt.timeIntervalSince(context.date).rounded(.up))
                 counterText(Int(remaining))
                     .font(.callout)
@@ -149,7 +151,7 @@ struct QSOStatusPanel: View {
     private var nextTXCountdown: some View {
         HStack(spacing: 3) {
             Text("TX in")
-            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+            TimelineView(.periodic(from: .now, by: 1)) { context in
                 let next = QSOSequencer.nextTXWindow(
                     parity: sequencer.txParity,
                     period: period,
