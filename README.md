@@ -1,6 +1,6 @@
 # Squelch
 
-Native macOS digital-mode station for W0CJW (formerly "Squelch"). Decodes FT8 from a Digirig
+Native macOS digital-mode station for W0CJW (formerly "RadioFun"). Decodes FT8 from a Digirig
 audio interface connected to a Yaesu FT-891, plots heard stations on a map,
 and keeps a persistent decode log.
 
