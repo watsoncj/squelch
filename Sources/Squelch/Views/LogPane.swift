@@ -26,6 +26,9 @@ struct SearchField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 13)
+        // Chromeless mode draws the magnifier without reserving space for
+        // it — drop it entirely; the SwiftUI wrapper supplies the icon
+        (field.cell as? NSSearchFieldCell)?.searchButtonCell = nil
         return field
     }
 
@@ -101,17 +104,23 @@ struct LogPane<Header: View>: View {
         // Maps-style under-scroll: the header is the list's top inset, so
         // rows rest below it but slide beneath its glass while scrolling
         .safeAreaInset(edge: .top, spacing: 0) {
+            // No extra material here: rows show through the panel's own
+            // glass while under-scrolling, exactly like Maps — the search
+            // capsule's fill provides its own contrast
             VStack(spacing: 0) {
                 header()
-                SearchField(text: $searchText, prompt: "Search call or message…")
-                    .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    SearchField(text: $searchText, prompt: "Search call or message…")
+                        .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 8)
             }
-            .background(.ultraThinMaterial)
         }
     }
 
