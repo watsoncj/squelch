@@ -179,10 +179,11 @@ final class WaterfallProcessor: ObservableObject {
             for x in 0..<width {
                 let idx = Int(row[x])
                 let color = palette[idx]
-                // Liquid-glass waterfall: alpha rides intensity, so the
-                // quiet background is mostly the panel's material and only
-                // signal traces paint solid. Premultiplied per bitmapInfo.
-                let alpha = 45 + (210 * idx) / 255
+                // Liquid-glass waterfall: alpha IS intensity — silence
+                // draws nothing (the panel material is the background,
+                // identical to the other panels) and signal traces paint
+                // toward solid. Premultiplied per bitmapInfo.
+                let alpha = idx
                 let p = base + x * 4
                 pixels[p] = UInt8(Int(color.0) * alpha / 255)
                 pixels[p + 1] = UInt8(Int(color.1) * alpha / 255)
