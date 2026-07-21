@@ -23,6 +23,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HSplitView {
                 MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage)
+                    .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                     .frame(minWidth: 400)
                     .layoutPriority(1)
                 LogPane(
@@ -44,6 +45,7 @@ struct ContentView: View {
         .overlay(alignment: .topLeading) {
             QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
         }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItemGroup {
                 Menu {

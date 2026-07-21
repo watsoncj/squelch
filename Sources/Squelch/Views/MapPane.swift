@@ -182,7 +182,8 @@ struct MapPane: View {
                     .padding(6)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
             }
-            .padding(10)
+            .padding(.top, 52) // clear the floating toolbar row
+            .padding([.trailing, .bottom], 10)
         }
         .overlay(alignment: .bottomLeading) {
             if let key = hoveredGrid, cellsByGrid[key] != nil {

@@ -512,6 +512,9 @@ struct SquelchApp: App {
             )
             .frame(minWidth: 980, minHeight: 620)
         }
+        // Apple Maps treatment: no title bar, content to the top edge,
+        // toolbar items floating over the map
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
 
         Window("QSO Log", id: "qso-log") {
