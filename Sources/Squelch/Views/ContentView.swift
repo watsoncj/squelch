@@ -65,7 +65,22 @@ struct ContentView: View {
                         LogPane(
                             store: store,
                             stateResolver: actions.stateResolver,
-                            selection: $selectedMessageID,
+                            // Selection and card-open must land in the SAME
+                            // transaction: the map computes its focus region
+                            // from the panel-obscured width, so opening the
+                            // card one update later would center the target
+                            // behind the panels
+                            selection: Binding(
+                                get: { selectedMessageID },
+                                set: { id in
+                                    selectedMessageID = id
+                                    if let id,
+                                       let call = store.messages.first(where: { $0.id == id })?.callsign,
+                                       call != myCallsign {
+                                        selectedStationCall = call
+                                    }
+                                }
+                            ),
                             onReply: { message in actions.reply(to: message) },
                             replyEnabled: txAvailable && sequencer.mode == .idle
                         )
@@ -209,12 +224,6 @@ struct ContentView: View {
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
                 }
-            }
-        }
-        .onChange(of: selectedMessageID) { _, _ in
-            // Selecting a feed row opens (or retargets) the station card
-            if let call = selectedMessage?.callsign, call != myCallsign {
-                selectedStationCall = call
             }
         }
         .onChange(of: digiMode) { _, raw in
