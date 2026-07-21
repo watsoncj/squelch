@@ -185,14 +185,16 @@ struct LogPane<Header: View>: View {
                         .foregroundStyle(message.snr >= 0 ? .green : .secondary)
                 }
                 HStack(spacing: 4) {
+                    // .secondary gets vibrancy-dimmed on the panel material;
+                    // plain primary at reduced opacity keeps more contrast
                     Text(secondLine)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary.opacity(0.8))
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(relativeAgeText(for: message.slotStart))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary.opacity(0.65))
                         .monospacedDigit()
                 }
             }
