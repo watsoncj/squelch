@@ -174,8 +174,31 @@ struct ContentView: View {
 
     /// Apple Maps sidebar: flush to the window's top-left, traffic lights
     /// floating over its header, toggle button top-right of the header.
+    /// The header rides as the list's top inset, so rows under-scroll
+    /// beneath its glass exactly like Maps.
     private var sidebar: some View {
-        VStack(spacing: 0) {
+        LogPane(
+            store: store,
+            stateResolver: actions.stateResolver,
+            // Selection and card-open must land in the SAME
+            // transaction: the map computes its focus region
+            // from the panel-obscured width, so opening the
+            // card one update later would center the target
+            // behind the panels
+            selection: Binding(
+                get: { selectedMessageID },
+                set: { id in
+                    selectedMessageID = id
+                    if let id,
+                       let call = store.messages.first(where: { $0.id == id })?.callsign,
+                       call != myCallsign {
+                        selectedStationCall = call
+                    }
+                }
+            ),
+            onReply: { message in actions.reply(to: message) },
+            replyEnabled: txAvailable && sequencer.mode == .idle
+        ) {
             HStack {
                 Spacer()
                 Button {
@@ -192,29 +215,6 @@ struct ContentView: View {
             .frame(height: 48)
             .contentShape(Rectangle())
             .gesture(WindowDragGesture()) // header drags the window, like Apple Maps
-
-                        LogPane(
-                            store: store,
-                            stateResolver: actions.stateResolver,
-                            // Selection and card-open must land in the SAME
-                            // transaction: the map computes its focus region
-                            // from the panel-obscured width, so opening the
-                            // card one update later would center the target
-                            // behind the panels
-                            selection: Binding(
-                                get: { selectedMessageID },
-                                set: { id in
-                                    selectedMessageID = id
-                                    if let id,
-                                       let call = store.messages.first(where: { $0.id == id })?.callsign,
-                                       call != myCallsign {
-                                        selectedStationCall = call
-                                    }
-                                }
-                            ),
-                            onReply: { message in actions.reply(to: message) },
-                            replyEnabled: txAvailable && sequencer.mode == .idle
-                        )
         }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity)

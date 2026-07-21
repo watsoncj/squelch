@@ -1,6 +1,12 @@
 import SwiftUI
 import AppKit
 
+/// SwiftUI list rows re-diff on every update; 5,000 rows at the UI tick
+/// rate pegged the main thread. Filters and search still scan the full
+/// log — only the rendered window is capped. (File-scope: generic types
+/// can't hold static stored properties.)
+private let maxFeedRows = 1200
+
 /// The standard mac search input (magnifier icon, built-in clear button,
 /// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
 /// doesn't fit a floating panel.
@@ -42,12 +48,15 @@ struct SearchField: NSViewRepresentable {
     }
 }
 
-struct LogPane: View {
+struct LogPane<Header: View>: View {
     @ObservedObject var store: DecodeStore
     @ObservedObject var stateResolver: StateResolver
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
     var replyEnabled = true
+    /// Rendered above the search field inside the glass header inset
+    /// (the sidebar toggle row in the main window).
+    @ViewBuilder var header: () -> Header
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
@@ -55,17 +64,7 @@ struct LogPane: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(spacing: 6) {
-            SearchField(text: $searchText, prompt: "Search call or message…")
-                .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-
-            List(visibleRows, selection: $selection) { msg in
+        List(visibleRows, selection: $selection) { msg in
                 FeedRow(
                     message: msg,
                     myCall: myCallsign,
@@ -97,13 +96,22 @@ struct LogPane: View {
                     }
                 }
             }
-            // Let the floating sidebar's material show through
-            .scrollContentBackground(.hidden)
-            // The panel ignores the top safe area (flush to the window top),
-            // which makes the NSTableView-backed List extend its canvas
-            // upward and draw scrolled rows over the header — unlike Maps,
-            // nothing may show north of the list. Hard clip.
-            .clipped()
+        // Let the floating sidebar's material show through
+        .scrollContentBackground(.hidden)
+        // Maps-style under-scroll: the header is the list's top inset, so
+        // rows rest below it but slide beneath its glass while scrolling
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                header()
+                SearchField(text: $searchText, prompt: "Search call or message…")
+                    .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
+            }
+            .background(.ultraThinMaterial)
         }
     }
 
@@ -172,13 +180,8 @@ struct LogPane: View {
         return result
     }
 
-    /// SwiftUI Table re-diffs every row on each update; 5,000 rows at the
-    /// UI tick rate pegged the main thread. Filters and search still scan
-    /// the full log — only the rendered window is capped.
-    private static let maxTableRows = 1200
-
     private var visibleRows: [DecodedMessage] {
-        Array(filtered.prefix(Self.maxTableRows))
+        Array(filtered.prefix(maxFeedRows))
     }
 
     /// "UT, USA" once a US station's grid has resolved to a state; otherwise
