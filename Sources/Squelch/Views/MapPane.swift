@@ -35,7 +35,6 @@ struct MapPane: View {
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
-    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @State private var showMapModes = false
     @Namespace private var mapScope
 
@@ -136,8 +135,6 @@ struct MapPane: View {
 
                 sideToggle("square.grid.3x3", isOn: $showGridCells,
                            help: "Show heard stations as highlighted grid squares")
-                sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
-                           help: "Show the waterfall strip (double-click it to move your TX offset)")
             }
             .buttonStyle(.borderless)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))

@@ -31,7 +31,7 @@ struct ContentView: View {
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
                     onSelectStation: { selectedStationCall = $0 },
                     leadingObscuredWidth: panelObscuredWidth,
-                    bottomObscuredHeight: showWaterfall ? 130 : 0)
+                    bottomObscuredHeight: showWaterfall ? 130 : 46) // 46 clears the reopen button
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
@@ -81,6 +81,25 @@ struct ContentView: View {
                             .padding(.leading, max(10, panelObscuredWidth + 10))
                             .padding(.bottom, 10)
                             .padding(.trailing, 10)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    // Waterfall closed: a lone glass toggle where it lived,
+                    // mirroring the sidebar's reopen button
+                    if !showWaterfall {
+                        Button {
+                            showWaterfall = true
+                        } label: {
+                            Image(systemName: "rectangle.bottomthird.inset.filled")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 38, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .help("Show the waterfall")
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 10)
                     }
                 }
             Divider()

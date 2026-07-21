@@ -8,6 +8,7 @@ struct WaterfallPane: View {
     @ObservedObject var transmit: TransmitController
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
+    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -103,6 +104,20 @@ struct WaterfallPane: View {
             .help(txLegal
                   ? "Double-click (or right-click) to move the TX offset. Single clicks do nothing."
                   : "Receive only on this frequency")
+            .overlay(alignment: .topTrailing) {
+                // Panel's own hide toggle, like the sidebar's
+                Button {
+                    showWaterfall = false
+                } label: {
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help("Hide the waterfall")
+                .padding(4)
+            }
         }
         .frame(height: 110)
         .clipped()
