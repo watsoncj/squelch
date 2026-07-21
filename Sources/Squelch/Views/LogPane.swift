@@ -13,6 +13,12 @@ struct SearchField: NSViewRepresentable {
         field.placeholderString = prompt
         field.delegate = context.coordinator
         field.sendsSearchStringImmediately = true
+        // Chromeless, Apple Maps style: the SwiftUI wrapper draws the
+        // translucent capsule; the field keeps its magnifier + clear button
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
         return field
     }
 
@@ -50,8 +56,11 @@ struct LogPane: View {
     var body: some View {
         VStack(spacing: 6) {
             SearchField(text: $searchText, prompt: "Search call or message…")
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 10)
-                .padding(.top, 6)
+                .padding(.top, 8)
                 .padding(.bottom, 2)
 
             List(visibleRows, selection: $selection) { msg in
