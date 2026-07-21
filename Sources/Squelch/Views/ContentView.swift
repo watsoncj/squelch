@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
+    @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -47,9 +48,19 @@ struct ContentView: View {
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
-            // Leading flexible space pushes the whole group to the trailing
-            // edge (macOS ignores placement-based alignment hints)
+            // Map style picker leads (over the map, next to the traffic
+            // lights); the flexible space pushes everything else to the
+            // trailing edge over the log pane.
             ToolbarItemGroup {
+                Picker("Map style", selection: $mapStyleRaw) {
+                    ForEach(MapStyleChoice.allCases) { choice in
+                        Text(choice.rawValue).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .help("Map appearance")
+
                 Spacer()
 
                 Menu {

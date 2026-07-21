@@ -158,32 +158,11 @@ struct MapPane: View {
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
         .overlay(alignment: .topTrailing) {
-            VStack(alignment: .trailing, spacing: 6) {
-                Picker("Map style", selection: $mapStyleRaw) {
-                    ForEach(MapStyleChoice.allCases) { choice in
-                        Text(choice.rawValue).tag(choice.rawValue)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 220)
+            Text("\(store.stations.count) stations heard")
+                .font(.caption)
+                .padding(6)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-
-                Button {
-                    camera = fitAllRegion()
-                } label: {
-                    Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
-                }
-                .buttonStyle(.bordered)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-
-                Text("\(store.stations.count) stations heard")
-                    .font(.caption)
-                    .padding(6)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-            }
-            .padding(.top, 52) // clear the floating toolbar row
-            .padding([.trailing, .bottom], 10)
+                .padding(10)
         }
         .overlay(alignment: .bottomLeading) {
             if let key = hoveredGrid, cellsByGrid[key] != nil {
