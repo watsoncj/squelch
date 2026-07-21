@@ -30,9 +30,10 @@ struct WaterfallPane: View {
                         .resizable()
                         .interpolation(.none)
                         .frame(width: geo.size.width, height: geo.size.height)
+                        .opacity(0.88) // let the map ghost through, like the other panels
                 } else {
-                    Rectangle()
-                        .fill(Color(red: 0.02, green: 0.04, blue: 0.12))
+                    // No fill: the panel's material shows through, matching
+                    // the sidebar's translucent look
                     Text(controller.isRunning
                          ? "Waterfall warming up…"
                          : "Waterfall appears when decoding starts")
