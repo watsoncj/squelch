@@ -231,8 +231,9 @@ struct ContentView: View {
     private var sidebarResizeHandle: some View {
         Rectangle()
             .fill(.clear)
-            .frame(width: 8)
+            .frame(width: 20)
             .contentShape(Rectangle())
+            .offset(x: -10) // straddle the panel edge: half over map, half inside
             .onHover { inside in
                 if inside {
                     NSCursor.resizeLeftRight.push()
