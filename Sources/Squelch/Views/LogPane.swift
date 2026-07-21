@@ -48,11 +48,13 @@ struct LogPane: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 0) {
+            // Opaque-ish header band so scrolling rows never fight the field
             SearchField(text: $searchText, prompt: "Search call or message…")
                 .padding(.horizontal, 10)
-                .padding(.top, 6)
-                .padding(.bottom, 2)
+                .padding(.vertical, 8)
+                .background(.bar)
+            Divider()
 
             List(visibleRows, selection: $selection) { msg in
                 FeedRow(
