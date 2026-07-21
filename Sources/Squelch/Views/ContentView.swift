@@ -79,7 +79,7 @@ struct ContentView: View {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
                         WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .padding(.leading, max(10, panelObscuredWidth + 10))
                             .padding(.bottom, 10)
@@ -180,7 +180,7 @@ struct ContentView: View {
         }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity)
-        .background(.regularMaterial)
+        .background(.thickMaterial) // regular lets bright map bleed through in light mode
         .clipShape(UnevenRoundedRectangle(
             topLeadingRadius: 0, bottomLeadingRadius: 12,
             bottomTrailingRadius: 12, topTrailingRadius: 0
