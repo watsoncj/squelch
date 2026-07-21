@@ -62,6 +62,9 @@ struct MapPane: View {
     /// until Metal allocation aborts (seen after an overnight session).
     @State private var cells: [GridCell] = []
     @State private var mapWidth: CGFloat = 0
+    /// Latest settled viewport, for the zoom buttons (updated on gesture
+    /// end only — per-frame updates would re-diff map content while panning)
+    @State private var visibleRegion: MKCoordinateRegion?
 
     private static let colorAgingTick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
@@ -155,7 +158,29 @@ struct MapPane: View {
             .buttonStyle(.borderless)
             .glassCapsule()
 
-            MapZoomStepper(scope: mapScope)
+            // Our own zoom capsule: the native MapZoomStepper's glass has a
+            // different base tint than glassCapsule and can't be restyled
+            VStack(spacing: 0) {
+                Button {
+                    zoom(by: 0.5)
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .help("Zoom in")
+                Button {
+                    zoom(by: 2)
+                } label: {
+                    Image(systemName: "minus")
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .help("Zoom out")
+            }
+            .padding(.vertical, 8)
+            .buttonStyle(.borderless)
+            .glassCapsule()
 
             MapCompass(scope: mapScope)
         }
@@ -171,6 +196,16 @@ struct MapPane: View {
                 .contentShape(Rectangle())
         }
         .help(help)
+    }
+
+    private func zoom(by factor: Double) {
+        guard let region = visibleRegion ?? camera.region else { return }
+        var r = region
+        r.span.latitudeDelta = min(max(r.span.latitudeDelta * factor, 0.02), 170)
+        r.span.longitudeDelta = min(max(r.span.longitudeDelta * factor, 0.04), 340)
+        withAnimation(.easeInOut(duration: 0.3)) {
+            camera = .region(r)
+        }
     }
 
     private func zoomToMyStation() {
@@ -295,6 +330,9 @@ struct MapPane: View {
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
         .mapControls { } // defaults off — the side stack provides them
+        .onMapCameraChange(frequency: .onEnd) { context in
+            visibleRegion = context.region
+        }
         .overlay(alignment: .bottomTrailing) {
             if showGridCells, let key = hoveredGrid, cellsByGrid[key] != nil {
                 let rows = hoverRows(forGrid: key)
