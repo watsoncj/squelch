@@ -39,12 +39,36 @@ struct ContentView: View {
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
                     // a window-move drag would otherwise ALSO pan the map.
-                    // This strip claims those drags as pure window moves.
+                    // This strip claims those drags as pure window moves —
+                    // but must never cover the sidebar (it eats clicks), so
+                    // it starts right of the panels / the floating toggle.
                     Color.clear
                         .frame(height: 52)
                         .contentShape(Rectangle())
                         .gesture(WindowDragGesture())
                         .ignoresSafeArea(edges: .top)
+                        .padding(.leading, showSidebar ? panelObscuredWidth + 10 : 130)
+                }
+                .overlay(alignment: .topLeading) {
+                    // Sidebar closed: a lone glass toggle next to the
+                    // traffic lights, Apple Maps style
+                    if !showSidebar {
+                        Button {
+                            showSidebar = true
+                        } label: {
+                            Image(systemName: "sidebar.leading")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 38, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .help("Show the sidebar")
+                        .padding(.leading, 84)
+                        .padding(.top, 11)
+                        .ignoresSafeArea(edges: .top)
+                    }
                 }
                 .overlay(alignment: .topLeading) {
                     if showSidebar {
@@ -62,7 +86,7 @@ struct ContentView: View {
                         WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .padding(.leading, max(10, panelObscuredWidth))
+                            .padding(.leading, max(10, panelObscuredWidth + 10))
                             .padding(.bottom, 10)
                             .padding(.trailing, 10)
                     }
@@ -117,13 +141,58 @@ struct ContentView: View {
         .navigationTitle("Squelch")
     }
 
-    /// Points of the map covered by the right-side floating panels.
+    /// Points of the map covered by the left-side floating panels.
     private var panelObscuredWidth: CGFloat {
-        showSidebar ? sidebarWidth + 20 + (selectedStationCall != nil ? 330 : 0) : 0
+        showSidebar ? sidebarWidth + (selectedStationCall != nil ? 330 : 0) : 0
     }
 
     private var panelStack: some View {
         HStack(alignment: .top, spacing: 10) {
+            sidebar
+            // Apple Maps-style detail card beside the sidebar
+            if let call = selectedStationCall {
+                StationDetailView(
+                    callsign: call,
+                    store: store,
+                    stateResolver: actions.stateResolver,
+                    qsoLog: qsoLog,
+                    location: location,
+                    onClose: { selectedStationCall = nil },
+                    onReply: { message in actions.reply(to: message) },
+                    replyEnabled: txAvailable && sequencer.mode == .idle
+                )
+                .frame(width: 320)
+                .frame(maxHeight: .infinity)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.top, 62) // clear the titlebar drag region
+                .padding(.bottom, 10)
+            }
+        }
+        .ignoresSafeArea(edges: .top)
+    }
+
+    /// Apple Maps sidebar: flush to the window's top-left, traffic lights
+    /// floating over its header, toggle button top-right of the header.
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    showSidebar = false
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Hide the sidebar")
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture()) // header drags the window, like Apple Maps
+
                         LogPane(
                             store: store,
                             stateResolver: actions.stateResolver,
@@ -146,35 +215,18 @@ struct ContentView: View {
                             onReply: { message in actions.reply(to: message) },
                             replyEnabled: txAvailable && sequencer.mode == .idle
                         )
-                        .frame(width: sidebarWidth)
-                        .frame(maxHeight: .infinity)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(alignment: .trailing) {
-                            sidebarResizeHandle
-                        }
-
-                        // Apple Maps-style detail card beside the sidebar
-                        if let call = selectedStationCall {
-                            StationDetailView(
-                                callsign: call,
-                                store: store,
-                                stateResolver: actions.stateResolver,
-                                qsoLog: qsoLog,
-                                location: location,
-                                onClose: { selectedStationCall = nil },
-                                onReply: { message in actions.reply(to: message) },
-                                replyEnabled: txAvailable && sequencer.mode == .idle
-                            )
-                            .frame(width: 320)
-                            .frame(maxHeight: .infinity)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
         }
-        // Below the toolbar's safe area — the titlebar drag strip must
-        // never sit over the search field
-        .padding([.top, .leading, .bottom], 10)
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial)
+        .clipShape(UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: 12,
+            bottomTrailingRadius: 12, topTrailingRadius: 0
+        ))
+        .overlay(alignment: .trailing) {
+            sidebarResizeHandle
+        }
+        .padding(.bottom, 10)
     }
 
     // Everything left-aligned over the map, so the floating sidebar
@@ -302,9 +354,6 @@ struct ContentView: View {
             Divider().frame(width: 26)
             sideToggle("rectangle.bottomthird.inset.filled", isOn: $showWaterfall,
                        help: "Show the waterfall strip (double-click it to move your TX offset)")
-            Divider().frame(width: 26)
-            sideToggle("sidebar.leading", isOn: $showSidebar,
-                       help: "Show or hide the messages panel")
         }
         .buttonStyle(.borderless)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
