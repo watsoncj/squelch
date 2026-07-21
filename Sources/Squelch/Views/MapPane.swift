@@ -252,10 +252,10 @@ struct MapPane: View {
                 }
             }
 
-            // Selected log row: highlight the stations involved in the
-            // contact. Two pins + the path between them for a directed
-            // message; one pin + the path from me for a CQ (or when the
-            // other side is me / unknown).
+            // Selected log row: highlight the involved stations' GRID
+            // SQUARES (a point marker at the grid center reads as a precise
+            // position and routinely lands in the ocean). Rendered even when
+            // the station has aged off the recency window.
             // ForEach keyed by message id so switching selection reliably
             // removes the previous arc (a bare conditional can leave a
             // stale polyline behind in MapKit's content diffing).
@@ -263,10 +263,10 @@ struct MapPane: View {
                 MapPolyline(coordinates: arc.coordinates, contourStyle: .geodesic)
                     .stroke(.blue, style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
             }
-            ForEach(selectedContactPoints) { point in
-                Annotation(point.id, coordinate: point.coordinate) {
-                    SelectedRing(label: point.label)
-                }
+            ForEach(selectedCellHighlights) { cell in
+                MapPolygon(coordinates: cell.corners)
+                    .foregroundStyle(.blue.opacity(0.18))
+                    .stroke(.blue.opacity(0.9), lineWidth: 2)
             }
 
             if let me = location.effectiveCoordinate() {
@@ -335,12 +335,11 @@ struct MapPane: View {
 
     /// The stations involved in the selected message that we can place:
     /// the sender, and — for directed messages — the addressee (from the
-    /// station cache). The addressee is skipped when it's me (my blue dot
-    /// and the line from it already show that side).
+    /// station cache). Used for the arc and camera framing; the visible
+    /// highlight is the grid square, not a point.
     private struct ContactPoint: Identifiable {
         let id: String
         let coordinate: CLLocationCoordinate2D
-        let label: String
     }
 
     private var selectedContactPoints: [ContactPoint] {
@@ -352,8 +351,7 @@ struct MapPane: View {
         if let senderCoord {
             points.append(ContactPoint(
                 id: message.callsign ?? "sender",
-                coordinate: senderCoord,
-                label: selectedLabel(for: message)
+                coordinate: senderCoord
             ))
         }
 
@@ -363,11 +361,47 @@ struct MapPane: View {
            let station = store.stations[addressee] {
             points.append(ContactPoint(
                 id: addressee,
-                coordinate: station.coordinate,
-                label: "\(addressee) · \(station.grid)"
+                coordinate: station.coordinate
             ))
         }
         return points
+    }
+
+    /// Blue-highlighted grid squares for the selected contact's stations.
+    private struct SelectedCell: Identifiable {
+        let id: String // call + grid
+        let corners: [CLLocationCoordinate2D]
+    }
+
+    private var selectedCellHighlights: [SelectedCell] {
+        guard let message = selectedMessage else { return [] }
+        var cells: [SelectedCell] = []
+
+        func append(call: String, grid: String?) {
+            let grid4 = grid ?? store.stations[call]?.grid
+            guard let grid4,
+                  let center = Maidenhead.coordinate(forGrid: String(grid4.prefix(4))) else { return }
+            cells.append(SelectedCell(
+                id: "\(call)-\(grid4.prefix(4))",
+                corners: [
+                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
+                ]
+            ))
+        }
+
+        if let call = message.callsign {
+            append(call: call, grid: message.grid)
+        }
+        if !message.isCQ,
+           let addressee = message.addressee,
+           addressee != myCallsign.uppercased(),
+           store.stations[addressee] != nil {
+            append(call: addressee, grid: nil)
+        }
+        return cells
     }
 
     private struct SelectedArc: Identifiable {
@@ -416,17 +450,6 @@ struct MapPane: View {
             camera = .region(adjustedForObscuredEdge(
                 MKCoordinateRegion(center: center, span: span), fitAll: false))
         }
-    }
-
-    private func selectedLabel(for message: DecodedMessage) -> String {
-        var parts: [String] = []
-        if let call = message.callsign { parts.append(call) }
-        if let grid = message.grid { parts.append(grid) }
-        if let km = message.distanceKm {
-            let unit = DistanceUnit.current(UserDefaults.standard.string(forKey: SettingsKeys.distanceUnit) ?? "")
-            parts.append(unit.text(fromKm: km))
-        }
-        return parts.isEmpty ? message.text : parts.joined(separator: " · ")
     }
 
     /// One highlighted region per occupied 4-character grid square.
@@ -587,33 +610,3 @@ struct MapModeFlyout: View {
     }
 }
 
-/// Highlight ring for the station selected in the log.
-/// Deliberately STATIC: animated content inside Map makes MapKit clear and
-/// rebuild the entire scene (all overlay renderables) every display-link
-/// frame — ~6k GPU allocations/s and unbounded memory growth whenever a
-/// row was selected.
-private struct SelectedRing: View {
-    let label: String
-
-    var body: some View {
-        VStack(spacing: 3) {
-            Text(label)
-                .font(.caption.bold())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(.blue, in: Capsule())
-                .foregroundStyle(.white)
-            ZStack {
-                Circle()
-                    .stroke(.blue.opacity(0.45), lineWidth: 5)
-                    .frame(width: 30, height: 30)
-                Circle()
-                    .stroke(.blue, lineWidth: 2.5)
-                    .frame(width: 24, height: 24)
-                Circle()
-                    .fill(.blue)
-                    .frame(width: 8, height: 8)
-            }
-        }
-    }
-}
