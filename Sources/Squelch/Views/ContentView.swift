@@ -18,7 +18,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
-    @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 540.0
+    @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
     @State private var devices: [AudioDevice] = []
@@ -225,6 +225,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // Feed-era migration: the column-table default width (540) reads
+            // as the new narrow default once
+            if sidebarWidth == 540 { sidebarWidth = 360 }
             devices = AudioDevices.inputDevices()
             autoSelectDigirig()
             if !cat.portPath.isEmpty {
@@ -272,7 +275,7 @@ struct ContentView: View {
                     .onChanged { value in
                         let start = sidebarDragStartWidth ?? sidebarWidth
                         sidebarDragStartWidth = start
-                        sidebarWidth = min(900, max(460, start - value.translation.width))
+                        sidebarWidth = min(900, max(300, start - value.translation.width))
                     }
                     .onEnded { _ in sidebarDragStartWidth = nil }
             )
