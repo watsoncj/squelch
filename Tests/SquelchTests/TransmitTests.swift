@@ -69,23 +69,55 @@ final class FT891CATTests: XCTestCase {
     }
 }
 
-final class TechLegalityTests: XCTestCase {
-    func testTenMeterDataSegment() {
-        XCTAssertTrue(TransmitController.isTechLegalMHz(28.074))
-        XCTAssertTrue(TransmitController.isTechLegalMHz(28.000))
-        XCTAssertTrue(TransmitController.isTechLegalMHz(28.300))
-        XCTAssertFalse(TransmitController.isTechLegalMHz(28.400)) // phone segment
+final class LicenseLegalityTests: XCTestCase {
+    func testTechnicianTenMeterDataSegment() {
+        XCTAssertTrue(TransmitController.isTXLegalMHz(28.074, license: .technician))
+        XCTAssertTrue(TransmitController.isTXLegalMHz(28.000, license: .technician))
+        XCTAssertTrue(TransmitController.isTXLegalMHz(28.300, license: .technician))
+        XCTAssertFalse(TransmitController.isTXLegalMHz(28.400, license: .technician)) // phone segment
     }
 
-    func testHFBandsAreBlocked() {
-        XCTAssertFalse(TransmitController.isTechLegalMHz(14.074)) // 20 m
-        XCTAssertFalse(TransmitController.isTechLegalMHz(7.074))  // 40 m
-        XCTAssertFalse(TransmitController.isTechLegalMHz(21.074)) // 15 m
+    func testTechnicianHFBandsAreBlocked() {
+        XCTAssertFalse(TransmitController.isTXLegalMHz(14.074, license: .technician)) // 20 m
+        XCTAssertFalse(TransmitController.isTXLegalMHz(7.074, license: .technician))  // 40 m
+        XCTAssertFalse(TransmitController.isTXLegalMHz(21.074, license: .technician)) // 15 m
     }
 
-    func testVHFAndUp() {
-        XCTAssertTrue(TransmitController.isTechLegalMHz(50.313)) // 6 m FT8
-        XCTAssertTrue(TransmitController.isTechLegalMHz(144.174))
+    func testVHFAndUpAllClasses() {
+        for license in LicenseClass.allCases {
+            XCTAssertTrue(TransmitController.isTXLegalMHz(50.313, license: license)) // 6 m FT8
+            XCTAssertTrue(TransmitController.isTXLegalMHz(144.174, license: license))
+        }
+    }
+
+    func testGeneralGetsHFDataSegments() {
+        // every standard FT8/FT4/WSPR preset is inside General data privileges
+        for preset in QSYPreset.all {
+            XCTAssertTrue(TransmitController.isTXLegalMHz(preset.mhz, license: .general),
+                          "\(preset.label) should be General-legal")
+        }
+        XCTAssertFalse(TransmitController.isTXLegalMHz(14.200, license: .general)) // phone
+        XCTAssertFalse(TransmitController.isTXLegalMHz(14.000, license: .general)) // Extra CW edge
+    }
+
+    func testExtraBandEdges() {
+        XCTAssertTrue(TransmitController.isTXLegalMHz(14.000, license: .extra))
+        XCTAssertTrue(TransmitController.isTXLegalMHz(7.000, license: .extra))
+        XCTAssertFalse(TransmitController.isTXLegalMHz(14.200, license: .extra)) // phone, still no data
+    }
+
+    func testPresetPartitionFollowsLicense() {
+        let techTX = QSYPreset.transmitLegal(for: .technician)
+        XCTAssertTrue(techTX.allSatisfy { $0.mhz >= 28.0 })
+        XCTAssertEqual(techTX.count + QSYPreset.receiveOnly(for: .technician).count,
+                       QSYPreset.all.count)
+        XCTAssertTrue(QSYPreset.receiveOnly(for: .general).isEmpty)
+        XCTAssertTrue(QSYPreset.receiveOnly(for: .extra).isEmpty)
+    }
+
+    func testDefaultsToTechnicianWhenUnset() {
+        UserDefaults.standard.removeObject(forKey: SettingsKeys.licenseClass)
+        XCTAssertEqual(LicenseClass.current, .technician)
     }
 }
 

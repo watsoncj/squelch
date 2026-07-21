@@ -16,6 +16,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
+    @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -64,16 +65,19 @@ struct ContentView: View {
                 Spacer()
 
                 Menu {
-                    ForEach(QSYPreset.transmitLegal) { preset in
+                    ForEach(QSYPreset.transmitLegal(for: licenseClass)) { preset in
                         Button(preset.label) {
                             actions.qsy(to: preset)
                         }
                     }
-                    Divider()
-                    Section("Receive only") {
-                        ForEach(QSYPreset.receiveOnly) { preset in
-                            Button(preset.label) {
-                                actions.qsy(to: preset)
+                    let rxOnly = QSYPreset.receiveOnly(for: licenseClass)
+                    if !rxOnly.isEmpty {
+                        Divider()
+                        Section("Receive only") {
+                            ForEach(rxOnly) { preset in
+                                Button(preset.label) {
+                                    actions.qsy(to: preset)
+                                }
                             }
                         }
                     }
@@ -192,8 +196,12 @@ struct ContentView: View {
         digiMode == DigiMode.wspr.rawValue
     }
 
+    private var licenseClass: LicenseClass {
+        LicenseClass(rawValue: licenseClassRaw) ?? .technician
+    }
+
     private var txLegal: Bool {
-        TransmitController.isTechLegalMHz(dialFrequencyMHz)
+        TransmitController.isTXLegalMHz(dialFrequencyMHz, license: licenseClass)
     }
 
     private var txAvailable: Bool {
@@ -208,7 +216,7 @@ struct ContentView: View {
 
     private var txDisabledReason: String? {
         if !txLegal {
-            return String(format: "%.3f MHz is outside Technician data privileges — TX disabled", dialFrequencyMHz)
+            return String(format: "%.3f MHz is outside %@ data privileges — TX disabled", dialFrequencyMHz, licenseClass.rawValue)
         }
         if !controller.isRunning {
             return "Start decoding first — the QSO sequencer needs receive slots"

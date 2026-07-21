@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject var cat: CATController
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.catPortPath) private var catPortPath = ""
     @AppStorage(SettingsKeys.catBaud) private var catBaud = 4800
     @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
@@ -22,6 +23,13 @@ struct SettingsView: View {
             Section("Station") {
                 TextField("Callsign", text: $myCallsign)
                     .textCase(.uppercase)
+
+                Picker("License class", selection: $licenseClassRaw) {
+                    ForEach(LicenseClass.allCases) { license in
+                        Text(license.rawValue).tag(license.rawValue)
+                    }
+                }
+                .help("Sets the TX frequency lock and the frequency menu's transmit/receive-only split (Advanced holders: pick General)")
 
                 TextField("Grid square (fallback)", text: $myGrid, prompt: Text("e.g. EN35"))
                     .help("Used for your map position and distances when Location Services is unavailable")

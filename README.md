@@ -65,9 +65,10 @@ keep the Mac's clock synced; FT8 depends on it).
 
 TX works through the same Digirig: FT8 audio out its speaker side, PTT keyed
 via RTS on its serial port (`cu.usbserial-…`, auto-detected in Settings).
-A hard guard blocks TX unless the dial frequency is within Technician data
-privileges (28.000–28.300 MHz or 50 MHz+), and a 16 s watchdog force-drops
-PTT no matter what. Completed QSOs are logged to
+A hard guard blocks TX unless the dial frequency is within the data
+privileges of the license class set in Settings (Technician / General /
+Amateur Extra — the frequency menu's "Receive only" section follows the
+same setting), and a 16 s watchdog force-drops PTT no matter what. Completed QSOs are logged to
 `~/Library/Application Support/Squelch/qsos.jsonl`.
 
 - **Reply**: select a CQ row (toolbar button or right-click) — the app
@@ -108,7 +109,7 @@ The **Beacon** button (replaces Reply/CQ in WSPR mode) transmits
 `W0CJW <grid> <power>` for 110.6 s in a fraction of the 2-minute windows
 (duty cycle and reported power in Settings → WSPR Beacon; set the reported
 power to your actual TX power). Transmissions use a random offset in the
-WSPR sub-band. The usual guards apply: Technician-legal dial, deterministic
+WSPR sub-band. The usual guards apply: license-legal dial, deterministic
 unkey at audio end, demo mode never keys.
 
 Decoding uses the `wsprd` chain (K1JT/K9AN, via VA2GKA's standalone port,

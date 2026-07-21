@@ -33,13 +33,9 @@ final class TransmitController: ObservableObject {
     /// Tune gets longer for antenna-tuner work, but still force-drops.
     private static let tuneWatchdogSeconds: TimeInterval = 60
 
-    /// Segments where a US Technician may transmit data/FT8.
-    static func isTechLegalMHz(_ mhz: Double) -> Bool {
-        (28.000...28.300).contains(mhz)   // 10 m data segment
-            || (50.0...54.0).contains(mhz)    // 6 m
-            || (144.0...148.0).contains(mhz)  // 2 m
-            || (222.0...225.0).contains(mhz)  // 1.25 m
-            || (420.0...450.0).contains(mhz)  // 70 cm
+    /// Hard TX lock: data privileges of the license class set in Settings.
+    static func isTXLegalMHz(_ mhz: Double, license: LicenseClass = .current) -> Bool {
+        license.canTransmitData(mhz: mhz)
     }
 
     var anyTXActive: Bool { isTransmitting || isTuning }
@@ -139,10 +135,10 @@ final class TransmitController: ObservableObject {
 
     private func checkLegalAndConfigured() -> Bool {
         let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
-        guard Self.isTechLegalMHz(dial) else {
+        guard Self.isTXLegalMHz(dial) else {
             txError = String(
-                format: "TX blocked: %.3f MHz is outside Technician data privileges (10 m: 28.000–28.300, or 50 MHz and up)",
-                dial
+                format: "TX blocked: %.3f MHz is outside %@ data privileges",
+                dial, LicenseClass.current.rawValue
             )
             return false
         }

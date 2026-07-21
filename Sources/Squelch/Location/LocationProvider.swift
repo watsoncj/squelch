@@ -71,6 +71,7 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
 
 enum SettingsKeys {
     static let myCallsign = "myCallsign"
+    static let licenseClass = "licenseClass"
     static let myGrid = "myGrid"
     static let dialFrequencyMHz = "dialFrequencyMHz"
     static let audioDeviceUID = "audioDeviceUID"
