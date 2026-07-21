@@ -19,6 +19,7 @@ struct SearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13)
         return field
     }
 
@@ -56,6 +57,7 @@ struct LogPane: View {
     var body: some View {
         VStack(spacing: 6) {
             SearchField(text: $searchText, prompt: "Search call or message…")
+                .frame(height: 20) // chromeless field needs an explicit height or its text overflows the capsule
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
@@ -97,6 +99,11 @@ struct LogPane: View {
             }
             // Let the floating sidebar's material show through
             .scrollContentBackground(.hidden)
+            // The panel ignores the top safe area (flush to the window top),
+            // which makes the NSTableView-backed List extend its canvas
+            // upward and draw scrolled rows over the header — unlike Maps,
+            // nothing may show north of the list. Hard clip.
+            .clipped()
         }
     }
 
@@ -141,7 +148,7 @@ struct LogPane: View {
                     Spacer(minLength: 8)
                     Text(relativeAgeText(for: message.slotStart))
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
             }
