@@ -26,9 +26,9 @@ struct MapPane: View {
     @ObservedObject var stateResolver: StateResolver
     var selectedMessage: DecodedMessage?
     var onSelectStation: ((String) -> Void)? = nil
-    /// Points of the map covered by the floating panels on the right —
+    /// Points of the map covered by the floating panels on the left —
     /// focus/fit regions shift so targets center in the visible strip.
-    var trailingObscuredWidth: CGFloat = 0
+    var leadingObscuredWidth: CGFloat = 0
     /// Points covered along the bottom (floating waterfall) — the hover
     /// card anchors above it.
     var bottomObscuredHeight: CGFloat = 0
@@ -102,13 +102,15 @@ struct MapPane: View {
     /// Recenter `region` so its target sits in the middle of the un-obscured
     /// strip, widening the span when fitting so nothing hides behind panels.
     private func adjustedForObscuredEdge(_ region: MKCoordinateRegion, fitAll: Bool) -> MKCoordinateRegion {
-        guard mapWidth > 0, trailingObscuredWidth > 0, trailingObscuredWidth < mapWidth else { return region }
+        guard mapWidth > 0, leadingObscuredWidth > 0, leadingObscuredWidth < mapWidth else { return region }
         var region = region
-        let fraction = trailingObscuredWidth / mapWidth
+        let fraction = leadingObscuredWidth / mapWidth
         if fitAll {
             region.span.longitudeDelta = min(region.span.longitudeDelta / (1 - fraction), 360)
         }
-        region.center.longitude += region.span.longitudeDelta * fraction / 2
+        // Panels cover the west side: pull the camera center west so the
+        // target lands mid-strip on the visible east side
+        region.center.longitude -= region.span.longitudeDelta * fraction / 2
         return region
     }
 
@@ -205,7 +207,7 @@ struct MapPane: View {
             }
         }
         .mapStyle((MapStyleChoice(rawValue: mapStyleRaw) ?? .standard).style)
-        .overlay(alignment: .bottomLeading) {
+        .overlay(alignment: .bottomTrailing) {
             if showGridCells, let key = hoveredGrid, cellsByGrid[key] != nil {
                 let rows = hoverRows(forGrid: key)
                 VStack(alignment: .leading, spacing: 4) {

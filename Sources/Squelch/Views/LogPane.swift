@@ -13,10 +13,6 @@ struct SearchField: NSViewRepresentable {
         field.placeholderString = prompt
         field.delegate = context.coordinator
         field.sendsSearchStringImmediately = true
-        // The cancel (X) button reports through target/action, not the
-        // text-change delegate
-        field.target = context.coordinator
-        field.action = #selector(Coordinator.searchChanged(_:))
         return field
     }
 
@@ -36,10 +32,6 @@ struct SearchField: NSViewRepresentable {
             guard let field = notification.object as? NSSearchField else { return }
             text.wrappedValue = field.stringValue
         }
-
-        @objc func searchChanged(_ sender: NSSearchField) {
-            text.wrappedValue = sender.stringValue
-        }
     }
 }
 
@@ -56,61 +48,46 @@ struct LogPane: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Opaque-ish header band so scrolling rows never fight the field
+        VStack(spacing: 6) {
             SearchField(text: $searchText, prompt: "Search call or message…")
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(.bar)
-            Divider()
+                .padding(.top, 6)
+                .padding(.bottom, 2)
 
-            // Plain ScrollView, not List: NSTableView-backed lists extend
-            // their canvas into the (ignored) top safe area of the floating
-            // panel and draw rows straight through the search header.
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(visibleRows) { msg in
-                        FeedRow(
-                            message: msg,
-                            myCall: myCallsign,
-                            countryText: countryText(for: msg),
-                            distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) }
-                        )
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(rowBackground(for: msg), in: RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture { selection = msg.id }
-                        .contextMenu { rowMenu(for: msg) }
-                        .help(msg.text) // raw FT8 text one hover away
+            List(visibleRows, selection: $selection) { msg in
+                FeedRow(
+                    message: msg,
+                    myCall: myCallsign,
+                    countryText: countryText(for: msg),
+                    distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) }
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(
+                    msg.mentions(myCallsign)
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.clear
+                )
+                .help(msg.text) // raw FT8 text one hover away
+            }
+            .listStyle(.plain)
+            .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
+                if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
+                    if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
+                        Button(replyEnabled
+                               ? (message.isCQ ? "Reply to \(call)" : "Answer \(call)")
+                               : "Reply requires decoding (press Start)") {
+                            onReply(message)
+                        }
+                        .disabled(!replyEnabled)
+                    }
+                    Button("Copy Message") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(message.text, forType: .string)
                     }
                 }
-                .padding(6)
             }
-            .clipped()
-        }
-    }
-
-    private func rowBackground(for msg: DecodedMessage) -> Color {
-        if selection == msg.id { return Color.accentColor.opacity(0.30) }
-        if msg.mentions(myCallsign) { return Color.accentColor.opacity(0.14) }
-        return .clear
-    }
-
-    @ViewBuilder
-    private func rowMenu(for message: DecodedMessage) -> some View {
-        if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
-            Button(replyEnabled
-                   ? (message.isCQ ? "Reply to \(call)" : "Answer \(call)")
-                   : "Reply requires decoding (press Start)") {
-                onReply(message)
-            }
-            .disabled(!replyEnabled)
-        }
-        Button("Copy Message") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.text, forType: .string)
+            // Let the floating sidebar's material show through
+            .scrollContentBackground(.hidden)
         }
     }
 

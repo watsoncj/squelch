@@ -33,7 +33,7 @@ struct ContentView: View {
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
                     onSelectStation: { selectedStationCall = $0 },
-                    trailingObscuredWidth: panelObscuredWidth,
+                    leadingObscuredWidth: panelObscuredWidth,
                     bottomObscuredHeight: showWaterfall ? 130 : 0)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
@@ -46,26 +46,28 @@ struct ContentView: View {
                         .gesture(WindowDragGesture())
                         .ignoresSafeArea(edges: .top)
                 }
-                .overlay(alignment: .topTrailing) {
+                .overlay(alignment: .topLeading) {
                     if showSidebar {
                         panelStack
                     }
                 }
-                .overlay(alignment: .bottomLeading) {
+                .overlay(alignment: .bottom) {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
                         WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .padding(.leading, 10)
+                            .padding(.leading, max(10, panelObscuredWidth))
                             .padding(.bottom, 10)
-                            .padding(.trailing, max(10, panelObscuredWidth))
+                            .padding(.trailing, 10)
                     }
                 }
             Divider()
             StatusBar(controller: controller, store: store, location: location, sequencer: sequencer, qsoLog: qsoLog, cat: cat)
         }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .topTrailing) {
+            // Panels live on the left now; QSO status floats over the map's
+            // free top-right corner
             QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions)
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
@@ -116,23 +118,6 @@ struct ContentView: View {
 
     private var panelStack: some View {
         HStack(alignment: .top, spacing: 10) {
-                        // Apple Maps-style detail card beside the sidebar
-                        if let call = selectedStationCall {
-                            StationDetailView(
-                                callsign: call,
-                                store: store,
-                                stateResolver: actions.stateResolver,
-                                qsoLog: qsoLog,
-                                location: location,
-                                onClose: { selectedStationCall = nil },
-                                onReply: { message in actions.reply(to: message) },
-                                replyEnabled: txAvailable && sequencer.mode == .idle
-                            )
-                            .frame(width: 320)
-                            .frame(maxHeight: .infinity)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
                         LogPane(
                             store: store,
                             stateResolver: actions.stateResolver,
@@ -159,14 +144,31 @@ struct ContentView: View {
                         .frame(maxHeight: .infinity)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(alignment: .leading) {
+                        .overlay(alignment: .trailing) {
                             sidebarResizeHandle
                         }
+
+                        // Apple Maps-style detail card beside the sidebar
+                        if let call = selectedStationCall {
+                            StationDetailView(
+                                callsign: call,
+                                store: store,
+                                stateResolver: actions.stateResolver,
+                                qsoLog: qsoLog,
+                                location: location,
+                                onClose: { selectedStationCall = nil },
+                                onReply: { message in actions.reply(to: message) },
+                                replyEnabled: txAvailable && sequencer.mode == .idle
+                            )
+                            .frame(width: 320)
+                            .frame(maxHeight: .infinity)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
         }
-        // toolbar items all sit left, so the sidebar can run the full
-        // window height, traffic-light row included
-        .padding([.top, .trailing, .bottom], 10)
-        .ignoresSafeArea(edges: .top)
+        // Below the toolbar's safe area — the titlebar drag strip must
+        // never sit over the search field
+        .padding([.top, .leading, .bottom], 10)
     }
 
     // Everything left-aligned over the map, so the floating sidebar
@@ -353,7 +355,7 @@ struct ContentView: View {
             .fill(.clear)
             .frame(width: 20)
             .contentShape(Rectangle())
-            .offset(x: -10) // straddle the panel edge: half over map, half inside
+            .offset(x: 10) // straddle the panel edge: half over map, half inside
             .onHover { inside in
                 if inside {
                     NSCursor.resizeLeftRight.push()
@@ -366,7 +368,7 @@ struct ContentView: View {
                     .onChanged { value in
                         let start = sidebarDragStartWidth ?? sidebarWidth
                         sidebarDragStartWidth = start
-                        sidebarWidth = min(900, max(300, start - value.translation.width))
+                        sidebarWidth = min(900, max(300, start + value.translation.width))
                     }
                     .onEnded { _ in sidebarDragStartWidth = nil }
             )
