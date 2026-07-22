@@ -22,6 +22,7 @@ struct CapsuleBar: View {
 /// Radial slot-progress ring; static draws on 1 s ticks, no animation.
 struct SlotRing: View {
     let fraction: Double
+    var tint: Color = .green
 
     var body: some View {
         ZStack {
@@ -29,7 +30,7 @@ struct SlotRing: View {
                 .stroke(Color.primary.opacity(0.18), lineWidth: 3)
             Circle()
                 .trim(from: 0, to: min(max(fraction, 0), 1))
-                .stroke(.green, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 15, height: 15)
@@ -146,14 +147,16 @@ struct QSOStatusPanel: View {
         chip(tint: model.beaconNextWindowWillTX ? .orange : .blue) {
             Image(systemName: "dot.radiowaves.up.forward")
                 .foregroundStyle(model.beaconNextWindowWillTX ? .orange : .blue)
-            Text(model.beaconNextWindowWillTX ? "Beacon: TX next window ·" : "Beacon armed ·")
+            Text(model.beaconNextWindowWillTX ? "Beacon: TX next window" : "Beacon armed")
                 .font(.callout)
+            // Radial fills over the 2-minute WSPR window, like the
+            // decode chip's slot ring
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let period = DigiMode.wspr.slotSeconds
-                let remaining = Int((period - context.date.timeIntervalSince1970
-                    .truncatingRemainder(dividingBy: period)).rounded(.down))
-                counterText(remaining)
-                    .font(.callout)
+                let fraction = context.date.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: period) / period
+                SlotRing(fraction: fraction,
+                         tint: model.beaconNextWindowWillTX ? .orange : .blue)
             }
             if !model.beaconNextWindowWillTX {
                 Button("TX next") {
