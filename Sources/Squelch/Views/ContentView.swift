@@ -80,6 +80,21 @@ struct ContentView: View {
                         panelStack
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    // Full screen: the toolbar auto-hides, so the radio
+                    // controls float over the map in a glass bar instead
+                    if isFullScreen {
+                        HStack(spacing: 12) {
+                            radioControls
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .glassCapsule()
+                        .padding(.top, 10)
+                        .padding(.trailing, 60) // clear the side control stack
+                    }
+                }
                 .overlay(alignment: .bottom) {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
@@ -113,7 +128,11 @@ struct ContentView: View {
         }
         .background(WindowAccessor(isFullScreen: $isFullScreen))
         .toolbarBackground(.hidden, for: .windowToolbar)
-        .toolbar { toolbarItems }
+        .toolbar {
+            if !isFullScreen {
+                toolbarItems
+            }
+        }
         .onChange(of: digiMode) { _, raw in
             if raw != DigiMode.wspr.rawValue {
                 actions.setWSPRBeacon(false)
@@ -241,7 +260,15 @@ struct ContentView: View {
             // live in the floating stack on the map's right side
             ToolbarItemGroup {
                 Spacer()
+                radioControls
+            }
+    }
 
+    /// The radio action cluster — lives in the toolbar in windowed mode and
+    /// in a floating glass bar over the map in full screen (where the
+    /// toolbar auto-hides).
+    @ViewBuilder
+    private var radioControls: some View {
                 // CAT trouble light: appears only when CAT is configured
                 // but disconnected, or the radio wandered off DATA-USB
                 if !cat.portPath.isEmpty,
@@ -340,7 +367,6 @@ struct ContentView: View {
                 .popover(isPresented: $showCheatsheet, arrowEdge: .bottom) {
                     CheatsheetView()
                 }
-            }
     }
 
     /// Frequency picker flyout, MapModeFlyout-style: real columns, current
