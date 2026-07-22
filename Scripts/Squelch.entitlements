@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Sandbox is mandatory for TestFlight/App Store on macOS -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Digirig RX audio -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<!-- CAT + PTT over the CP2105 USB serial bridge -->
+	<key>com.apple.security.device.serial</key>
+	<true/>
+	<!-- Map tiles, HamDB lookups -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- "Use My Location" grid fill in Settings -->
+	<key>com.apple.security.personal-information.location</key>
+	<true/>
+</dict>
+</plist>

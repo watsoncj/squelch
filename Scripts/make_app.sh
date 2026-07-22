@@ -26,8 +26,15 @@ swift "$ROOT/Scripts/make_icon.swift" "$ICON_TMP" >/dev/null
 iconutil -c icns "$ICON_TMP/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICON_TMP"
 
-# Ad-hoc signature so TCC (mic/location) prompts are attributed to the app
-codesign --force --sign - "$APP"
+# Ad-hoc signature so TCC (mic/location) prompts are attributed to the app.
+# SANDBOX=1 applies the App Store entitlements — for smoke-testing that
+# audio/serial/CAT survive the sandbox before a TestFlight upload.
+if [[ "${SANDBOX:-0}" == "1" ]]; then
+    codesign --force --sign - --entitlements "$ROOT/Scripts/Squelch.entitlements" "$APP"
+    echo "Signed SANDBOXED (App Store entitlements)"
+else
+    codesign --force --sign - "$APP"
+fi
 
 echo "Built $APP"
 echo "Launch with: open \"$APP\""
