@@ -8,6 +8,164 @@ setups.
 ![Squelch decoding 20m FT8 — a Tennessee station working Saudi Arabia,
 with the great-circle path drawn across the Atlantic](docs/screenshot.png)
 
+## Install
+
+Grab the notarized zip from
+[Releases](https://github.com/watsoncj/squelch/releases), unzip, and drag
+**Squelch.app** to Applications. Requires macOS 15 or later.
+
+To build from source:
+
+```sh
+Scripts/make_app.sh      # builds release + creates Squelch.app
+open Squelch.app
+```
+
+For development: `swift build`, `swift test`, or open `Package.swift` in
+Xcode. `Scripts/make_release.sh` is the sign/notarize/staple pipeline.
+
+## Hardware setup (FT-891 + Digirig)
+
+1. Connect the Digirig to the Mac by USB and to the radio per the Digirig
+   docs (the DR-891 kit is a single USB cable; the radio's own CAT bridge
+   passes through).
+2. FT-891 settings for FT8 receive:
+   - Mode: **DATA-USB** (FT8/FT4/WSPR are always upper sideband)
+   - Menu **08-05 DATA PTT SELECT** per your wiring (see PTT below)
+3. In Squelch: set your callsign, grid square, and license class in
+   Settings (⌘,) — the Digirig input is auto-selected when present — and
+   press **Start** (⌘R).
+4. Settings → Audio Input has a live level meter: adjust the radio volume /
+   Digirig RX level so it sits mid-scale, not pinned red.
+
+Decodes appear at the end of each slot (15 s FT8, 7.5 s FT4, 2 min WSPR).
+Keep the Mac's clock synced — these modes depend on it.
+
+## Features
+
+- **Map**: stations light up their Maidenhead grid square, aging red
+  (heard < 2 min) → orange (< 10 min) → fading gray, and drop off after an
+  hour — the map shows *current propagation*; the log keeps history. Click
+  a lit square or a feed row to open its station card. Map modes: standard,
+  hybrid, satellite, and a fully **offline** vector world (bundled
+  coastlines, nothing streamed).
+- **Feed**: a chronological sidebar of decodes as readable rows — flag,
+  callsign, SNR, and a plain-English summary ("Calling CQ from EN53 ·
+  WI, USA · 620 mi"). Searchable; rows calling you are highlighted; your
+  station's position comes from the grid in Settings (Location Services is
+  only touched by the explicit "Use My Location" button).
+- **Station card**: distance, great-circle bearing, SNR, first/last heard,
+  worked-before badge from your QSO log, the raw message thread (exact
+  times, DT, audio frequency), a keyless HamDB operator lookup (US/Canada),
+  and a QRZ link.
+- **Waterfall**: floating spectrogram panel; double-click (or right-click)
+  to move your TX offset. Signals paint on glass — silence is transparent.
+- **QSO log** (⌘L): sortable, searchable, with resolved state/country per
+  contact and manual add/edit for off-app QSOs. Persists to
+  `~/Library/Application Support/Squelch/qsos.jsonl` (decodes to
+  `decodes.jsonl` alongside).
+
+## Transmit (Reply / CQ)
+
+TX audio goes out the Digirig; PTT keys via **CAT** (`TX1;`/`TX0;`) when
+connected, or serial RTS as a fallback. A hard guard blocks TX unless the
+dial is inside the data privileges of the license class set in Settings
+(None/receive-only, Technician, General, Amateur Extra — the frequency
+picker's "Receive only" section follows the same setting), TX is blocked
+until a callsign is set, and a watchdog force-drops PTT no matter what.
+
+- **Reply**: click an answerable row (context menu or the station card's
+  Reply button) — the app answers in the correct alternate slot and runs
+  the standard exchange automatically: grid → R±NN → 73.
+- **Call CQ**: transmits `CQ <your call> <grid>` on the quieter slot
+  parity, answers whoever comes back, then resumes CQing. Auto-stops after
+  10 unanswered calls. Auto-answer of stations calling you is always
+  countdown-gated with a visible Cancel.
+- **Halt TX**: spacebar (or the Halt button on the red status chip) kills
+  everything instantly.
+
+### PTT wiring options
+
+- **Radio USB (this station's setup)**: the FT-891's USB port enumerates a
+  CP2105 dual bridge → two ports. `cu.usbserial-…0` (Enhanced) is CAT;
+  `cu.usbserial-…1` (Standard) is RTS PTT. With CAT connected, menu
+  **08-05 DATA PTT SELECT = DAKY** and CAT keying just work.
+- **Digirig serial**: single `cu.usbserial-…` port; select it as the PTT
+  port and set **08-05 DATA PTT SELECT = DAKY**.
+
+### First on-air TX checklist
+
+1. Dial 28.074 MHz (10 m FT8), mode DATA-USB, power low (5–10 W).
+2. Settings → Transmit: Digirig as audio output; PTT port or CAT connected.
+3. Arm the WSPR beacon with "TX next window" (or call one CQ) and watch
+   the radio's ALC: set the Mac's output volume so ALC barely moves.
+4. 5–25 W is plenty for FT8/WSPR — and the FT-891 runs hot on 100%-duty
+   digital modes above that anyway.
+
+## WSPR (receive + beacon)
+
+Pick a WSPR frequency from the frequency picker (e.g. 10 m WSPR,
+28.1246 MHz). Slots become 2 minutes; spots appear in the feed and light
+up the map — a live propagation view of who can hear whom.
+
+The **Beacon** button (replaces CQ in WSPR mode) transmits
+`<your call> <grid> <power>` for 110.6 s in a configurable fraction of
+windows (duty cycle in Settings → WSPR Beacon). With CAT connected the
+advertised power **follows the radio's actual power setting** (read-only —
+the app never changes the radio); without CAT, set the reported dBm
+manually. The usual guards apply.
+
+## CAT control & modes
+
+- **CAT (FT-891)**: Settings → CAT Control, pick the radio's *Enhanced*
+  serial port. Baud defaults to **Auto** — Squelch sweeps the rates the
+  radio supports and remembers the winner (or pin it to menu 05-06). Once
+  connected: the app's dial follows the radio's VFO, the frequency picker
+  QSYs the radio (and flips it to DATA-USB before TX), and an orange
+  toolbar light appears only when something's wrong (CAT offline, or the
+  radio wandered off DATA-USB).
+- **Modes**: FT8/FT4/WSPR travel with the frequency presets — picking
+  "28.1800 MHz · FT4 · 10m" switches both. Mode changes while decoding
+  stop the decoder; press Start again.
+
+## Known issues & workarounds
+
+- **Built-in trackpad goes sluggish during high-power TX** — system-wide,
+  not just in Squelch. This is RF interference with the trackpad's
+  capacitive sensor (common-mode current on the USB/feedline near the
+  desk), not software: it appears at high power (observed at 75 W),
+  vanishes at 5 W, and wired mice are immune. Workarounds: transmit at
+  lower power (25–40 W is plenty for digital modes), use a wired mouse, and
+  fix the RF at the source — mix-31 ferrite chokes on the USB run to the
+  Digirig and a common-mode choke on the feedline.
+- **FT-891 power gotcha**: data modes use the radio's **HF PWR / 50M PWR**
+  menu setting — *not* "HF SSB PWR", which applies to voice only. The
+  power Squelch reads via CAT (and the WSPR beacon advertises) is the
+  operative data-mode value.
+- **Offline map mode** intentionally hides streamed imagery; it renders
+  identically with or without a network.
+
+## Project layout
+
+- `Sources/CFT8/` — vendored ft8_lib + `glue.c` (FT8/FT4), and the `wsprd`
+  chain under `wspr/` with kiss_fft standing in for FFTW.
+- `Sources/Squelch/Audio/` — CoreAudio capture, waterfall DSP.
+- `Sources/Squelch/Decoder/` — slot-aligned buffering and decode
+  orchestration.
+- `Sources/Squelch/Parsing/` — FT8 message grammar, Maidenhead math,
+  callsign→country table.
+- `Sources/Squelch/Store/` — decode/QSO persistence, station aggregation,
+  HamDB lookups.
+- `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out.
+- `Sources/Squelch/Views/` — the SwiftUI map, feed, station card, panels.
+
+## Ideas for later
+
+- WSPRnet spot uploads (be part of the propagation database, not just a
+  reader of it).
+- Multi-caller queue when a CQ gets a pileup (currently first heard wins).
+- ADIF export of qsos.jsonl for LoTW / QRZ logging.
+
 ## License
 
 GPLv3 (see `LICENSE`). FT8/FT4 decoding uses
@@ -15,131 +173,3 @@ GPLv3 (see `LICENSE`). FT8/FT4 decoding uses
 `Sources/CFT8/`; WSPR decoding vendors the `wsprd` chain
 (K1JT/K9AN/VA2GKA, GPLv3) under `Sources/CFT8/wspr/`, which makes the
 combined work GPLv3.
-
-## Build & run
-
-```sh
-Scripts/make_app.sh      # builds release + creates Squelch.app
-open Squelch.app
-```
-
-For development: `swift build`, `swift test`, or open `Package.swift` in Xcode.
-
-## Hardware setup (FT-891 + Digirig)
-
-1. Connect the Digirig to the Mac by USB and to the radio's rear **DATA** port.
-2. FT-891 settings for FT8 receive:
-   - Mode: **DATA-USB** (upper sideband; FT8 is always USB)
-   - Tune to an FT8 frequency, e.g. **28.074 MHz** (10 m — within Technician
-     data privileges if you later transmit). Others: 21.074 (15 m),
-     14.074 (20 m), 7.074 (40 m) — receive is fine on any band.
-   - Menu `08-01 GM DISPLAY`… not needed; the relevant ones are
-     `11-06 SSB PORT SELECT = USB` only matters for CAT/TX. For RX only,
-     no menu changes are required.
-3. In Squelch, pick the Digirig input (it shows up as "USB Audio Device" /
-   "USB PnP Sound Device") and press **Start** (⌘R).
-4. Watch the input level meter in the status bar: adjust the radio's volume /
-   Digirig RX level so it sits mid-scale, not pinned red.
-
-Decodes appear at the end of each 15-second FT8 slot (:00/:15/:30/:45 UTC —
-keep the Mac's clock synced; FT8 depends on it).
-
-## Features
-
-- **Map**: every station heard with a grid square gets a pin (red = heard in
-  the last 2 min, orange = 10 min, gray = older). Blue dot is your station —
-  from Location Services, or the grid square set in Settings as a fallback.
-  Hover a pin for grid, distance, and SNR.
-- **Log**: UTC time, SNR, time offset, audio frequency, message, grid, and
-  distance for every decode. Filter to CQ calls, messages calling W0CJW, or
-  messages with grids; free-text search. Messages mentioning your call are
-  highlighted. The log persists to
-  `~/Library/Application Support/Squelch/decodes.jsonl`.
-- **Settings** (⌘,): callsign, fallback grid square, dial frequency (for band
-  logging), audio input device.
-
-## Project layout
-
-- `Sources/CFT8/` — vendored ft8_lib + `glue.c`, a small C API
-  (`cft8_feed` / `cft8_decode`) that Swift calls.
-- `Sources/Squelch/Audio/` — CoreAudio device enumeration and AVAudioEngine
-  capture, resampled to the decoder's 12 kHz mono.
-- `Sources/Squelch/Decoder/` — slot-aligned buffering and decode
-  orchestration (`DecodeController`) plus the Swift wrapper (`FT8Decoder`).
-- `Sources/Squelch/Parsing/` — FT8 message parsing and Maidenhead grid math.
-- `Sources/Squelch/Store/` — decode log, station aggregation, persistence.
-- `Sources/Squelch/Views/` — SwiftUI map, log table, status bar, settings.
-
-## Transmit (Reply / CQ / Tune)
-
-TX works through the same Digirig: FT8 audio out its speaker side, PTT keyed
-via RTS on its serial port (`cu.usbserial-…`, auto-detected in Settings).
-A hard guard blocks TX unless the dial frequency is within the data
-privileges of the license class set in Settings (Technician / General /
-Amateur Extra — the frequency menu's "Receive only" section follows the
-same setting), and a 16 s watchdog force-drops PTT no matter what. Completed QSOs are logged to
-`~/Library/Application Support/Squelch/qsos.jsonl`.
-
-- **Reply**: select a CQ row (toolbar button or right-click) — the app
-  answers in the correct alternate slot and runs the standard exchange
-  automatically: grid → R±NN → 73.
-- **Call CQ**: transmits `CQ W0CJW <grid>` on the quieter slot parity,
-  answers whoever comes back (report → RR73), then resumes CQing.
-  Auto-stops after 10 unanswered calls.
-- **Tune**: steady tone for setting drive level.
-- **Halt TX** (spacebar on the red banner) kills everything instantly.
-
-### PTT wiring options
-
-- **Radio USB (this station's setup)**: the FT-891's USB port enumerates a
-  CP2105 dual bridge → two ports. `cu.usbserial-…0` (Enhanced) is CAT;
-  `cu.usbserial-…1` (Standard) is PTT. Select the `…1` port and set menu
-  **08-05 DATA PTT SELECT = RTS**.
-- **Digirig serial**: single `cu.usbserial-…` port; select it and set
-  **08-05 DATA PTT SELECT = DAKY** (audio and PTT both via the DATA jack).
-
-### First on-air TX checklist
-
-1. Dummy load on, dial 28.074 MHz, mode DATA-USB.
-2. FT-891 menu **08-05 DATA PTT SELECT** per the wiring above (RTS here).
-3. Settings → Transmit: Digirig as audio output; PTT port per above.
-4. Press **Tune**: radio should key and show power. Set Mac output volume so
-   ALC barely moves (start low!). Power ≤ 25 W; 5–10 W is plenty for FT8.
-5. Antenna back on, find a clear audio offset, work someone.
-
-## WSPR (receive + 10m beacon)
-
-Switch the mode control to **WSPR** (or pick "10m WSPR — 28.1246" from the
-frequency menu, which sets both). Slots become 2 minutes; spots appear in
-the log as `WSPR CALL GRID PdBm` rows and light up the map like any other
-station — a live propagation view of who can hear whom.
-
-The **Beacon** button (replaces Reply/CQ in WSPR mode) transmits
-`W0CJW <grid> <power>` for 110.6 s in a fraction of the 2-minute windows
-(duty cycle and reported power in Settings → WSPR Beacon; set the reported
-power to your actual TX power). Transmissions use a random offset in the
-WSPR sub-band. The usual guards apply: license-legal dial, deterministic
-unkey at audio end, demo mode never keys.
-
-Decoding uses the `wsprd` chain (K1JT/K9AN, via VA2GKA's standalone port,
-GPL v3) vendored under `Sources/CFT8/wspr/` with kiss_fft substituted for
-FFTW. The encoder implements standard WSPR packing as the exact inverse of
-wsprd's unpackers, verified by loopback tests.
-
-## CAT control & modes
-
-- **CAT (FT-891)**: Settings → CAT Control, pick the radio's *Enhanced* USB
-  serial port (`cu.usbserial-…0`) and the baud from menu 05-06 (factory
-  4800). Once connected, the app's dial frequency follows the radio's VFO,
-  and the toolbar frequency menu QSYs the radio directly (and flips it to
-  DATA-USB). The status bar shows the radio's current mode.
-- **FT4**: the toolbar FT8/FT4 switch changes mode (7.5 s slots, ~2.5× faster
-  QSOs, same message format). The frequency menu's presets carry the right
-  mode — picking "10m FT4 — 28.180" switches both. Mode changes while
-  decoding stop the decoder; press Start again.
-
-## Ideas for later
-
-- Multi-caller queue when a CQ gets a pileup (currently first heard wins).
-- ADIF export of qsos.jsonl for LoTW / QRZ logging.
-- Waterfall display with click-to-set TX offset.
