@@ -10,6 +10,20 @@ enum FT891CAT {
     static let setDataUSB = "MD0C;"
     static let pttOn = "TX1;"
     static let pttOff = "TX0;"
+    static let readPower = "PC;"
+
+    /// "PC005;" → 5 (watts)
+    static func parsePowerResponse(_ response: String) -> Int? {
+        guard response.hasPrefix("PC"), response.hasSuffix(";") else { return nil }
+        let digits = response.dropFirst(2).dropLast()
+        guard digits.count == 3, digits.allSatisfy(\.isNumber) else { return nil }
+        return Int(digits)
+    }
+
+    /// 5 → "PC005;" (FT-891 range is 5–100 W)
+    static func setPowerCommand(watts: Int) -> String {
+        String(format: "PC%03d;", min(max(watts, 5), 100))
+    }
 
     /// "FA014074000;" → 14.074
     static func parseFrequencyResponse(_ response: String) -> Double? {
@@ -57,6 +71,7 @@ final class CATController: ObservableObject {
     @Published private(set) var isConnected = false
     @Published private(set) var radioFrequencyMHz: Double?
     @Published private(set) var radioModeName: String?
+    @Published private(set) var radioPowerWatts: Int?
     @Published var lastError: String?
 
     private var fd: Int32 = -1
@@ -162,6 +177,7 @@ final class CATController: ObservableObject {
         isConnected = false
         radioFrequencyMHz = nil
         radioModeName = nil
+        radioPowerWatts = nil
         if oldFD >= 0 {
             queue.async { cserial_close(oldFD) }
         }
@@ -222,14 +238,27 @@ final class CATController: ObservableObject {
         guard fd >= 0 else { return }
         let freqReply = Self.transact(fd: fd, command: FT891CAT.readFrequency)
         let modeReply = Self.transact(fd: fd, command: FT891CAT.readMode)
+        let powerReply = Self.transact(fd: fd, command: FT891CAT.readPower)
         let mhz = freqReply.flatMap(FT891CAT.parseFrequencyResponse)
         let mode = modeReply.flatMap(FT891CAT.parseModeResponse)
+        let watts = powerReply.flatMap(FT891CAT.parsePowerResponse)
         DispatchQueue.main.async { [weak self] in
-            self?.apply(frequency: mhz, mode: mode)
+            self?.apply(frequency: mhz, mode: mode, powerWatts: watts)
         }
     }
 
-    private func apply(frequency: Double?, mode: String?) {
+    /// Set RF power (WSPR beacon sync uses this; there is deliberately no
+    /// general power UI — the app only displays the radio's setting).
+    func setPower(watts: Int) {
+        guard isConnected else { return }
+        let fd = self.fd
+        queue.async { [weak self] in
+            _ = Self.transact(fd: fd, command: FT891CAT.setPowerCommand(watts: watts))
+            self?.pollOnce()
+        }
+    }
+
+    private func apply(frequency: Double?, mode: String?, powerWatts: Int? = nil) {
         if let frequency {
             radioFrequencyMHz = frequency
             // Keep the app's dial setting in lockstep with the radio
@@ -237,6 +266,9 @@ final class CATController: ObservableObject {
         }
         if let mode {
             radioModeName = mode
+        }
+        if let powerWatts {
+            radioPowerWatts = powerWatts
         }
     }
 

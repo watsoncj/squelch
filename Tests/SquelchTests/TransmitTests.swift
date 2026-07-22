@@ -43,6 +43,16 @@ final class FT8EncoderTests: XCTestCase {
 }
 
 final class FT891CATTests: XCTestCase {
+    func testPowerCommandFraming() {
+        XCTAssertEqual(FT891CAT.parsePowerResponse("PC005;"), 5)
+        XCTAssertEqual(FT891CAT.parsePowerResponse("PC100;"), 100)
+        XCTAssertNil(FT891CAT.parsePowerResponse("PC;"))
+        XCTAssertNil(FT891CAT.parsePowerResponse("FA014074000;"))
+        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 5), "PC005;")
+        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 200), "PC100;") // clamped
+        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 1), "PC005;")   // clamped
+    }
+
     func testParseFrequencyResponse() {
         XCTAssertEqual(FT891CAT.parseFrequencyResponse("FA014074000;"), 14.074)
         XCTAssertEqual(FT891CAT.parseFrequencyResponse("FA028074000;"), 28.074)

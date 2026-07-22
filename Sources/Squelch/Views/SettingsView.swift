@@ -112,6 +112,14 @@ struct SettingsView: View {
             }
 
             Section("Transmit") {
+                if cat.isConnected, let watts = cat.radioPowerWatts {
+                    LabeledContent("Radio TX power") {
+                        Text("\(watts) W")
+                            .monospacedDigit()
+                    }
+                    .help("Read from the radio via CAT. The WSPR beacon syncs this to its reported dBm; otherwise set it on the radio.")
+                }
+
                 Picker("Audio output", selection: $audioOutputUID) {
                     Text("System default").tag("")
                     ForEach(outputDevices) { device in

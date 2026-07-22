@@ -237,7 +237,20 @@ final class AppModel: ObservableObject {
             beaconWindowsSinceTX = 0
             decideNextBeaconWindow()
             scheduleBeaconTick()
+            syncRadioPowerToWSPR()
         }
+    }
+
+    /// Honest advertising: when CAT is up, set the radio's RF power to the
+    /// beacon's reported dBm so WSPRnet spots match what actually left the
+    /// antenna. Skipped when the dBm isn't representable (FT-891: 5–100 W).
+    private func syncRadioPowerToWSPR() {
+        guard cat.isConnected else { return }
+        let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
+        let power = dbm > 0 ? dbm : 37
+        let watts = Int((pow(10.0, Double(power - 30) / 10.0)).rounded())
+        guard (5...100).contains(watts) else { return }
+        cat.setPower(watts: watts)
     }
 
     /// Force the upcoming window to transmit (verification / impatience).
@@ -298,6 +311,7 @@ final class AppModel: ObservableObject {
         let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
         let power = dbm > 0 ? dbm : 37
         let offset = Double.random(in: 1420...1580)
+        syncRadioPowerToWSPR() // dBm setting may have changed since arming
         if transmit.transmitWSPR(call: call, grid4: grid4, dbm: power, offsetHz: offset) {
             beaconWindowsSinceTX = 0
             // No synthetic "TX WSPR" log row: the RF loopback decode of our
