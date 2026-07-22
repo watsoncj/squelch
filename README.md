@@ -5,6 +5,9 @@ and work the world from an edge-to-edge propagation map. Built for a
 Digirig audio interface and a Yaesu FT-891 (CAT), adaptable to similar
 setups.
 
+![Squelch decoding 20m FT8 — a Tennessee station working Saudi Arabia,
+with the great-circle path drawn across the Atlantic](docs/screenshot.png)
+
 ## License
 
 GPLv3 (see `LICENSE`). FT8/FT4 decoding uses
