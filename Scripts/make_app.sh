@@ -16,6 +16,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Squelch"
 cp "$ROOT/Scripts/Info.plist" "$APP/Contents/Info.plist"
 
+# SwiftPM resource bundle (offline basemap, etc.) — Bundle.module looks in
+# the main bundle's Resources
+cp -R "$ROOT/.build/$CONFIG/Squelch_Squelch.bundle" "$APP/Contents/Resources/"
+
 # App icon: rendered from the script so it's always regenerable
 ICON_TMP=$(mktemp -d)
 swift "$ROOT/Scripts/make_icon.swift" "$ICON_TMP" >/dev/null

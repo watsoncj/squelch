@@ -8,6 +8,9 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
     case standard = "Map"
     case hybrid = "Hybrid"
     case satellite = "Satellite"
+    /// No-network field mode: bundled Natural Earth coastlines render as
+    /// polygons over the (blank) basemap — nothing streams from Apple.
+    case offline = "Offline"
 
     var id: String { rawValue }
 
@@ -16,8 +19,34 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
         case .standard: return .standard(elevation: .flat)
         case .hybrid: return .hybrid(elevation: .flat)
         case .satellite: return .imagery(elevation: .flat)
+        case .offline: return .standard(elevation: .flat, pointsOfInterest: .excludingAll)
         }
     }
+}
+
+/// Bundled world landmass (Natural Earth 110m, public domain) for the
+/// offline map mode. 127 polygons, loaded once on first use.
+enum OfflineBasemap {
+    struct LandPolygon: Identifiable {
+        let id: Int
+        let coordinates: [CLLocationCoordinate2D]
+    }
+
+    static let landPolygons: [LandPolygon] = {
+        guard let url = Bundle.module.url(forResource: "ne_110m_land", withExtension: "geojson"),
+              let data = try? Data(contentsOf: url),
+              let features = try? MKGeoJSONDecoder().decode(data) else { return [] }
+        var polygons: [LandPolygon] = []
+        for case let feature as MKGeoJSONFeature in features {
+            for case let polygon as MKPolygon in feature.geometry {
+                var coords = [CLLocationCoordinate2D](
+                    repeating: CLLocationCoordinate2D(), count: polygon.pointCount)
+                polygon.getCoordinates(&coords, range: NSRange(location: 0, length: polygon.pointCount))
+                polygons.append(LandPolygon(id: polygons.count, coordinates: coords))
+            }
+        }
+        return polygons
+    }()
 }
 
 extension View {
@@ -254,6 +283,17 @@ struct MapPane: View {
 
     private var mapContent: some View {
         Map(position: $camera, scope: mapScope) {
+            // Offline mode: bundled coastlines stand in for streamed tiles.
+            // Static constant collection — identity never changes, so
+            // MapKit encodes these polygons exactly once.
+            if mapStyleRaw == MapStyleChoice.offline.rawValue {
+                ForEach(OfflineBasemap.landPolygons) { land in
+                    MapPolygon(coordinates: land.coordinates)
+                        .foregroundStyle(Color.gray.opacity(0.35))
+                        .stroke(Color.gray.opacity(0.7), lineWidth: 0.5)
+                }
+            }
+
             // Heard stations light up their Maidenhead grid squares
             if showGridCells {
                 ForEach(cells) { cell in
@@ -498,6 +538,7 @@ struct MapModeFlyout: View {
         case .standard: return "map"
         case .hybrid: return "square.3.layers.3d.top.filled"
         case .satellite: return "globe.americas.fill"
+        case .offline: return "wifi.slash"
         }
     }
 

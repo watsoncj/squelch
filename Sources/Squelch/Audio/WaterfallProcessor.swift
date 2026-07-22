@@ -236,6 +236,14 @@ final class WaterfallProcessor: ObservableObject {
             (0.86, (222, 192, 124)),
             (1.00, (255, 255, 255)),
         ]),
+        // Offline: neutral grays matching the coastline rendering
+        .offline: makePalette([
+            (0.00, (12, 12, 16)),
+            (0.40, (70, 74, 84)),
+            (0.68, (140, 148, 160)),
+            (0.86, (220, 210, 150)),
+            (1.00, (255, 255, 255)),
+        ]),
     ]
 
     static func makePalette(_ stops: [(Double, (Double, Double, Double))]) -> [(UInt8, UInt8, UInt8)] {
