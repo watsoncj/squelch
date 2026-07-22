@@ -117,7 +117,7 @@ struct SettingsView: View {
                         Text("\(watts) W")
                             .monospacedDigit()
                     }
-                    .help("Read from the radio via CAT. The WSPR beacon syncs this to its reported dBm; otherwise set it on the radio.")
+                    .help("The radio's operative TX power via CAT — for data modes the FT-891 uses its HF/50M PWR setting, NOT HF SSB PWR (that one is voice-only). The WSPR beacon syncs this to its reported dBm.")
                 }
 
                 Picker("Audio output", selection: $audioOutputUID) {
