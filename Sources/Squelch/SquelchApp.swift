@@ -131,7 +131,7 @@ final class AppModel: ObservableObject {
     private func runSequencer(results: [FT8Result], slotStart: Date) {
         let period = controller.mode.slotSeconds
         let parity = Int(slotStart.timeIntervalSince1970 / period) % 2
-        sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
 
         if sequencer.mode != .idle {
@@ -160,7 +160,7 @@ final class AppModel: ObservableObject {
     /// on, whose late reply re-engages within the grace window regardless.
     private func considerAutoAnswer(results: [FT8Result], theirParity: Int, period: Double) {
         guard pendingReply == nil else { return }
-        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW").uppercased()
+        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
         guard let candidate = Self.callCandidate(in: results, myCall: myCall) else { return }
 
         let autoAnswerOn = UserDefaults.standard.bool(forKey: SettingsKeys.autoAnswer)
@@ -289,7 +289,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        let call = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        let call = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         let grid4 = String((location.effectiveGrid ?? "").prefix(4))
         guard grid4.count == 4 else {
             beaconWindowsSinceTX += 1
@@ -312,7 +312,7 @@ final class AppModel: ObservableObject {
         guard requireDecoding() else { return }
         pendingReply = nil
         let period = controller.mode.slotSeconds
-        let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myCall = myCall
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
         let lastParity = UserDefaults.standard.integer(forKey: SettingsKeys.lastCQParity)
@@ -369,7 +369,7 @@ final class AppModel: ObservableObject {
         guard let call = message.callsign else { return }
         pendingReply = nil
         let period = controller.mode.slotSeconds
-        sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "W0CJW"
+        sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
         let theirParity = message.slotParity(slotSeconds: period)
 
@@ -463,8 +463,7 @@ struct SquelchApp: App {
         Self.migrateRadioFunSettings()
         // First-run defaults
         UserDefaults.standard.register(defaults: [
-            SettingsKeys.myCallsign: "W0CJW",
-            SettingsKeys.dialFrequencyMHz: 28.074,
+                        SettingsKeys.dialFrequencyMHz: 14.074,
             SettingsKeys.digiMode: DigiMode.ft8.rawValue,
             SettingsKeys.catBaud: 4800,
             SettingsKeys.wsprPowerDBm: 37,

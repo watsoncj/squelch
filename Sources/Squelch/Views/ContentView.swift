@@ -11,10 +11,10 @@ struct ContentView: View {
     @ObservedObject var actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
-    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
-    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
+    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true

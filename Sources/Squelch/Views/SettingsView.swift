@@ -4,7 +4,7 @@ struct SettingsView: View {
     @ObservedObject var cat: CATController
     @ObservedObject var location: LocationProvider
 
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.catPortPath) private var catPortPath = ""
     @AppStorage(SettingsKeys.catBaud) private var catBaud = 4800
@@ -21,7 +21,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Station") {
-                TextField("Callsign", text: $myCallsign)
+                TextField("Callsign", text: $myCallsign, prompt: Text("e.g. W1AW"))
                     .textCase(.uppercase)
 
                 Picker("License class", selection: $licenseClassRaw) {
@@ -60,7 +60,7 @@ struct SettingsView: View {
 
             Section("Display") {
                 Picker("Time", selection: Binding(
-                    get: { UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? TimeDisplay.utc.rawValue },
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? TimeDisplay.local.rawValue },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.timeDisplay) }
                 )) {
                     ForEach(TimeDisplay.allCases) { choice in

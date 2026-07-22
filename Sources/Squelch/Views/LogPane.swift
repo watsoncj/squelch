@@ -95,8 +95,8 @@ struct LogPane<Header: View>: View {
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
-    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.local.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
     @State private var searchText = ""
@@ -147,6 +147,38 @@ struct LogPane<Header: View>: View {
         // Symmetry: same soft fade where rows exit at the panel's bottom
         .bottomFadeBar()
         .onReceive(feedAgeTick) { ageNow = $0 }
+        .overlay {
+            if visibleRows.isEmpty {
+                emptyState
+            }
+        }
+    }
+
+    /// First-run guidance (or an empty search result).
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            if store.messages.isEmpty {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.largeTitle)
+                    .foregroundStyle(.primary.opacity(0.4))
+                Text("No decodes yet")
+                    .font(.headline)
+                Text("Connect your radio's audio interface, set your callsign and grid square, then press Start (⌘R).")
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                SettingsLink {
+                    Text("Open Settings…")
+                }
+                .controlSize(.small)
+            } else {
+                Text("No matches")
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.6))
+            }
+        }
+        .padding(24)
+        .allowsHitTesting(store.messages.isEmpty) // let the settings link click
     }
 
     private var headerContent: some View {

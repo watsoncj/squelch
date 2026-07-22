@@ -15,8 +15,8 @@ struct StationDetailView: View {
     var onReply: ((DecodedMessage) -> Void)? = nil
     var replyEnabled = true
 
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
-    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.local.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
     @State private var ageNow = Date()
     @ObservedObject private var directory = CallsignDirectory.shared

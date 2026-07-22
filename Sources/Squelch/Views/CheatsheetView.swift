@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Quick reference for reading FT8 messages, shown as a popover from the log.
 struct CheatsheetView: View {
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
 
     var body: some View {
         ScrollView {

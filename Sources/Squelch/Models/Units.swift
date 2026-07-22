@@ -43,7 +43,7 @@ enum TimeDisplay: String, CaseIterable, Identifiable {
     }
 
     static func current(_ raw: String) -> TimeDisplay {
-        TimeDisplay(rawValue: raw) ?? .utc
+        TimeDisplay(rawValue: raw) ?? .local
     }
 
     static let utcDayTimeFormatter: DateFormatter = {

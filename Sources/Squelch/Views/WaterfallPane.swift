@@ -8,9 +8,9 @@ struct WaterfallPane: View {
     @ObservedObject var transmit: TransmitController
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
-    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = true
+    @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
-    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
 
     @State private var hoverX: CGFloat?

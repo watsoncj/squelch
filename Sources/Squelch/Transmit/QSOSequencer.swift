@@ -46,7 +46,7 @@ final class QSOSequencer: ObservableObject {
     @Published private(set) var stateDescription = "TX idle"
     @Published private(set) var currentPartner: String?
 
-    var myCall = "W0CJW"
+    var myCall = ""
     var myGrid4 = ""
     var maxRetries = 3
     var maxUnansweredCQ = 10

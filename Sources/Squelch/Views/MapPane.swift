@@ -96,7 +96,7 @@ struct MapPane: View {
     /// Points of the map covered by the floating panels on the left —
     /// focus/fit regions shift so targets center in the visible strip.
     var leadingObscuredWidth: CGFloat = 0
-    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
+    @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
     @State private var showMapModes = false

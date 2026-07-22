@@ -193,7 +193,7 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(DistanceUnit.current("Kilometers"), .kilometers)
         XCTAssertEqual(DistanceUnit.current("bogus"), .miles) // default
         XCTAssertEqual(TimeDisplay.current("Local"), .local)
-        XCTAssertEqual(TimeDisplay.current(""), .utc) // default
+        XCTAssertEqual(TimeDisplay.current(""), .local) // default
         XCTAssertEqual(TimeDisplay.utc.formatter.timeZone.secondsFromGMT(), 0)
     }
 

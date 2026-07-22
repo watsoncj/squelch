@@ -5,7 +5,7 @@ import SwiftUI
 struct QSOLogView: View {
     @ObservedObject var qsoLog: QSOLog
     @ObservedObject var stateResolver: StateResolver
-    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
+    @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.local.rawValue
 
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
@@ -162,7 +162,7 @@ private struct QSOFormSheet: View {
     let existing: QSORecord?
     let onSave: (QSORecord) -> Void
 
-    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 28.074
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
 
     @State private var callsign: String
     @State private var grid: String

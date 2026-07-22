@@ -134,6 +134,12 @@ final class TransmitController: ObservableObject {
     // MARK: - Internals
 
     private func checkLegalAndConfigured() -> Bool {
+        let call = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !call.isEmpty else {
+            txError = "TX blocked: set your callsign in Settings first"
+            return false
+        }
         let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
         guard Self.isTXLegalMHz(dial) else {
             txError = LicenseClass.current == .unlicensed
