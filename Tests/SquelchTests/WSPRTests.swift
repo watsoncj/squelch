@@ -83,3 +83,51 @@ final class WSPRTests: XCTestCase {
         XCTAssertTrue(DigiMode.ft8.supportsQSO)
     }
 }
+
+final class WSPRCodecTests: XCTestCase {
+    func testPackUnpackRoundTrip() {
+        for (call, grid, dbm) in [("W0CJW", "DM79", 37), ("K1AB", "FN42", 30),
+                                  ("G4JNT", "IO90", 23), ("VE6CV", "DO31", 40)] {
+            let n = WSPRCodec.packCallsign(call)
+            XCTAssertNotNil(n, call)
+            XCTAssertEqual(WSPRCodec.unpackCallsign(n!), call)
+            let m = WSPRCodec.packGridPower(grid: grid, dBm: dbm)
+            XCTAssertNotNil(m, grid)
+            let gp = WSPRCodec.unpackGridPower(m!)
+            XCTAssertEqual(gp?.grid, grid)
+            XCTAssertEqual(gp?.dBm, dbm)
+        }
+    }
+
+    func testSpecInvariants() {
+        XCTAssertEqual(WSPRCodec.syncVector.count, 162)
+        XCTAssertEqual(WSPRCodec.syncVector.reduce(0) { $0 + Int($1) }, 63) // checksum of the spec constant
+        XCTAssertEqual(WSPRCodec.interleaveMap.count, 162)
+        XCTAssertEqual(Set(WSPRCodec.interleaveMap).count, 162) // permutation
+        let bits = WSPRCodec.messageBits(call: "W0CJW", grid: "DM79", dBm: 37)
+        XCTAssertEqual(bits?.count, 50)
+        XCTAssertEqual(WSPRCodec.convolve(bits!).count, 162)
+    }
+
+    func testRejectsInvalidInput() {
+        XCTAssertNil(WSPRCodec.packCallsign("NODIGITS"))
+        XCTAssertNil(WSPRCodec.packGridPower(grid: "ZZ99", dBm: 37)) // Z > R
+        XCTAssertNil(WSPRCodec.packGridPower(grid: "DM79", dBm: 61))
+    }
+
+    /// THE clean-room gate: audio synthesized purely from the public spec
+    /// must decode in the independently-implemented (vendored) decoder.
+    /// Any packing/polynomial/interleave/sync mistake fails this.
+    func testCleanRoomEncoderAgainstOracle() throws {
+        var audio = try XCTUnwrap(
+            WSPRCodec.audio(call: "W0CJW", grid: "DM79", dBm: 37, offsetHz: 1507.3)
+        )
+        audio.append(contentsOf: [Float](repeating: 0, count: 119 * 12000 - audio.count))
+        let spots = WSPRDecoderEngine.decodeSlot(audio, rcall: "W0CJW", rgrid: "DM79", dialHz: 28_124_600)
+        XCTAssertEqual(spots.count, 1, "oracle decoder found no signal — codec conventions wrong")
+        XCTAssertEqual(spots.first?.call, "W0CJW")
+        XCTAssertEqual(spots.first?.grid, "DM79")
+        XCTAssertEqual(spots.first?.powerDBm, 37)
+        XCTAssertEqual(spots.first.map { Double($0.frequencyHz) } ?? 0, 28_124_600 + 1507.3, accuracy: 3)
+    }
+}
