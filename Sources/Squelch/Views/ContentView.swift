@@ -85,7 +85,7 @@ struct ContentView: View {
                     // controls float over the map in a glass bar instead
                     if isFullScreen {
                         HStack(spacing: 14) {
-                            radioControls
+                            radioControls(inToolbar: false)
                         }
                         .buttonStyle(.borderless)
                         // Match the windowed toolbar's rendering: labels are
@@ -264,15 +264,17 @@ struct ContentView: View {
             // live in the floating stack on the map's right side
             ToolbarItemGroup {
                 Spacer()
-                radioControls
+                radioControls(inToolbar: true)
             }
     }
 
     /// The radio action cluster — lives in the toolbar in windowed mode and
     /// in a floating glass bar over the map in full screen (where the
-    /// toolbar auto-hides).
+    /// toolbar auto-hides). The toolbar's glass group gives its leftmost
+    /// item almost no inset, so custom chips need their own breathing room
+    /// there; the fullscreen bar pads its edges itself.
     @ViewBuilder
-    private var radioControls: some View {
+    private func radioControls(inToolbar: Bool) -> some View {
                 // CAT trouble light: appears only when CAT is configured
                 // but disconnected, or the radio wandered off DATA-USB
                 if !cat.portPath.isEmpty,
@@ -285,7 +287,8 @@ struct ContentView: View {
                             .font(.callout)
                     }
                     .foregroundStyle(.orange)
-                    .padding(.horizontal, 6)
+                    .padding(.leading, inToolbar ? 14 : 6)
+                    .padding(.trailing, 6)
                     .help(cat.isConnected
                           ? "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB (the app switches it before TX)"
                           : (cat.lastError ?? "CAT not connected — radio off? Retrying automatically."))
@@ -293,7 +296,8 @@ struct ContentView: View {
 
                 // Status chip: TX / answer / session / beacon / error /
                 // decoding vitals — appears only when something is happening
-                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller)
+                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller,
+                               edgeInset: inToolbar ? 14 : 8)
 
                 Button {
                     showFrequencies.toggle()
