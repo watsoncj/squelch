@@ -2,7 +2,6 @@
 #ifndef CFT8_H
 #define CFT8_H
 
-#include "wspr_glue.h"
 
 #include <stdbool.h>
 #include <stdint.h>

@@ -144,14 +144,16 @@ manually. The usual guards apply.
   operative data-mode value.
 - **Offline map mode** intentionally hides streamed imagery; it renders
   identically with or without a network.
+- **WSPR type-2/3 messages** (compound callsigns like `W0CJW/P`,
+  6-character locators) are not decoded — the clean-room decoder handles
+  standard type-1 spots, which are the overwhelming majority.
 
 ## Project layout
 
-- `Sources/CFT8/` — vendored ft8_lib + `glue.c` (FT8/FT4), and the `wsprd`
-  chain under `wspr/` with kiss_fft standing in for FFTW.
+- `Sources/CFT8/` — vendored ft8_lib + `glue.c` (FT8/FT4) with kiss_fft.
 - `Sources/Squelch/Audio/` — CoreAudio capture, waterfall DSP.
-- `Sources/Squelch/Decoder/` — slot-aligned buffering and decode
-  orchestration.
+- `Sources/Squelch/Decoder/` — slot-aligned buffering, decode
+  orchestration, and the clean-room Swift WSPR codec + decoder.
 - `Sources/Squelch/Parsing/` — FT8 message grammar, Maidenhead math,
   callsign→country table.
 - `Sources/Squelch/Store/` — decode/QSO persistence, station aggregation,
@@ -168,8 +170,9 @@ manually. The usual guards apply.
 
 ## License
 
-GPLv3 (see `LICENSE`). FT8/FT4 decoding uses
-[ft8_lib](https://github.com/kgoba/ft8_lib) (MIT), vendored under
-`Sources/CFT8/`; WSPR decoding vendors the `wsprd` chain
-(K1JT/K9AN/VA2GKA, GPLv3) under `Sources/CFT8/wspr/`, which makes the
-combined work GPLv3.
+MIT (see `LICENSE`). FT8/FT4 decoding uses
+[ft8_lib](https://github.com/kgoba/ft8_lib) (MIT) with kiss_fft (BSD),
+vendored under `Sources/CFT8/`. WSPR encoding and decoding are a
+clean-room Swift implementation written from the public protocol
+specification (G4JNT, "The WSPR Coding Process") — Squelch contains no
+WSJT-X/wsprd code.

@@ -131,3 +131,79 @@ final class WSPRCodecTests: XCTestCase {
         XCTAssertEqual(spots.first.map { Double($0.frequencyHz) } ?? 0, 28_124_600 + 1507.3, accuracy: 3)
     }
 }
+
+final class WSPRCleanRoomDecoderTests: XCTestCase {
+    private func slotAudio(call: String, grid: String, dBm: Int, offsetHz: Double,
+                           noiseRMS: Float = 0) -> [Float] {
+        var audio = WSPRCodec.audio(call: call, grid: grid, dBm: dBm, offsetHz: offsetHz)!
+        audio.append(contentsOf: [Float](repeating: 0, count: 119 * 12000 - audio.count))
+        if noiseRMS > 0 {
+            var seed: UInt64 = 0x5eed_50f7
+            func rand() -> Float {
+                // xorshift → uniform → approx gaussian via sum of 4
+                var s: Float = 0
+                for _ in 0..<4 {
+                    seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17
+                    s += Float(seed % 100000) / 100000.0 - 0.5
+                }
+                return s // variance ≈ 4/12 → rms ≈ 0.577
+            }
+            for i in 0..<audio.count {
+                audio[i] += rand() * noiseRMS * 1.732
+            }
+        }
+        return audio
+    }
+
+    func testCleanDecode() throws {
+        let results = WSPRDecoder.decode(slotAudio(call: "W0CJW", grid: "DM79", dBm: 37, offsetHz: 1507.3))
+        XCTAssertEqual(results.count, 1)
+        let r = try XCTUnwrap(results.first)
+        XCTAssertEqual(r.call, "W0CJW")
+        XCTAssertEqual(r.grid, "DM79")
+        XCTAssertEqual(r.dBm, 37)
+        XCTAssertEqual(r.audioFrequencyHz, 1507.3, accuracy: 2.0)
+    }
+
+    func testDecodeAtBandEdgesAndOtherMessages() throws {
+        for (call, grid, dbm, freq) in [("K1AB", "FN42", 30, 1420.0),
+                                        ("G4JNT", "IO90", 23, 1580.0),
+                                        ("VE6CV", "DO31", 40, 1500.0)] {
+            let results = WSPRDecoder.decode(slotAudio(call: call, grid: grid, dBm: dbm, offsetHz: freq))
+            XCTAssertEqual(results.first?.call, call, "at \(freq)")
+            XCTAssertEqual(results.first?.grid, grid)
+            XCTAssertEqual(results.first?.dBm, dbm)
+        }
+    }
+
+    func testDecodeInNoise() throws {
+        // Signal amplitude 0.5 (encoder), noise rms 1.0 → SNR in 2500 Hz
+        // ≈ 10·log10((0.125)/(1.0² · 2500/6000)) ≈ -5 dB… iterate levels
+        // downward and require decodes through a solidly negative SNR.
+        for noise in [Float(1.0), 2.0, 4.0] {
+            let results = WSPRDecoder.decode(
+                slotAudio(call: "W0CJW", grid: "DM79", dBm: 37, offsetHz: 1492.0, noiseRMS: noise))
+            XCTAssertEqual(results.first?.call, "W0CJW", "failed at noise rms \(noise)")
+            XCTAssertEqual(results.first?.grid, "DM79")
+        }
+    }
+
+    func testNoFalseDecodesOnNoise() {
+        var noise = [Float](repeating: 0, count: 119 * 12000)
+        var seed: UInt64 = 0xDEAD_BEEF
+        for i in 0..<noise.count {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17
+            noise[i] = Float(seed % 100000) / 100000.0 - 0.5
+        }
+        XCTAssertEqual(WSPRDecoder.decode(noise).count, 0)
+    }
+
+    func testTwoSimultaneousSignals() throws {
+        var a = slotAudio(call: "W0CJW", grid: "DM79", dBm: 37, offsetHz: 1460)
+        let b = slotAudio(call: "K1AB", grid: "FN42", dBm: 30, offsetHz: 1540)
+        for i in 0..<a.count { a[i] += b[i] }
+        let calls = Set(WSPRDecoder.decode(a).map(\.call))
+        XCTAssertTrue(calls.contains("W0CJW"), "decoded: \(calls)")
+        XCTAssertTrue(calls.contains("K1AB"), "decoded: \(calls)")
+    }
+}
