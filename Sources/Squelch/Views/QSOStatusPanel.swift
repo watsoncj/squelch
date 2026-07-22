@@ -94,6 +94,15 @@ struct QSOStatusPanel: View {
                  ? "TUNING"
                  : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText))
                 .font(.callout.weight(.semibold).monospaced())
+            // Progress through the slot window (2 min for a WSPR beacon,
+            // 15 s for FT8) — red to match the TX state
+            if !transmit.isTuning {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let fraction = context.date.timeIntervalSince1970
+                        .truncatingRemainder(dividingBy: period) / period
+                    SlotRing(fraction: fraction, tint: .red)
+                }
+            }
             // Plain bordered: a prominent red tint here bleeds across the
             // whole toolbar glass container and drowns the text
             Button("Halt") {
