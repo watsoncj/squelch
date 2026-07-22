@@ -1,11 +1,17 @@
 # Squelch
 
-Native macOS digital-mode station for W0CJW (formerly "RadioFun"). Decodes FT8 from a Digirig
-audio interface connected to a Yaesu FT-891, plots heard stations on a map,
-and keeps a persistent decode log.
+A map-first FT8/FT4/WSPR station for macOS. Native SwiftUI — decode, log,
+and work the world from an edge-to-edge propagation map. Built for a
+Digirig audio interface and a Yaesu FT-891 (CAT), adaptable to similar
+setups.
 
-Decoding uses [ft8_lib](https://github.com/kgoba/ft8_lib) (MIT), vendored
-under `Sources/CFT8/`.
+## License
+
+GPLv3 (see `LICENSE`). FT8/FT4 decoding uses
+[ft8_lib](https://github.com/kgoba/ft8_lib) (MIT), vendored under
+`Sources/CFT8/`; WSPR decoding vendors the `wsprd` chain
+(K1JT/K9AN/VA2GKA, GPLv3) under `Sources/CFT8/wspr/`, which makes the
+combined work GPLv3.
 
 ## Build & run
 
