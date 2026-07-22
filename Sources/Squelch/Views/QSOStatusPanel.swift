@@ -1,5 +1,42 @@
 import SwiftUI
 
+/// Animation-free progress bar: draws in one pass, invalidates nothing.
+/// (Gauge/ProgressView animate via AppKit and keep window layout hot.)
+struct CapsuleBar: View {
+    let fraction: Double
+    let tint: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.15))
+                Capsule()
+                    .fill(tint)
+                    .frame(width: max(4, geo.size.width * min(max(fraction, 0), 1)))
+            }
+        }
+        .animation(nil, value: fraction)
+    }
+}
+
+/// Radial slot-progress ring; static draws on 1 s ticks, no animation.
+struct SlotRing: View {
+    let fraction: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.18), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: min(max(fraction, 0), 1))
+                .stroke(.green, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 15, height: 15)
+        .animation(nil, value: fraction)
+    }
+}
+
 /// The single TX/session status surface — a compact chip that lives in the
 /// toolbar, left of the frequency selector. Priority: transmitting (red,
 /// Halt) → armed auto-answer (orange, Cancel) → active sequencer session
@@ -31,53 +68,25 @@ struct QSOStatusPanel: View {
         }
     }
 
-    /// Lowest priority: decoding vitals (was the status bar) — slot
-    /// countdown, input level, last slot's decode count.
+    /// Lowest priority: decoding vitals — a radial ring for the slot
+    /// timer and the input level bar. Deliberately minimal.
     private var decodingChip: some View {
-        chip(tint: .green) {
-            Circle()
-                .fill(.green)
-                .frame(width: 7, height: 7)
+        HStack(spacing: 10) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                let seconds = context.date.timeIntervalSince1970
-                    .truncatingRemainder(dividingBy: period)
-                counterText(Int(seconds))
-                    .font(.callout)
+                let fraction = context.date.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: period) / period
+                SlotRing(fraction: fraction)
             }
             CapsuleBar(fraction: levelFraction, tint: levelFraction > 0.9 ? .red : .green)
                 .frame(width: 56, height: 4)
-                .help(String(format: "Input level: %.0f dBFS", controller.audioLevelDB))
-            if let count = controller.lastSlotCount {
-                Text("\(count) dec")
-                    .font(.callout)
-                    .monospacedDigit()
-                    .frame(width: 52, alignment: .trailing)
-            }
         }
-        .help("Decoding — seconds into the current \(digiMode) slot, input level, decodes last slot")
+        .padding(.horizontal, 8)
+        .help("Decoding — ring fills over the \(digiMode) slot; bar is input level")
     }
 
     private var levelFraction: Double {
         // Map -60…0 dBFS to 0…1
         min(1, max(0, (Double(controller.audioLevelDB) + 60) / 60))
-    }
-
-    /// Animation-free progress bar: draws in one pass, invalidates nothing.
-    private struct CapsuleBar: View {
-        let fraction: Double
-        let tint: Color
-
-        var body: some View {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.15))
-                    Capsule()
-                        .fill(tint)
-                        .frame(width: max(4, geo.size.width * min(max(fraction, 0), 1)))
-                }
-            }
-            .animation(nil, value: fraction)
-        }
     }
 
     // MARK: - States

@@ -465,7 +465,7 @@ struct SquelchApp: App {
         UserDefaults.standard.register(defaults: [
                         SettingsKeys.dialFrequencyMHz: 14.074,
             SettingsKeys.digiMode: DigiMode.ft8.rawValue,
-            SettingsKeys.catBaud: 4800,
+            SettingsKeys.catBaud: 0, // auto-detect
             SettingsKeys.wsprPowerDBm: 37,
             SettingsKeys.wsprDutyPct: 20,
         ])
@@ -520,7 +520,7 @@ struct SquelchApp: App {
         .keyboardShortcut("l", modifiers: .command)
 
         Settings {
-            SettingsView(cat: model.cat, location: model.location)
+            SettingsView(cat: model.cat, location: model.location, controller: model.controller)
         }
     }
 }

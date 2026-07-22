@@ -80,10 +80,16 @@ final class CATController: ObservableObject {
         UserDefaults.standard.string(forKey: SettingsKeys.catPortPath) ?? ""
     }
 
-    private var baud: Int {
-        let b = UserDefaults.standard.integer(forKey: SettingsKeys.catBaud)
-        return b > 0 ? b : 4800
+    /// 0 = auto-detect. A successful probe caches the rate for the session
+    /// so 30 s retries don't re-sweep.
+    @Published private(set) var detectedBaud: Int?
+
+    private var configuredBaud: Int {
+        UserDefaults.standard.integer(forKey: SettingsKeys.catBaud)
     }
+
+    /// Rates the FT-891 supports (menu 05-06), most common first.
+    static let baudCandidates = [9600, 4800, 19200, 38400]
 
     /// The CAT port is usually the first of the FT-891's two serial ports
     /// (the "Enhanced" CP2105 interface).
@@ -95,18 +101,48 @@ final class CATController: ObservableObject {
         wantsConnection = true
         let path = portPath
         guard !path.isEmpty, fd < 0 else { return }
-        let baud = self.baud
+        // Configured rate, or auto: cached detection first, then the sweep
+        let rates: [Int]
+        if configuredBaud > 0 {
+            rates = [configuredBaud]
+        } else if let cached = detectedBaud {
+            rates = [cached] + Self.baudCandidates.filter { $0 != cached }
+        } else {
+            rates = Self.baudCandidates
+        }
         queue.async { [weak self] in
             guard let self else { return }
-            let fd = cserial_open_cat(path, Int32(baud))
-            DispatchQueue.main.async {
-                if fd < 0 {
-                    self.lastError = "CAT: cannot open \(path)"
+            for rate in rates {
+                let fd = cserial_open_cat(path, Int32(rate))
+                if fd < 0 { continue }
+                let reply = Self.transact(fd: fd, command: FT891CAT.readFrequency)
+                if let mhz = reply.flatMap(FT891CAT.parseFrequencyResponse) {
+                    DispatchQueue.main.async {
+                        self.finishConnect(fd: fd, mhz: mhz, baud: rate)
+                    }
                     return
                 }
-                self.fd = fd
-                self.probe()
+                cserial_close(fd)
             }
+            DispatchQueue.main.async {
+                self.lastError = rates.count == 1
+                    ? "CAT: no response at \(rates[0]) baud — radio off? (retrying; check menu 05-06 CAT RATE)"
+                    : "CAT: no response at any baud rate — radio off? (retrying every 30 s)"
+                self.scheduleRetry()
+            }
+        }
+    }
+
+    private func finishConnect(fd: Int32, mhz: Double, baud: Int) {
+        self.fd = fd
+        detectedBaud = baud
+        isConnected = true
+        lastError = nil
+        apply(frequency: mhz, mode: nil)
+        startPolling()
+        if let pending = pendingFrequencyMHz {
+            pendingFrequencyMHz = nil
+            setFrequency(mhz: pending)
         }
     }
 
@@ -169,36 +205,6 @@ final class CATController: ObservableObject {
             _ = Self.transact(fd: fd, command: FT891CAT.setFrequencyCommand(mhz: mhz))
             _ = Self.transact(fd: fd, command: FT891CAT.setDataUSB)
             self?.pollOnce()
-        }
-    }
-
-    /// Confirm the radio is there, then poll the VFO every 2 s so the
-    /// app's dial setting follows the physical knob.
-    private func probe() {
-        let fd = self.fd
-        queue.async { [weak self] in
-            let reply = Self.transact(fd: fd, command: FT891CAT.readFrequency)
-            let mhz = reply.flatMap(FT891CAT.parseFrequencyResponse)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let mhz {
-                    self.isConnected = true
-                    self.lastError = nil
-                    self.apply(frequency: mhz, mode: nil)
-                    self.startPolling()
-                    if let pending = self.pendingFrequencyMHz {
-                        self.pendingFrequencyMHz = nil
-                        self.setFrequency(mhz: pending)
-                    }
-                } else {
-                    self.lastError = "CAT: no response — radio off? (retrying every 30 s; check menu 05-06 CAT RATE matches Settings)"
-                    self.disconnect()
-                    // The radio's USB bridge enumerates even with the radio
-                    // powered off — keep retrying so CAT comes up on its
-                    // own once the radio is switched on.
-                    self.scheduleRetry()
-                }
-            }
         }
     }
 

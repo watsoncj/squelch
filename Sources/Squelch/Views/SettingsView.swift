@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var cat: CATController
     @ObservedObject var location: LocationProvider
+    @ObservedObject var controller: DecodeController
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -91,6 +92,20 @@ struct SettingsView: View {
                 Button("Refresh Devices") {
                     devices = AudioDevices.inputDevices()
                 }
+                HStack(spacing: 8) {
+                    Text("Input level")
+                    CapsuleBar(
+                        fraction: min(1, max(0, (Double(controller.audioLevelDB) + 60) / 60)),
+                        tint: controller.audioLevelDB > -6 ? .red : .green
+                    )
+                    .frame(width: 160, height: 5)
+                    Text(controller.isRunning
+                         ? String(format: "%.0f dBFS", controller.audioLevelDB)
+                         : "start decoding for live level")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                        .monospacedDigit()
+                }
                 Text("The Digirig usually appears as “USB PnP Sound Device” or “USB Audio Device”. Restart decoding after changing this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -173,11 +188,17 @@ struct SettingsView: View {
                 .help("The radio's first USB serial port (Enhanced). With two cu.usbserial ports, CAT is the one ending in 0.")
 
                 Picker("Baud rate", selection: $catBaud) {
-                    ForEach([4800, 9600, 19200, 38400], id: \.self) { baud in
+                    Text("Auto").tag(0)
+                    ForEach(CATController.baudCandidates.sorted(), id: \.self) { baud in
                         Text("\(baud)").tag(baud)
                     }
                 }
-                .help("Must match radio menu 05-06 CAT RATE (factory default 4800)")
+                .help("Auto tries every rate the FT-891 supports; or pin it to radio menu 05-06 CAT RATE")
+                if catBaud == 0, let detected = cat.detectedBaud {
+                    Text("Detected \(detected) baud")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                }
 
                 HStack {
                     Button(cat.isConnected ? "Disconnect" : "Connect") {

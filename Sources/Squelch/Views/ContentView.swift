@@ -241,11 +241,18 @@ struct ContentView: View {
                 // but disconnected, or the radio wandered off DATA-USB
                 if !cat.portPath.isEmpty,
                    !cat.isConnected || (cat.radioModeName != nil && cat.radioModeName != "DATA-USB") {
-                    Image(systemName: cat.isConnected ? "cable.connector" : "cable.connector.slash")
-                        .foregroundStyle(.orange)
-                        .help(cat.isConnected
-                              ? "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB"
-                              : (cat.lastError ?? "CAT not connected — radio off? Retrying automatically."))
+                    HStack(spacing: 5) {
+                        Image(systemName: cat.isConnected ? "cable.connector" : "cable.connector.slash")
+                        Text(cat.isConnected
+                             ? "Radio in \(cat.radioModeName ?? "?")"
+                             : "CAT offline")
+                            .font(.callout)
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 6)
+                    .help(cat.isConnected
+                          ? "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB (the app switches it before TX)"
+                          : (cat.lastError ?? "CAT not connected — radio off? Retrying automatically."))
                 }
 
                 // Status chip: TX / answer / session / beacon / error /
