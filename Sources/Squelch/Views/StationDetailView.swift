@@ -19,6 +19,7 @@ struct StationDetailView: View {
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
     @State private var ageNow = Date()
+    @ObservedObject private var directory = CallsignDirectory.shared
 
     private static let ageTick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
@@ -68,6 +69,8 @@ struct StationDetailView: View {
             }
         }
         .onReceive(Self.ageTick) { ageNow = $0 }
+        .onAppear { directory.lookup(callsign) }
+        .onChange(of: callsign) { _, call in directory.lookup(call) }
     }
 
     private var header: some View {
@@ -86,6 +89,17 @@ struct StationDetailView: View {
                     }
                 }
                 .font(.callout)
+
+                // HamDB (FCC/ISED) operator info — keyless, cached
+                if case .found(let entry) = directory.lookups[callsign.uppercased()] {
+                    Text([entry.name,
+                          entry.city,
+                          entry.licenseClass]
+                        .compactMap { $0 }
+                        .joined(separator: " · "))
+                        .font(.callout)
+                        .foregroundStyle(.primary.opacity(0.75))
+                }
             }
             Spacer()
             // QRZ web lookup: free, worldwide, no API key — the richest

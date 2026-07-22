@@ -244,6 +244,27 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(toEast, 87, accuracy: 3) // great circle bows slightly north
     }
 
+    func testHamDBParse() {
+        let found = """
+        {"hamdb":{"version":"1","callsign":{"call":"K1ABC","class":"G","status":"A",
+        "grid":"FN31pr","fname":"JANE","mi":"","name":"DOE","suffix":"",
+        "addr1":"1 MAIN ST","addr2":"NEWINGTON","state":"CT","zip":"06111",
+        "country":"United States"},"messages":{"status":"OK"}}}
+        """
+        let entry = CallsignDirectory.parse(Data(found.utf8))
+        XCTAssertEqual(entry?.name, "Jane Doe")
+        XCTAssertEqual(entry?.city, "Newington")
+        XCTAssertEqual(entry?.licenseClass, "General")
+
+        let notFound = """
+        {"hamdb":{"version":"1","callsign":{"call":"NOT_FOUND","class":"NOT_FOUND",
+        "fname":"NOT_FOUND","name":"NOT_FOUND"},"messages":{"status":"NOT_FOUND"}}}
+        """
+        XCTAssertNil(CallsignDirectory.parse(Data(notFound.utf8)))
+        XCTAssertNil(CallsignDirectory.parse(Data("garbage".utf8)))
+        XCTAssertEqual(CallsignDirectory.className("E"), "Amateur Extra")
+    }
+
     func testUnknownPrefix() {
         XCTAssertNil(CallsignCountry.lookup("S01WS")) // Western Sahara: not in the table
         XCTAssertNil(CallsignCountry.lookup(""))
