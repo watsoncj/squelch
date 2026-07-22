@@ -439,21 +439,17 @@ struct ContentView: View {
         }
     }
 
-    /// Invisible grab strip on the sidebar's leading edge; drag to resize,
-    /// width persists across launches.
+    /// Slim grab strip on the sidebar's trailing edge; drag to resize,
+    /// width persists across launches. pointerStyle supplies the system
+    /// resize cursor (no more NSCursor push/pop bookkeeping); the strip
+    /// stays custom because a floating panel has no native resizer.
     private var sidebarResizeHandle: some View {
         Rectangle()
             .fill(.clear)
-            .frame(width: 20)
+            .frame(width: 10)
             .contentShape(Rectangle())
-            .offset(x: 10) // straddle the panel edge: half over map, half inside
-            .onHover { inside in
-                if inside {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .offset(x: 5) // straddle the edge: half over map, half inside
+            .pointerStyle(.columnResize)
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
