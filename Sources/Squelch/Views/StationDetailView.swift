@@ -69,8 +69,6 @@ struct StationDetailView: View {
             }
         }
         .onReceive(Self.ageTick) { ageNow = $0 }
-        .onAppear { directory.lookup(callsign) }
-        .onChange(of: callsign) { _, call in directory.lookup(call) }
     }
 
     private var header: some View {
@@ -90,8 +88,10 @@ struct StationDetailView: View {
                 }
                 .font(.callout)
 
-                // HamDB (FCC/ISED) operator info — keyless, cached
-                if case .found(let entry) = directory.lookups[callsign.uppercased()] {
+                // HamDB (FCC/ISED) operator info — fetched only on demand,
+                // then cached for the session
+                switch directory.lookups[callsign.uppercased()] {
+                case .found(let entry):
                     Text([entry.name,
                           entry.city,
                           entry.licenseClass]
@@ -99,6 +99,20 @@ struct StationDetailView: View {
                         .joined(separator: " · "))
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(0.75))
+                case .pending:
+                    ProgressView()
+                        .controlSize(.small)
+                case .missing:
+                    Text("No US/Canada license record")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                case nil:
+                    Button("Look up operator") {
+                        directory.lookup(callsign)
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
+                    .help("Fetch name, city, and license class from HamDB (FCC/ISED)")
                 }
             }
             Spacer()
