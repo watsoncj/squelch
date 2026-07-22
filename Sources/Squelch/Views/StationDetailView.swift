@@ -18,6 +18,9 @@ struct StationDetailView: View {
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = "W0CJW"
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
+    @State private var ageNow = Date()
+
+    private static let ageTick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     private var station: Station? { store.stations[callsign] }
 
@@ -64,6 +67,7 @@ struct StationDetailView: View {
                 .padding(12)
             }
         }
+        .onReceive(Self.ageTick) { ageNow = $0 }
     }
 
     private var header: some View {
@@ -122,8 +126,8 @@ struct StationDetailView: View {
             }
             GridRow {
                 stat("Heard", station.map { "\($0.heardCount)×" } ?? "—")
-                stat("First", station.map { relativeAgeText(for: $0.firstHeard) } ?? "—")
-                stat("Last", station.map { relativeAgeText(for: $0.lastHeard) } ?? "—")
+                stat("First", station.map { relativeAgeText(for: $0.firstHeard, now: ageNow) } ?? "—")
+                stat("Last", station.map { relativeAgeText(for: $0.lastHeard, now: ageNow) } ?? "—")
             }
         }
     }

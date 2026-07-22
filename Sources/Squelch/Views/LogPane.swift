@@ -7,6 +7,12 @@ import AppKit
 /// can't hold static stored properties.)
 private let maxFeedRows = 1200
 
+/// Row ages ("45s", "12m") are computed at render time — without a tick
+/// they freeze whenever no new decodes arrive (decoder stopped, WSPR's
+/// 2-minute slots). One re-diff per 15 s matches the FT8 slot cadence.
+/// (File-scope: generic types can't hold static stored properties.)
+private let feedAgeTick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
+
 extension View {
     /// Top header over a scrolling view, with the system scroll edge
     /// effect (progressive blur) beneath it. safeAreaBar is the macOS 26
@@ -94,6 +100,7 @@ struct LogPane<Header: View>: View {
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
     @State private var searchText = ""
+    @State private var ageNow = Date()
 
     var body: some View {
         List(visibleRows, selection: $selection) { msg in
@@ -101,7 +108,8 @@ struct LogPane<Header: View>: View {
                     message: msg,
                     myCall: myCallsign,
                     countryText: countryText(for: msg),
-                    distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) }
+                    distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) },
+                    now: ageNow
                 )
                 .listRowSeparator(.hidden)
                 .listRowBackground(
@@ -138,6 +146,7 @@ struct LogPane<Header: View>: View {
         }
         // Symmetry: same soft fade where rows exit at the panel's bottom
         .bottomFadeBar()
+        .onReceive(feedAgeTick) { ageNow = $0 }
     }
 
     private var headerContent: some View {
@@ -173,6 +182,7 @@ struct LogPane<Header: View>: View {
         let myCall: String
         let countryText: String?
         let distanceText: String?
+        let now: Date
 
         private var callColor: Color {
             if message.mentions(myCall) && message.callsign != myCall { return .accentColor }
@@ -208,7 +218,7 @@ struct LogPane<Header: View>: View {
                         .foregroundStyle(.primary.opacity(0.8))
                         .lineLimit(1)
                     Spacer(minLength: 8)
-                    Text(relativeAgeText(for: message.slotStart))
+                    Text(relativeAgeText(for: message.slotStart, now: now))
                         .font(.caption)
                         .foregroundStyle(.primary.opacity(0.65))
                         .monospacedDigit()
