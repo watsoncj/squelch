@@ -84,10 +84,14 @@ struct ContentView: View {
                     // Full screen: the toolbar auto-hides, so the radio
                     // controls float over the map in a glass bar instead
                     if isFullScreen {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 14) {
                             radioControls
                         }
                         .buttonStyle(.borderless)
+                        // Match the windowed toolbar's rendering: labels are
+                        // icon-only except where a button opts into text
+                        // (frequency, QSO count)
+                        .labelStyle(.iconOnly)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 7)
                         .glassCapsule()
@@ -319,6 +323,7 @@ struct ContentView: View {
                     Label(qsoLog.records.isEmpty ? "QSO Log" : "\(qsoLog.records.count) QSOs",
                           systemImage: "checkmark.seal")
                         .monospacedDigit()
+                        .labelStyle(.titleAndIcon) // toolbar default hides the count
                 }
                 .help("Completed contacts (⌘L) — add off-app QSOs from there")
 
