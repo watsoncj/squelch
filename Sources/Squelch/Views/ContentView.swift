@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showFrequencies = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
+    @State private var isFullScreen = false
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -43,12 +44,15 @@ struct ContentView: View {
                     // This strip claims those drags as pure window moves —
                     // but must never cover the sidebar (it eats clicks), so
                     // it starts right of the panels / the floating toggle.
-                    Color.clear
-                        .frame(height: 52)
-                        .contentShape(Rectangle())
-                        .gesture(WindowDragGesture())
-                        .ignoresSafeArea(edges: .top)
-                        .padding(.leading, showSidebar ? panelObscuredWidth + 10 : 130)
+                    // Pointless (and click-stealing) in full screen.
+                    if !isFullScreen {
+                        Color.clear
+                            .frame(height: 52)
+                            .contentShape(Rectangle())
+                            .gesture(WindowDragGesture())
+                            .ignoresSafeArea(edges: .top)
+                            .padding(.leading, showSidebar ? panelObscuredWidth + 10 : 130)
+                    }
                 }
                 .overlay(alignment: .topLeading) {
                     // Sidebar closed: a lone glass toggle next to the
@@ -107,6 +111,7 @@ struct ContentView: View {
                     }
                 }
         }
+        .background(WindowAccessor(isFullScreen: $isFullScreen))
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar { toolbarItems }
         .onChange(of: digiMode) { _, raw in
