@@ -55,7 +55,7 @@ codesign --verify --strict --deep "$APP"
 
 echo "Notarizing (this takes a few minutes)…"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
 xcrun notarytool submit "$ZIP" \
     --key "$API_KEY_FILE" \
     --key-id "$API_KEY_ID" \
@@ -67,7 +67,7 @@ xcrun stapler staple "$APP"
 
 # Re-zip with the stapled ticket inside
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --norsrc --keepParent "$APP" "$ZIP"
 
 echo "Gatekeeper check:"
 spctl --assess --type execute -vv "$APP"

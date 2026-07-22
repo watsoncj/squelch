@@ -55,8 +55,29 @@ enum OfflineBasemap {
     static let oceanColor = Color(.sRGB, red: 0.08, green: 0.10, blue: 0.14)
     static let landColor = Color(.sRGB, red: 0.32, green: 0.34, blue: 0.38)
 
+    /// NOT Bundle.module: SwiftPM's executable-target accessor only checks
+    /// the app root and the DEV MACHINE's absolute .build path, then
+    /// fatalErrors — it crashed on every other Mac (v1.1.0, air.lan) while
+    /// silently reading .build here. Search the real ship locations and
+    /// degrade to no coastlines instead of crashing.
+    static func resourceBundleURL() -> URL? {
+        let candidates = [
+            Bundle.main.resourceURL,  // Squelch.app/Contents/Resources (shipped)
+            Bundle.main.bundleURL,    // next to the bare binary (swift run)
+        ]
+        for base in candidates {
+            guard let url = base?.appendingPathComponent("Squelch_Squelch.bundle") else { continue }
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     static let landPolygons: [LandPolygon] = {
-        guard let url = Bundle.module.url(forResource: "ne_110m_land", withExtension: "geojson"),
+        guard let bundleURL = resourceBundleURL(),
+              let bundle = Bundle(url: bundleURL),
+              let url = bundle.url(forResource: "ne_110m_land", withExtension: "geojson"),
               let data = try? Data(contentsOf: url),
               let features = try? MKGeoJSONDecoder().decode(data) else { return [] }
         var polygons: [LandPolygon] = []
