@@ -68,25 +68,16 @@ struct QSOStatusPanel: View {
         }
     }
 
-    /// Lowest priority: decoding vitals — a radial ring for the slot
-    /// timer and the input level bar. Deliberately minimal.
+    /// Lowest priority: a radial ring filling over the decode slot.
+    /// Deliberately minimal — input level lives in Settings › Audio Input.
     private var decodingChip: some View {
-        HStack(spacing: 10) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let fraction = context.date.timeIntervalSince1970
-                    .truncatingRemainder(dividingBy: period) / period
-                SlotRing(fraction: fraction)
-            }
-            CapsuleBar(fraction: levelFraction, tint: levelFraction > 0.9 ? .red : .green)
-                .frame(width: 56, height: 4)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let fraction = context.date.timeIntervalSince1970
+                .truncatingRemainder(dividingBy: period) / period
+            SlotRing(fraction: fraction)
         }
-        .padding(.horizontal, 8)
-        .help("Decoding — ring fills over the \(digiMode) slot; bar is input level")
-    }
-
-    private var levelFraction: Double {
-        // Map -60…0 dBFS to 0…1
-        min(1, max(0, (Double(controller.audioLevelDB) + 60) / 60))
+        .padding(.horizontal, 6)
+        .help("Decoding — the ring fills over the \(digiMode) slot")
     }
 
     // MARK: - States
