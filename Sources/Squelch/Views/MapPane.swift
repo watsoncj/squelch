@@ -19,7 +19,10 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
         case .standard: return .standard(elevation: .flat)
         case .hybrid: return .hybrid(elevation: .flat)
         case .satellite: return .imagery(elevation: .flat)
-        case .offline: return .standard(elevation: .flat, pointsOfInterest: .excludingAll)
+        // Imagery has no floating labels (labels draw ABOVE overlays and
+        // would poke through the vector world); the opaque ocean+land
+        // polygons hide whatever imagery streams when online
+        case .offline: return .imagery(elevation: .flat)
         }
     }
 }
@@ -31,6 +34,26 @@ enum OfflineBasemap {
         let id: Int
         let coordinates: [CLLocationCoordinate2D]
     }
+
+    /// Opaque ocean sheets covering the whole world (two panels — a single
+    /// ±180° polygon wraps unpredictably in Mercator).
+    static let oceanPolygons: [LandPolygon] = [
+        LandPolygon(id: -1, coordinates: [
+            CLLocationCoordinate2D(latitude: -85, longitude: -180),
+            CLLocationCoordinate2D(latitude: -85, longitude: 0),
+            CLLocationCoordinate2D(latitude: 85, longitude: 0),
+            CLLocationCoordinate2D(latitude: 85, longitude: -180),
+        ]),
+        LandPolygon(id: -2, coordinates: [
+            CLLocationCoordinate2D(latitude: -85, longitude: 0),
+            CLLocationCoordinate2D(latitude: -85, longitude: 180),
+            CLLocationCoordinate2D(latitude: 85, longitude: 180),
+            CLLocationCoordinate2D(latitude: 85, longitude: 0),
+        ]),
+    ]
+
+    static let oceanColor = Color(.sRGB, red: 0.08, green: 0.10, blue: 0.14)
+    static let landColor = Color(.sRGB, red: 0.32, green: 0.34, blue: 0.38)
 
     static let landPolygons: [LandPolygon] = {
         guard let url = Bundle.module.url(forResource: "ne_110m_land", withExtension: "geojson"),
@@ -287,10 +310,14 @@ struct MapPane: View {
             // Static constant collection — identity never changes, so
             // MapKit encodes these polygons exactly once.
             if mapStyleRaw == MapStyleChoice.offline.rawValue {
+                ForEach(OfflineBasemap.oceanPolygons) { ocean in
+                    MapPolygon(coordinates: ocean.coordinates)
+                        .foregroundStyle(OfflineBasemap.oceanColor)
+                }
                 ForEach(OfflineBasemap.landPolygons) { land in
                     MapPolygon(coordinates: land.coordinates)
-                        .foregroundStyle(Color.gray.opacity(0.35))
-                        .stroke(Color.gray.opacity(0.7), lineWidth: 0.5)
+                        .foregroundStyle(OfflineBasemap.landColor)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 0.5)
                 }
             }
 
