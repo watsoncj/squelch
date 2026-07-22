@@ -8,17 +8,6 @@ struct QSYPreset: Identifiable {
     let mode: DigiMode
     var id: String { label }
 
-    /// Menu row as three aligned columns (rendered monospaced):
-    /// frequency (uniform 4 decimals), mode, band.
-    var menuTitle: String {
-        func pad(_ s: String, _ width: Int) -> String {
-            s + String(repeating: " ", count: max(0, width - s.count))
-        }
-        return pad("\(String(format: "%.4f", mhz)) MHz", 14)
-            + pad(mode.rawValue, 6)
-            + bandName(forMHz: mhz)
-    }
-
     /// Standard calling frequencies: 10m first (the workhorse band here),
     /// up through VHF, then down through HF; FT8 → FT4 → WSPR within each
     /// band. The transmit/receive-only split comes from the license class.

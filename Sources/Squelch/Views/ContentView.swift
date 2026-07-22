@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
     @State private var showCheatsheet = false
+    @State private var showFrequencies = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @Environment(\.openWindow) private var openWindow
@@ -251,42 +252,8 @@ struct ContentView: View {
                 // decoding vitals — appears only when something is happening
                 QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller)
 
-                Menu {
-                    let txList = QSYPreset.transmitLegal(for: licenseClass)
-                    ForEach(txList) { preset in
-                        Button {
-                            actions.qsy(to: preset)
-                        } label: {
-                            Text(preset.menuTitle).monospaced()
-                        }
-                    }
-                    let rxOnly = QSYPreset.receiveOnly(for: licenseClass)
-                    if !rxOnly.isEmpty {
-                        if !txList.isEmpty {
-                            Divider()
-                        }
-                        // No "Receive only" header needed when everything is
-                        // (license class None — the whole menu is RX)
-                        if txList.isEmpty {
-                            ForEach(rxOnly) { preset in
-                                Button {
-                                    actions.qsy(to: preset)
-                                } label: {
-                                    Text(preset.menuTitle).monospaced()
-                                }
-                            }
-                        } else {
-                            Section("Receive only") {
-                                ForEach(rxOnly) { preset in
-                                    Button {
-                                        actions.qsy(to: preset)
-                                    } label: {
-                                        Text(preset.menuTitle).monospaced()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                Button {
+                    showFrequencies.toggle()
                 } label: {
                     Label("\(mhzText(dialFrequencyMHz)) MHz · \(digiMode) · \(bandName(forMHz: dialFrequencyMHz))",
                           systemImage: "dial.medium")
@@ -296,6 +263,16 @@ struct ContentView: View {
                 .help(cat.isConnected
                       ? "QSY the radio via CAT (connected)"
                       : "Set the working frequency. Connect CAT in Settings to also tune the radio.")
+                .popover(isPresented: $showFrequencies, arrowEdge: .bottom) {
+                    FrequencyFlyout(
+                        license: licenseClass,
+                        currentMHz: dialFrequencyMHz,
+                        onPick: { preset in
+                            actions.qsy(to: preset)
+                            showFrequencies = false
+                        }
+                    )
+                }
 
                 Button {
                     openWindow(id: "qso-log")
@@ -352,6 +329,67 @@ struct ContentView: View {
                     CheatsheetView()
                 }
             }
+    }
+
+    /// Frequency picker flyout, MapModeFlyout-style: real columns, current
+    /// selection highlighted, receive-only section per license class.
+    private struct FrequencyFlyout: View {
+        let license: LicenseClass
+        let currentMHz: Double
+        let onPick: (QSYPreset) -> Void
+
+        var body: some View {
+            let txList = QSYPreset.transmitLegal(for: license)
+            let rxOnly = QSYPreset.receiveOnly(for: license)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Frequency")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                ForEach(txList) { preset in
+                    row(preset)
+                }
+                if !rxOnly.isEmpty {
+                    if !txList.isEmpty {
+                        Divider()
+                        Text("Receive only")
+                            .font(.caption)
+                            .foregroundStyle(.primary.opacity(0.6))
+                            .padding(.leading, 8)
+                    }
+                    ForEach(rxOnly) { preset in
+                        row(preset)
+                    }
+                }
+            }
+            .padding(12)
+        }
+
+        private func row(_ preset: QSYPreset) -> some View {
+            let selected = abs(preset.mhz - currentMHz) < 0.00005
+            return Button {
+                onPick(preset)
+            } label: {
+                HStack(spacing: 0) {
+                    Text("\(String(format: "%.4f", preset.mhz)) MHz")
+                        .monospacedDigit()
+                        .frame(width: 110, alignment: .trailing)
+                    Text(preset.mode.rawValue)
+                        .frame(width: 56, alignment: .leading)
+                        .padding(.leading, 14)
+                    Text(bandName(forMHz: preset.mhz))
+                        .frame(width: 36, alignment: .leading)
+                        .foregroundStyle(.primary.opacity(0.7))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    selected ? Color.accentColor.opacity(0.25) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// Invisible grab strip on the sidebar's leading edge; drag to resize,
