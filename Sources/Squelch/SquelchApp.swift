@@ -8,10 +8,15 @@ struct QSYPreset: Identifiable {
     let mode: DigiMode
     var id: String { label }
 
-    /// Menu row in the same order as the selection display — left-aligned,
-    /// every frequency with the same digit count (4 decimals).
+    /// Menu row as three aligned columns (rendered monospaced):
+    /// frequency (uniform 4 decimals), mode, band.
     var menuTitle: String {
-        "\(String(format: "%.4f", mhz)) MHz · \(mode.rawValue) · \(bandName(forMHz: mhz))"
+        func pad(_ s: String, _ width: Int) -> String {
+            s + String(repeating: " ", count: max(0, width - s.count))
+        }
+        return pad("\(String(format: "%.4f", mhz)) MHz", 14)
+            + pad(mode.rawValue, 6)
+            + bandName(forMHz: mhz)
     }
 
     /// Standard calling frequencies: 10m first (the workhorse band here),
