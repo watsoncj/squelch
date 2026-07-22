@@ -12,17 +12,13 @@ enum FT891CAT {
     static let pttOff = "TX0;"
     static let readPower = "PC;"
 
-    /// "PC005;" → 5 (watts)
+    /// "PC005;" → 5 (watts). Read-only by design: Squelch never writes the
+    /// radio's power — the knob is the operator's.
     static func parsePowerResponse(_ response: String) -> Int? {
         guard response.hasPrefix("PC"), response.hasSuffix(";") else { return nil }
         let digits = response.dropFirst(2).dropLast()
         guard digits.count == 3, digits.allSatisfy(\.isNumber) else { return nil }
         return Int(digits)
-    }
-
-    /// 5 → "PC005;" (FT-891 range is 5–100 W)
-    static func setPowerCommand(watts: Int) -> String {
-        String(format: "PC%03d;", min(max(watts, 5), 100))
     }
 
     /// "FA014074000;" → 14.074
@@ -244,17 +240,6 @@ final class CATController: ObservableObject {
         let watts = powerReply.flatMap(FT891CAT.parsePowerResponse)
         DispatchQueue.main.async { [weak self] in
             self?.apply(frequency: mhz, mode: mode, powerWatts: watts)
-        }
-    }
-
-    /// Set RF power (WSPR beacon sync uses this; there is deliberately no
-    /// general power UI — the app only displays the radio's setting).
-    func setPower(watts: Int) {
-        guard isConnected else { return }
-        let fd = self.fd
-        queue.async { [weak self] in
-            _ = Self.transact(fd: fd, command: FT891CAT.setPowerCommand(watts: watts))
-            self?.pollOnce()
         }
     }
 

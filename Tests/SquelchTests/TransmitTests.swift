@@ -43,14 +43,20 @@ final class FT8EncoderTests: XCTestCase {
 }
 
 final class FT891CATTests: XCTestCase {
-    func testPowerCommandFraming() {
+    func testPowerReadFraming() {
         XCTAssertEqual(FT891CAT.parsePowerResponse("PC005;"), 5)
         XCTAssertEqual(FT891CAT.parsePowerResponse("PC100;"), 100)
         XCTAssertNil(FT891CAT.parsePowerResponse("PC;"))
         XCTAssertNil(FT891CAT.parsePowerResponse("FA014074000;"))
-        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 5), "PC005;")
-        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 200), "PC100;") // clamped
-        XCTAssertEqual(FT891CAT.setPowerCommand(watts: 1), "PC005;")   // clamped
+    }
+
+    func testWSPRDBmLadder() {
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 5), 37)
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 10), 40)
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 20), 43)
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 100), 50)
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 15), 43)  // 41.8 dBm → nearest rung is 43
+        XCTAssertEqual(AppModel.wsprDBm(forWatts: 75), 50)  // 48.8 → 50
     }
 
     func testParseFrequencyResponse() {

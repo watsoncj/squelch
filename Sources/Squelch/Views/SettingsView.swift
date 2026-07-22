@@ -112,14 +112,6 @@ struct SettingsView: View {
             }
 
             Section("Transmit") {
-                if cat.isConnected, let watts = cat.radioPowerWatts {
-                    LabeledContent("Radio TX power") {
-                        Text("\(watts) W")
-                            .monospacedDigit()
-                    }
-                    .help("The radio's operative TX power via CAT — for data modes the FT-891 uses its HF/50M PWR setting, NOT HF SSB PWR (that one is voice-only). The WSPR beacon syncs this to its reported dBm.")
-                }
-
                 Picker("Audio output", selection: $audioOutputUID) {
                     Text("System default").tag("")
                     ForEach(outputDevices) { device in
@@ -167,7 +159,7 @@ struct SettingsView: View {
                     Text("40 dBm (10 W)").tag(40)
                     Text("43 dBm (20 W)").tag(43)
                 }
-                .help("Encoded in the beacon message — set it to your actual TX power so receivers' propagation math is honest")
+                .help("Encoded in the beacon message. With CAT connected this follows the radio's power setting automatically (read-only — the app never changes the radio); set it manually only when CAT is unavailable.")
 
                 Picker("Duty cycle", selection: Binding(
                     get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct) },

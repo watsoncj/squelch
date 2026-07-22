@@ -237,20 +237,24 @@ final class AppModel: ObservableObject {
             beaconWindowsSinceTX = 0
             decideNextBeaconWindow()
             scheduleBeaconTick()
-            syncRadioPowerToWSPR()
+            syncWSPRPowerFromRadio()
         }
     }
 
-    /// Honest advertising: when CAT is up, set the radio's RF power to the
-    /// beacon's reported dBm so WSPRnet spots match what actually left the
-    /// antenna. Skipped when the dBm isn't representable (FT-891: 5–100 W).
-    private func syncRadioPowerToWSPR() {
-        guard cat.isConnected else { return }
-        let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
-        let power = dbm > 0 ? dbm : 37
-        let watts = Int((pow(10.0, Double(power - 30) / 10.0)).rounded())
-        guard (5...100).contains(watts) else { return }
-        cat.setPower(watts: watts)
+    /// Honest advertising, radio-is-truth: read the rig's operative power
+    /// via CAT and advertise the nearest standard WSPR dBm. NEVER writes to
+    /// the radio — the power knob belongs to the operator.
+    private func syncWSPRPowerFromRadio() {
+        guard cat.isConnected, let watts = cat.radioPowerWatts, watts > 0 else { return }
+        UserDefaults.standard.set(Self.wsprDBm(forWatts: watts), forKey: SettingsKeys.wsprPowerDBm)
+    }
+
+    /// Nearest value on WSPR's conventional power ladder (…, 30, 33, 37,
+    /// 40, 43, 47, 50 dBm — i.e. 1, 2, 5, 10, 20, 50, 100 W).
+    static func wsprDBm(forWatts watts: Int) -> Int {
+        let ladder = [0, 3, 7, 10, 13, 17, 20, 23, 27, 30, 33, 37, 40, 43, 47, 50, 53, 57, 60]
+        let dbm = 10.0 * log10(Double(watts)) + 30.0
+        return ladder.min(by: { abs(Double($0) - dbm) < abs(Double($1) - dbm) }) ?? 37
     }
 
     /// Force the upcoming window to transmit (verification / impatience).
@@ -308,10 +312,10 @@ final class AppModel: ObservableObject {
             beaconWindowsSinceTX += 1
             return
         }
+        syncWSPRPowerFromRadio() // pick up knob changes since arming, BEFORE reading dBm
         let dbm = UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm)
         let power = dbm > 0 ? dbm : 37
         let offset = Double.random(in: 1420...1580)
-        syncRadioPowerToWSPR() // dBm setting may have changed since arming
         if transmit.transmitWSPR(call: call, grid4: grid4, dbm: power, offsetHz: offset) {
             beaconWindowsSinceTX = 0
             // No synthetic "TX WSPR" log row: the RF loopback decode of our
