@@ -92,11 +92,11 @@ struct ContentView: View {
                         // icon-only except where a button opts into text
                         // (frequency, QSO count)
                         .labelStyle(.iconOnly)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11) // match the windowed toolbar's capsule height
                         .glassCapsule()
-                        .padding(.top, 10)
-                        .padding(.trailing, 60) // clear the side control stack
+                        .padding(.top, 8)
+                        .padding(.trailing, 16) // same right inset as the toolbar; side stack sits below
                     }
                 }
                 .overlay(alignment: .bottom) {
