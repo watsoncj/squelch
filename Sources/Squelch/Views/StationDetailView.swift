@@ -106,6 +106,17 @@ struct StationDetailView: View {
                     Text("No US/Canada license record")
                         .font(.caption)
                         .foregroundStyle(.primary.opacity(0.6))
+                case .failed:
+                    HStack(spacing: 6) {
+                        Text("Lookup failed — offline?")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Button("Retry") {
+                            directory.retry(callsign)
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
                 case nil:
                     Button("Look up operator") {
                         directory.lookup(callsign)

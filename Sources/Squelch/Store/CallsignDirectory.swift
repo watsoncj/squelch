@@ -16,7 +16,8 @@ final class CallsignDirectory: ObservableObject {
     enum LookupState: Equatable {
         case pending
         case found(Entry)
-        case missing
+        case missing // HamDB answered: no such license
+        case failed  // network/service error — NOT the same as missing
     }
 
     @Published private(set) var lookups: [String: LookupState] = [:]
@@ -26,15 +27,21 @@ final class CallsignDirectory: ObservableObject {
         guard !call.isEmpty, lookups[call] == nil else { return }
         lookups[call] = .pending
         guard let url = URL(string: "https://api.hamdb.org/v1/\(call)/json/squelch") else {
-            lookups[call] = .missing
+            lookups[call] = .failed
             return
         }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            let result = data.flatMap(Self.parse).map(LookupState.found) ?? .missing
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            let result: LookupState = error != nil ? .failed : Self.classify(data)
             DispatchQueue.main.async {
                 self?.lookups[call] = result
             }
         }.resume()
+    }
+
+    /// Forget a failed lookup so the button can try again.
+    func retry(_ callsign: String) {
+        lookups.removeValue(forKey: callsign.uppercased())
+        lookup(callsign)
     }
 
     /// FCC operator-class letters, expanded.
@@ -49,12 +56,15 @@ final class CallsignDirectory: ObservableObject {
         }
     }
 
-    static func parse(_ data: Data) -> Entry? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    /// A malformed/unexpected payload is a FAILURE (service trouble), only
+    /// an explicit HamDB NOT_FOUND answer is a genuine miss.
+    static func classify(_ data: Data?) -> LookupState {
+        guard let data,
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let hamdb = root["hamdb"] as? [String: Any],
               let cs = hamdb["callsign"] as? [String: Any],
-              let call = cs["call"] as? String,
-              call != "NOT_FOUND" else { return nil }
+              let call = cs["call"] as? String else { return .failed }
+        guard call != "NOT_FOUND" else { return .missing }
         func field(_ key: String) -> String? {
             guard let v = cs[key] as? String, !v.isEmpty, v != "NOT_FOUND" else { return nil }
             return v
@@ -63,11 +73,11 @@ final class CallsignDirectory: ObservableObject {
             .compactMap { $0 }
             .joined(separator: " ")
             .capitalized
-        guard !name.isEmpty else { return nil }
-        return Entry(
+        guard !name.isEmpty else { return .missing }
+        return .found(Entry(
             name: name,
             city: field("addr2").map { $0.capitalized },
             licenseClass: field("class").flatMap(className)
-        )
+        ))
     }
 }

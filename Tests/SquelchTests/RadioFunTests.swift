@@ -251,17 +251,21 @@ final class CallsignCountryTests: XCTestCase {
         "addr1":"1 MAIN ST","addr2":"NEWINGTON","state":"CT","zip":"06111",
         "country":"United States"},"messages":{"status":"OK"}}}
         """
-        let entry = CallsignDirectory.parse(Data(found.utf8))
-        XCTAssertEqual(entry?.name, "Jane Doe")
-        XCTAssertEqual(entry?.city, "Newington")
-        XCTAssertEqual(entry?.licenseClass, "General")
+        guard case .found(let entry) = CallsignDirectory.classify(Data(found.utf8)) else {
+            return XCTFail("expected .found")
+        }
+        XCTAssertEqual(entry.name, "Jane Doe")
+        XCTAssertEqual(entry.city, "Newington")
+        XCTAssertEqual(entry.licenseClass, "General")
 
         let notFound = """
         {"hamdb":{"version":"1","callsign":{"call":"NOT_FOUND","class":"NOT_FOUND",
         "fname":"NOT_FOUND","name":"NOT_FOUND"},"messages":{"status":"NOT_FOUND"}}}
         """
-        XCTAssertNil(CallsignDirectory.parse(Data(notFound.utf8)))
-        XCTAssertNil(CallsignDirectory.parse(Data("garbage".utf8)))
+        // Explicit NOT_FOUND answer = missing; garbage/no data = FAILURE
+        XCTAssertEqual(CallsignDirectory.classify(Data(notFound.utf8)), .missing)
+        XCTAssertEqual(CallsignDirectory.classify(Data("garbage".utf8)), .failed)
+        XCTAssertEqual(CallsignDirectory.classify(nil), .failed)
         XCTAssertEqual(CallsignDirectory.className("E"), "Amateur Extra")
     }
 
