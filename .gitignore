@@ -4,3 +4,4 @@ Squelch.app/
 *.xcodeproj
 .swiftpm/
 crash*.txt
+dist/
