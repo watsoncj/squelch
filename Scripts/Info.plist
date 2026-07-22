@@ -4,39 +4,39 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Squelch</string>
 	<key>CFBundleExecutable</key>
 	<string>Squelch</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.watsoncj.squelch</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>Squelch</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleDisplayName</key>
-	<string>Squelch</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>2</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Squelch listens to the Digirig audio interface to decode FT8 transmissions from your radio.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Squelch shows your station location on the map and computes distances to stations you hear.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>Squelch shows your station location on the map and computes distances to stations you hear.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Squelch shows your station location on the map and computes distances to stations you hear.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Squelch listens to the Digirig audio interface to decode FT8 transmissions from your radio.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>
