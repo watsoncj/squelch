@@ -1,67 +1,121 @@
 import SwiftUI
 
 /// All completed contacts — auto-sequenced and manually logged.
+/// Sortable, searchable, with resolved state/country per contact.
 struct QSOLogView: View {
     @ObservedObject var qsoLog: QSOLog
+    @ObservedObject var stateResolver: StateResolver
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.utc.rawValue
 
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
     @State private var editingRecord: QSORecord?
+    @State private var searchText = ""
+    @State private var sortOrder = [KeyPathComparator(\QSORecord.start, order: .reverse)]
+
+    private var visibleRecords: [QSORecord] {
+        var records = qsoLog.records
+        let query = searchText.trimmingCharacters(in: .whitespaces).uppercased()
+        if !query.isEmpty {
+            records = records.filter {
+                $0.partner.contains(query)
+                    || ($0.partnerGrid ?? "").uppercased().contains(query)
+                    || $0.mode.uppercased().contains(query)
+                    || (locationText(for: $0)?.uppercased().contains(query) ?? false)
+            }
+        }
+        return records.sorted(using: sortOrder)
+    }
+
+    /// "CO, USA" once a US partner's grid resolves; else the country name.
+    private func locationText(for record: QSORecord) -> String? {
+        guard let country = CallsignCountry.lookup(record.partner) else { return nil }
+        if FT8MessageParser.isUSCallsign(record.partner),
+           let grid = record.partnerGrid,
+           let state = stateResolver.state(forGrid: grid, isUS: true) {
+            return "\(state), USA"
+        }
+        return country.name
+    }
+
+    private var subtitle: String {
+        let records = qsoLog.records
+        var parts = ["\(records.count) QSO\(records.count == 1 ? "" : "s")"]
+        let states = Set(records.compactMap { record -> String? in
+            guard FT8MessageParser.isUSCallsign(record.partner),
+                  let grid = record.partnerGrid else { return nil }
+            return stateResolver.state(forGrid: grid, isUS: true)
+        })
+        if !states.isEmpty {
+            parts.append("\(states.count) state\(states.count == 1 ? "" : "s")")
+        }
+        let countries = Set(records.compactMap { CallsignCountry.lookup($0.partner)?.name })
+        if countries.count > 1 {
+            parts.append("\(countries.count) countries")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func whenText(for record: QSORecord) -> String {
+        let display = TimeDisplay.current(timeDisplayRaw)
+        return "\(display.dateFormatter.string(from: record.start))  \(display.formatter.string(from: record.start))"
+    }
 
     var body: some View {
-        Table(qsoLog.records, selection: $selection) {
-            TableColumn("Date") { record in
-                Text(TimeDisplay.current(timeDisplayRaw).dateFormatter.string(from: record.start))
+        Table(visibleRecords, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("When", value: \.start) { record in
+                Text(whenText(for: record))
                     .monospacedDigit()
             }
-            .width(min: 80, ideal: 90)
+            .width(min: 130, ideal: 150)
 
-            TableColumn(TimeDisplay.current(timeDisplayRaw).rawValue) { record in
-                Text(TimeDisplay.current(timeDisplayRaw).formatter.string(from: record.start))
-                    .monospacedDigit()
-            }
-            .width(min: 60, ideal: 70)
-
-            TableColumn("Callsign") { record in
-                Text(record.partner)
-                    .font(.body.monospaced().bold())
-            }
-            .width(min: 80, ideal: 90)
-
-            TableColumn("Grid") { record in
-                Text(record.partnerGrid ?? "")
-                    .monospaced()
-            }
-            .width(min: 44, ideal: 50)
-
-            TableColumn("Country") { record in
-                if let country = CallsignCountry.lookup(record.partner) {
-                    Text("\(country.flag) \(country.name)")
-                        .lineLimit(1)
+            TableColumn("Callsign", value: \.partner) { record in
+                HStack(spacing: 6) {
+                    Text(CallsignCountry.lookup(record.partner)?.flag ?? " ")
+                    Text(record.partner)
+                        .font(.body.monospaced().bold())
                 }
             }
-            .width(min: 70, ideal: 120)
+            .width(min: 90, ideal: 110)
 
-            TableColumn("Sent") { record in
-                Text(record.reportSent).monospacedDigit()
+            TableColumn("Location") { record in
+                if let text = locationText(for: record) {
+                    Text(text)
+                        .lineLimit(1)
+                        .help(text)
+                }
             }
-            .width(min: 40, ideal: 46)
+            .width(min: 80, ideal: 130)
 
-            TableColumn("Rcvd") { record in
-                Text(record.reportReceived ?? "").monospacedDigit()
+            TableColumn("Grid") { record in
+                Text(record.partnerGrid ?? "—")
+                    .monospaced()
+                    .foregroundStyle(record.partnerGrid == nil ? .tertiary : .primary)
             }
-            .width(min: 40, ideal: 46)
+            .width(min: 44, ideal: 52)
 
-            TableColumn("Band") { record in
+            TableColumn("Report") { record in
+                Text("\(record.reportSent) / \(record.reportReceived ?? "—")")
+                    .monospacedDigit()
+                    .help("Sent / received")
+            }
+            .width(min: 74, ideal: 84)
+
+            TableColumn("Band", value: \.dialFrequencyMHz) { record in
                 Text("\(bandName(forMHz: record.dialFrequencyMHz)) · \(record.mode)")
             }
             .width(min: 70, ideal: 90)
         }
+        .searchable(text: $searchText, prompt: "Search call, grid, state, or mode")
         .contextMenu(forSelectionType: UUID.self) { ids in
             if ids.count == 1, let record = qsoLog.records.first(where: { $0.id == ids.first }) {
                 Button("Edit QSO") {
                     editingRecord = record
+                }
+                Button("Look Up on QRZ") {
+                    if let url = URL(string: "https://www.qrz.com/db/\(record.partner)") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             }
             if !ids.isEmpty {
@@ -96,8 +150,8 @@ struct QSOLogView: View {
             }
         }
         .navigationTitle("QSO Log")
-        .navigationSubtitle("\(qsoLog.records.count) QSO\(qsoLog.records.count == 1 ? "" : "s")")
-        .frame(minWidth: 620, minHeight: 320)
+        .navigationSubtitle(subtitle)
+        .frame(minWidth: 640, minHeight: 320)
     }
 }
 

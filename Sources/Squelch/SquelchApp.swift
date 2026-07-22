@@ -515,7 +515,7 @@ struct SquelchApp: App {
         .defaultSize(width: 1200, height: 800)
 
         Window("QSO Log", id: "qso-log") {
-            QSOLogView(qsoLog: model.qsoLog)
+            QSOLogView(qsoLog: model.qsoLog, stateResolver: model.stateResolver)
         }
         .defaultSize(width: 720, height: 420)
         .keyboardShortcut("l", modifiers: .command)
