@@ -93,10 +93,10 @@ struct ContentView: View {
                         HStack(alignment: .center, spacing: 10) {
                             if statusClusterVisible {
                                 HStack(spacing: 14) {
-                                    statusCluster(inToolbar: false)
+                                    statusCluster
                                 }
                                 .buttonStyle(.borderless)
-                                .padding(.horizontal, 10)
+                                .padding(.horizontal, 12) // container-owned edge insets
                                 .frame(height: 38)
                                 .glassCapsule()
                             }
@@ -279,7 +279,12 @@ struct ContentView: View {
     private var toolbarItems: some ToolbarContent {
             ToolbarItemGroup {
                 Spacer()
-                statusCluster(inToolbar: true)
+                if statusClusterVisible {
+                    HStack(spacing: 14) {
+                        statusCluster
+                    }
+                    .padding(.horizontal, 12) // container-owned edge insets
+                }
             }
             // Capsule grouping follows spacers, not item groups: without
             // this, macOS fuses status + actions into one glass slab and
@@ -309,7 +314,7 @@ struct ContentView: View {
     /// Volatile: CAT trouble light + the TX/QSO/beacon/decoding chip.
     /// Isolated so its constant shape-shifting stays in its own container.
     @ViewBuilder
-    private func statusCluster(inToolbar: Bool) -> some View {
+    private var statusCluster: some View {
                 // CAT trouble light: appears only when CAT is configured
                 // but disconnected, or the radio wandered off DATA-USB
                 if !cat.portPath.isEmpty,
@@ -323,8 +328,6 @@ struct ContentView: View {
                     }
                     .frame(height: 26)
                     .foregroundStyle(.orange)
-                    .padding(.leading, inToolbar ? 14 : 6)
-                    .padding(.trailing, 6)
                     .help(cat.isConnected
                           ? "CAT connected — radio is in \(cat.radioModeName ?? "?"), not DATA-USB (the app switches it before TX)"
                           : (cat.lastError ?? "CAT not connected — radio off? Retrying automatically."))
@@ -332,8 +335,7 @@ struct ContentView: View {
 
                 // Status chip: TX / answer / session / beacon / error /
                 // decoding vitals — appears only when something is happening
-                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller,
-                               edgeInset: inToolbar ? 14 : 8)
+                QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller)
     }
 
     /// Stable: constant membership, near-constant width — this container

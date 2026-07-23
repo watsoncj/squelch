@@ -47,9 +47,6 @@ struct QSOStatusPanel: View {
     @ObservedObject var transmit: TransmitController
     @ObservedObject var model: AppModel
     @ObservedObject var controller: DecodeController
-    /// Leading breathing room between the container's edge and the chip —
-    /// the windowed toolbar's glass group needs more than the fullscreen bar.
-    var edgeInset: CGFloat = 8
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
 
     private var period: Double {
@@ -80,8 +77,7 @@ struct QSOStatusPanel: View {
                 .truncatingRemainder(dividingBy: period) / period
             SlotRing(fraction: fraction)
         }
-        .padding(.leading, edgeInset)
-        .padding(.trailing, 8)
+        .frame(height: 26)
         .help("Decoding — the ring fills over the \(digiMode) slot")
     }
 
@@ -246,8 +242,6 @@ struct QSOStatusPanel: View {
             content()
         }
         .frame(height: 26) // constant across states: no vertical breathing
-        .padding(.leading, edgeInset)
-        .padding(.trailing, 4)
     }
 
     /// Fixed-width seconds counter so ticking never changes the chip width.
