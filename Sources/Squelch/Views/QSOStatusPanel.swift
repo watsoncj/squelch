@@ -98,6 +98,9 @@ struct QSOStatusPanel: View {
                  ? "TUNING"
                  : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText))
                 .font(.callout.weight(.semibold).monospaced())
+                // Min width so successive TX messages of similar length
+                // ("K5XL W0CJW -17" vs "CQ W0CJW DM79") don't jitter
+                .frame(minWidth: 160, alignment: .leading)
             // Progress through the slot window (2 min for a WSPR beacon,
             // 15 s for FT8) — red to match the TX state
             if !transmit.isTuning {
@@ -242,6 +245,7 @@ struct QSOStatusPanel: View {
         HStack(spacing: 8) {
             content()
         }
+        .frame(height: 26) // constant across states: no vertical breathing
         .padding(.leading, edgeInset)
         .padding(.trailing, 4)
     }

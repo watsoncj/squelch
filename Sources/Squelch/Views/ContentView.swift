@@ -84,17 +84,29 @@ struct ContentView: View {
                     // Full screen: the toolbar auto-hides, so the radio
                     // controls float over the map in a glass bar instead
                     if isFullScreen {
-                        HStack(spacing: 14) {
-                            radioControls(inToolbar: false)
+                        // Two capsules mirroring the windowed toolbar's two
+                        // glass groups: the volatile status cluster resizes
+                        // in its own skin; the action capsule never moves.
+                        HStack(alignment: .top, spacing: 10) {
+                            if statusClusterVisible {
+                                HStack(spacing: 14) {
+                                    statusCluster(inToolbar: false)
+                                }
+                                .buttonStyle(.borderless)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 11)
+                                .glassCapsule()
+                            }
+
+                            HStack(spacing: 14) {
+                                actionControls
+                            }
+                            .buttonStyle(.borderless)
+                            .labelStyle(.iconOnly) // freq/QSO opt into text themselves
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
+                            .glassCapsule()
                         }
-                        .buttonStyle(.borderless)
-                        // Match the windowed toolbar's rendering: labels are
-                        // icon-only except where a button opts into text
-                        // (frequency, QSO count)
-                        .labelStyle(.iconOnly)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 11) // match the windowed toolbar's capsule height
-                        .glassCapsule()
                         .padding(.top, 8)
                         .padding(.trailing, 16) // same right inset as the toolbar; side stack sits below
                     }
@@ -256,25 +268,41 @@ struct ContentView: View {
         }
     }
 
-    // Everything left-aligned over the map, so the floating sidebar
-    // on the right can run the full window height.
+    // Volatile status and stable actions live in SEPARATE toolbar groups:
+    // each gets its own glass capsule, so a chip appearing, disappearing,
+    // or changing width never re-shapes the container around the buttons.
+    // The same two-container structure is used by the fullscreen bar.
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
-            // Radio actions, pushed to the trailing edge; view controls
-            // live in the floating stack on the map's right side
             ToolbarItemGroup {
                 Spacer()
-                radioControls(inToolbar: true)
+            }
+            ToolbarItemGroup {
+                statusCluster(inToolbar: true)
+            }
+            ToolbarItemGroup {
+                actionControls
             }
     }
 
-    /// The radio action cluster — lives in the toolbar in windowed mode and
-    /// in a floating glass bar over the map in full screen (where the
-    /// toolbar auto-hides). The toolbar's glass group gives its leftmost
-    /// item almost no inset, so custom chips need their own breathing room
-    /// there; the fullscreen bar pads its edges itself.
+    /// Whether the volatile cluster has anything to show — the fullscreen
+    /// bar hides its capsule entirely when empty.
+    private var statusClusterVisible: Bool {
+        let catTrouble = !cat.portPath.isEmpty
+            && (!cat.isConnected || (cat.radioModeName != nil && cat.radioModeName != "DATA-USB"))
+        let chipActive = transmit.anyTXActive
+            || actions.pendingReply != nil
+            || sequencer.mode != .idle
+            || actions.wsprBeaconEnabled
+            || transmit.txError != nil
+            || controller.isRunning
+        return catTrouble || chipActive
+    }
+
+    /// Volatile: CAT trouble light + the TX/QSO/beacon/decoding chip.
+    /// Isolated so its constant shape-shifting stays in its own container.
     @ViewBuilder
-    private func radioControls(inToolbar: Bool) -> some View {
+    private func statusCluster(inToolbar: Bool) -> some View {
                 // CAT trouble light: appears only when CAT is configured
                 // but disconnected, or the radio wandered off DATA-USB
                 if !cat.portPath.isEmpty,
@@ -286,6 +314,7 @@ struct ContentView: View {
                              : "CAT offline")
                             .font(.callout)
                     }
+                    .frame(height: 26)
                     .foregroundStyle(.orange)
                     .padding(.leading, inToolbar ? 14 : 6)
                     .padding(.trailing, 6)
@@ -298,7 +327,12 @@ struct ContentView: View {
                 // decoding vitals — appears only when something is happening
                 QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller,
                                edgeInset: inToolbar ? 14 : 8)
+    }
 
+    /// Stable: constant membership, near-constant width — this container
+    /// must never visibly move.
+    @ViewBuilder
+    private var actionControls: some View {
                 Button {
                     showFrequencies.toggle()
                 } label: {
