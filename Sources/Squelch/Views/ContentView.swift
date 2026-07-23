@@ -87,27 +87,30 @@ struct ContentView: View {
                         // Two capsules mirroring the windowed toolbar's two
                         // glass groups: the volatile status cluster resizes
                         // in its own skin; the action capsule never moves.
-                        HStack(alignment: .top, spacing: 10) {
+                        // Metrics tuned to match the windowed toolbar's
+                        // native capsule: ~38pt tall, 16pt item rhythm,
+                        // 16pt right inset, 12pt from the top edge
+                        HStack(alignment: .center, spacing: 10) {
                             if statusClusterVisible {
                                 HStack(spacing: 14) {
                                     statusCluster(inToolbar: false)
                                 }
                                 .buttonStyle(.borderless)
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 11)
+                                .frame(height: 38)
                                 .glassCapsule()
                             }
 
-                            HStack(spacing: 14) {
+                            HStack(spacing: 16) {
                                 actionControls
                             }
                             .buttonStyle(.borderless)
                             .labelStyle(.iconOnly) // freq/QSO opt into text themselves
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
+                            .padding(.horizontal, 14)
+                            .frame(height: 38)
                             .glassCapsule()
                         }
-                        .padding(.top, 8)
+                        .padding(.top, 12)
                         .padding(.trailing, 16) // same right inset as the toolbar; side stack sits below
                     }
                 }
