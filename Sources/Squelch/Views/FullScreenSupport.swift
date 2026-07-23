@@ -48,10 +48,13 @@ struct WindowAccessor: NSViewRepresentable {
             window.delegate = context.coordinator.proxy
             isFullScreen = window.styleMask.contains(.fullScreen)
             let center = NotificationCenter.default
+            // WILL, not DID: the layout handoff (toolbar ↔ floating bar)
+            // must happen before the transition animates, or the floating
+            // bar rides the shrinking window and visibly jumps.
             context.coordinator.observers = [
-                center.addObserver(forName: NSWindow.didEnterFullScreenNotification,
+                center.addObserver(forName: NSWindow.willEnterFullScreenNotification,
                                    object: window, queue: .main) { _ in isFullScreen = true },
-                center.addObserver(forName: NSWindow.didExitFullScreenNotification,
+                center.addObserver(forName: NSWindow.willExitFullScreenNotification,
                                    object: window, queue: .main) { _ in isFullScreen = false },
             ]
         }
