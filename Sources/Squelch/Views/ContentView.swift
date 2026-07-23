@@ -279,9 +279,13 @@ struct ContentView: View {
     private var toolbarItems: some ToolbarContent {
             ToolbarItemGroup {
                 Spacer()
-            }
-            ToolbarItemGroup {
                 statusCluster(inToolbar: true)
+            }
+            // Capsule grouping follows spacers, not item groups: without
+            // this, macOS fuses status + actions into one glass slab and
+            // chip changes re-shape it around the buttons.
+            if #available(macOS 26.0, *) {
+                ToolbarSpacer(.fixed)
             }
             ToolbarItemGroup {
                 actionControls
