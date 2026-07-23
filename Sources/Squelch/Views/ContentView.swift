@@ -111,7 +111,7 @@ struct ContentView: View {
                             .glassCapsule()
                         }
                         .padding(.top, 12)
-                        .padding(.trailing, 16) // same right inset as the toolbar; side stack sits below
+                        .padding(.trailing, 10) // flush with the side control stack below
                     }
                 }
                 .overlay(alignment: .bottom) {
