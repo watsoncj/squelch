@@ -110,7 +110,7 @@ struct ContentView: View {
                             .frame(height: 38)
                             .glassCapsule()
                         }
-                        .padding(.top, 12)
+                        .padding(.top, 8) // match the native toolbar capsule's top offset
                         .padding(.trailing, 10) // flush with the side control stack below
                     }
                 }
