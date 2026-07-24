@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import AVFoundation
 import Accelerate
 
@@ -44,6 +45,7 @@ final class DecodeController: ObservableObject {
     /// (the display may still sleep; decoding continues). Lid-close sleep is
     /// not overridden.
     private var sleepAssertion: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
 
     func start(device: AudioDevice?) {
         guard !isRunning else { return }
@@ -72,6 +74,10 @@ final class DecodeController: ObservableObject {
         capture.stop()
         timer?.cancel()
         timer = nil
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
         bufferLock.lock()
         sampleBuffer.removeAll()
         bufferLock.unlock()
@@ -106,6 +112,19 @@ final class DecodeController: ObservableObject {
         }
         statusText = "Listening (\(mode.rawValue)) — decoding at each \(String(format: "%g", mode.slotSeconds)) s slot boundary"
         scheduleSlotTimer()
+        // Audio buffered before a sleep plus the gap across it would decode
+        // as one garbage slot after waking; start the next slot clean.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.bufferLock.lock()
+            self.sampleBuffer.removeAll(keepingCapacity: true)
+            self.bufferLock.unlock()
+            self.scheduleSlotTimer()
+        }
     }
 
     private func append(_ samples: [Float]) {
@@ -140,8 +159,11 @@ final class DecodeController: ObservableObject {
         let t = DispatchSource.makeTimerSource(queue: decodeQueue)
         let now = Date().timeIntervalSince1970
         let untilNextSlot = period - now.truncatingRemainder(dividingBy: period)
+        // Wall clock, not monotonic: slots are UTC-aligned, and a monotonic
+        // deadline pauses across system sleep — every slot after a wake
+        // would fire late by the slept time and decode misaligned windows.
         t.schedule(
-            deadline: .now() + untilNextSlot,
+            wallDeadline: .now() + untilNextSlot,
             repeating: period,
             leeway: .milliseconds(50)
         )

@@ -30,10 +30,14 @@ final class AudioCapture {
     private var outputFormat: AVAudioFormat?
     private var configObserver: NSObjectProtocol?
     private var currentDeviceID: AudioDeviceID?
+    /// One rebuild request per drift detection — the tap fires ~12×/s and
+    /// must not queue a rebuild storm while the first one is in flight.
+    private var rebuildRequested = false
 
     func start(deviceID: AudioDeviceID?) throws {
         stop()
         currentDeviceID = deviceID
+        rebuildRequested = false
 
         let engine = AVAudioEngine()
         self.engine = engine
@@ -88,7 +92,12 @@ final class AudioCapture {
     }
 
     private func restartAfterConfigChange(attempt: Int) {
-        if let engine, engine.isRunning { return } // recovered on its own
+        // Trust a self-recovered engine only if it's still bound to our
+        // device in our format — recovery can silently rebind the input to
+        // the system default (internal mic), which keeps audio flowing but
+        // feeds the decoder room noise (waterfall collapses to low-end
+        // rumble, spots stop).
+        if let engine, engine.isRunning, inputBindingIntact(engine) { return }
         guard currentDeviceID != nil || engine != nil || attempt > 1 else { return }
         // Full rebuild, not restart-in-place: after a device configuration
         // change (AirPods connecting, etc.) a restarted engine can silently
@@ -107,6 +116,27 @@ final class AudioCapture {
         }
     }
 
+    private func inputBindingIntact(_ engine: AVAudioEngine) -> Bool {
+        if let deviceID = currentDeviceID {
+            guard let unit = engine.inputNode.audioUnit else { return false }
+            var bound = AudioDeviceID(0)
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            let status = AudioUnitGetProperty(
+                unit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &bound,
+                &size
+            )
+            guard status == noErr, bound == deviceID else { return false }
+        }
+        guard let converter else { return false }
+        let format = engine.inputNode.inputFormat(forBus: 0)
+        return format.sampleRate == converter.inputFormat.sampleRate
+            && format.channelCount == converter.inputFormat.channelCount
+    }
+
     func stop() {
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
@@ -121,6 +151,19 @@ final class AudioCapture {
 
     private func handleTap(_ buffer: AVAudioPCMBuffer) {
         guard let converter, let outputFormat else { return }
+        // Format drift can arrive with no configuration-change notification;
+        // converting through a stale converter mislabels the sample rate and
+        // shifts every signal's apparent frequency. Rebuild instead.
+        if buffer.format.sampleRate != converter.inputFormat.sampleRate
+            || buffer.format.channelCount != converter.inputFormat.channelCount {
+            if !rebuildRequested {
+                rebuildRequested = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.restartAfterConfigChange(attempt: 1)
+                }
+            }
+            return
+        }
         let ratio = outputFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
         guard let out = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else { return }
