@@ -40,6 +40,11 @@ final class DecodeController: ObservableObject {
 
     private var lastLevelUpdate = Date.distantPast
 
+    /// Held while capture is live so the Mac doesn't idle-sleep mid-session
+    /// (the display may still sleep; decoding continues). Lid-close sleep is
+    /// not overridden.
+    private var sleepAssertion: NSObjectProtocol?
+
     func start(device: AudioDevice?) {
         guard !isRunning else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -73,6 +78,10 @@ final class DecodeController: ObservableObject {
         isRunning = false
         statusText = "Stopped"
         audioLevelDB = -80
+        if let assertion = sleepAssertion {
+            ProcessInfo.processInfo.endActivity(assertion)
+            sleepAssertion = nil
+        }
     }
 
     private func beginCapture(device: AudioDevice?) {
@@ -89,6 +98,12 @@ final class DecodeController: ObservableObject {
         }
         deviceName = device?.name ?? "Default input"
         isRunning = true
+        if sleepAssertion == nil {
+            sleepAssertion = ProcessInfo.processInfo.beginActivity(
+                options: .idleSystemSleepDisabled,
+                reason: "Decoding \(mode.rawValue) slots"
+            )
+        }
         statusText = "Listening (\(mode.rawValue)) — decoding at each \(String(format: "%g", mode.slotSeconds)) s slot boundary"
         scheduleSlotTimer()
     }
