@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 /// Owns the long-lived model objects and wires decode results into the store.
 /// A canonical digital-mode frequency the radio can QSY to.
@@ -70,6 +71,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var beaconNextWindowWillTX = false
     private var beaconWindowsSinceTX = 0
     private var beaconWork: DispatchWorkItem?
+    private var lastBeaconWindow: Double = -1
+    static let beaconLog = Logger(subsystem: "com.watsoncj.squelch", category: "beacon")
 
     /// Partner we gave up on mid-exchange; their straggling reply within
     /// the grace window re-engages even with auto-answer off — the user
@@ -275,22 +278,40 @@ final class AppModel: ObservableObject {
     func forceBeaconNextWindow() {
         guard wsprBeaconEnabled else { return }
         beaconNextWindowWillTX = true
+        Self.beaconLog.info("user forced TX next window")
+    }
+
+    /// Pure decision for one upcoming window. `justTransmitted` always
+    /// skips (listen after you transmit — no back-to-back beacon windows);
+    /// then the bounded-gap force; then the duty roll.
+    static func beaconDecision(dutyPct: Int, windowsSinceTX: Int, justTransmitted: Bool, roll: Double) -> Bool {
+        if justTransmitted { return false }
+        let duty = max(dutyPct, 1)
+        let maxGapWindows = max(2, 2 * Int((100.0 / Double(duty)).rounded()))
+        if windowsSinceTX + 1 >= maxGapWindows { return true }
+        return roll < Double(duty)
     }
 
     /// Duty-cycle roll with a bounded gap: after ~2× the expected interval
     /// without a TX, the next window transmits regardless.
     private func decideNextBeaconWindow() {
-        let duty = max(UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct), 1)
-        let maxGapWindows = max(2, 2 * Int((100.0 / Double(duty)).rounded()))
-        if beaconWindowsSinceTX + 1 >= maxGapWindows {
-            beaconNextWindowWillTX = true
-        } else {
-            beaconNextWindowWillTX = Double.random(in: 0..<100) < Double(duty)
-        }
+        let duty = UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct)
+        beaconNextWindowWillTX = Self.beaconDecision(
+            dutyPct: duty,
+            windowsSinceTX: beaconWindowsSinceTX,
+            justTransmitted: transmit.anyTXActive && beaconWindowsSinceTX == 0,
+            roll: Double.random(in: 0..<100)
+        )
+        Self.beaconLog.info("decide: willTX=\(self.beaconNextWindowWillTX) quietWindows=\(self.beaconWindowsSinceTX) duty=\(duty)")
     }
 
     private func scheduleBeaconTick() {
         guard wsprBeaconEnabled else { return }
+        // Exactly ONE live chain: an un-cancelled pending tick here would
+        // fork a parallel timer chain — each one inflating the quiet-window
+        // counter and re-rolling the TX decision every window (seen in the
+        // field as way-over-duty transmit rates)
+        beaconWork?.cancel()
         let period = DigiMode.wspr.slotSeconds
         let now = Date().timeIntervalSince1970
         var next = (now / period).rounded(.up) * period
@@ -306,6 +327,16 @@ final class AppModel: ObservableObject {
     /// window was pre-selected. The encoded audio's 1 s lead keeps us
     /// inside WSPR's ±2 s tolerance.
     private func beaconWindowFired() {
+        // Account each wall-clock window exactly once: a duplicate chain's
+        // fire dies here (no counter bump, no re-roll, and — by returning
+        // before the reschedule — no successor, so stray chains self-cull).
+        let window = (Date().timeIntervalSince1970 / DigiMode.wspr.slotSeconds).rounded(.down)
+        guard window != lastBeaconWindow else {
+            Self.beaconLog.error("duplicate fire for window \(window, format: .fixed(precision: 0)) — parallel chain culled")
+            return
+        }
+        lastBeaconWindow = window
+
         defer {
             decideNextBeaconWindow()
             scheduleBeaconTick()
@@ -317,6 +348,7 @@ final class AppModel: ObservableObject {
               !demoMode,
               beaconNextWindowWillTX else {
             beaconWindowsSinceTX += 1
+            Self.beaconLog.info("window: quiet (willTX was \(self.beaconNextWindowWillTX)) quietWindows=\(self.beaconWindowsSinceTX)")
             return
         }
 
@@ -332,6 +364,7 @@ final class AppModel: ObservableObject {
         let offset = Double.random(in: 1420...1580)
         if transmit.transmitWSPR(call: call, grid4: grid4, dbm: power, offsetHz: offset) {
             beaconWindowsSinceTX = 0
+            Self.beaconLog.info("window: TRANSMIT \(power) dBm at \(offset, format: .fixed(precision: 0)) Hz")
             // No synthetic "TX WSPR" log row: the RF loopback decode of our
             // own beacon lands in the feed with a real SNR, and the toolbar
             // chip shows the transmission live — the extra row was noise.
