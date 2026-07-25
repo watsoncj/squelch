@@ -31,17 +31,31 @@ enum WSPRDecoder {
 
     // MARK: - Entry point
 
-    static func decode(_ samples: [Float]) -> [Result] {
+    /// Wall-clock cap on one slot's decode. Real signals decode in ~2 s
+    /// total; the failure mode this guards is dead-band noise, where dozens
+    /// of candidates squeak past the sync gate and each burns a full stack
+    /// budget — pushing a slot past its own 2-minute period and starting a
+    /// backlog the serial decode queue never recovers from.
+    static let decodeBudgetSeconds: TimeInterval = 60
+
+    static func decode(_ samples: [Float], deadline: Date? = nil) -> [Result] {
+        let deadline = deadline ?? Date().addingTimeInterval(decodeBudgetSeconds)
         guard samples.count > Int(inRate) * 60 else { return [] }
         let baseband = downconvert(samples)
         let bank = spectraBank(baseband)
         guard !bank.powers.isEmpty else { return [] }
 
+        // Align everything first (bounded cost), then spend the stack-decode
+        // budget on the most promising candidates
+        let alignedCandidates = candidates(bank)
+            .compactMap { align(bank, centerBin: $0) }
+            .filter { $0.syncQuality > 1.12 } // sync gate
+            .sorted { $0.syncQuality > $1.syncQuality }
+
         var results: [Result] = []
         var claimed = Set<String>()
-        for candidateBin in candidates(bank) {
-            guard let aligned = align(bank, centerBin: candidateBin) else { continue }
-            guard aligned.syncQuality > 1.12 else { continue } // sync gate
+        for aligned in alignedCandidates {
+            guard Date() < deadline else { break } // budget spent — keep the slot cadence
             let soft = softBits(bank, aligned)
             guard let bits = StackDecoder.decode(soft) else { continue }
             guard let msg = unpackAndVerify(bits: bits, soft: soft) else { continue }

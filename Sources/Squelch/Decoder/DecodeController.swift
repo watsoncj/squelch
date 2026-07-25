@@ -174,10 +174,22 @@ final class DecodeController: ObservableObject {
         timer = t
     }
 
+    /// A slot handler that starts well after its boundary snapshots a
+    /// misaligned audio window (the ring buffer only holds ~one slot).
+    /// Decoding that window can't succeed and — for WSPR — is exactly the
+    /// slow-grind case, so one late slot would cascade into a permanent
+    /// backlog on the serial queue. Near a full period late self-corrects:
+    /// the buffer then holds the just-ended slot, correctly aligned.
+    static func isMisaligned(now: TimeInterval, period: Double, tolerance: Double = 5) -> Bool {
+        let sinceBoundary = now.truncatingRemainder(dividingBy: period)
+        return sinceBoundary > tolerance && sinceBoundary < period - tolerance
+    }
+
     /// Runs on decodeQueue at each slot boundary.
     private func processSlot() {
         let period = slotSeconds
-        let boundary = (Date().timeIntervalSince1970 / period).rounded() * period
+        let now = Date().timeIntervalSince1970
+        let boundary = (now / period).rounded() * period
         let slotStart = Date(timeIntervalSince1970: boundary - period)
 
         bufferLock.lock()
@@ -192,7 +204,7 @@ final class DecodeController: ObservableObject {
         // Always report the slot — even empty — so the QSO sequencer keeps
         // getting its transmit windows when a slot's audio is unusable.
         let results: [FT8Result]
-        if slotSamples.count < minDecodableSamples {
+        if slotSamples.count < minDecodableSamples || Self.isMisaligned(now: now, period: period) {
             results = []
         } else if mode == .wspr {
             let defaults = UserDefaults.standard
