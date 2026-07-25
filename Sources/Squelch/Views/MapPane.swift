@@ -113,6 +113,9 @@ struct MapPane: View {
     @ObservedObject var location: LocationProvider
     @ObservedObject var stateResolver: StateResolver
     var selectedMessage: DecodedMessage?
+    /// WSPRnet reports of our own beacon — rendered as purple cells, the
+    /// reverse direction of the heard-station squares.
+    var beaconReports: [BeaconReport] = []
     var onSelectStation: ((String) -> Void)? = nil
     /// Points of the map covered by the floating panels on the left —
     /// focus/fit regions shift so targets center in the visible strip.
@@ -130,6 +133,7 @@ struct MapPane: View {
     /// MapKit overlays on every view update leaks GPU buffers in VectorKit
     /// until Metal allocation aborts (seen after an overnight session).
     @State private var cells: [GridCell] = []
+    @State private var reportCells: [ReportCell] = []
     @State private var mapWidth: CGFloat = 0
     /// Latest settled viewport, for the zoom buttons (updated on gesture
     /// end only — per-frame updates would re-diff map content while panning)
@@ -178,6 +182,7 @@ struct MapPane: View {
             rebuildCellsIfChanged()
         }
         .onChange(of: store.totalDecodes) { _, _ in rebuildCellsIfChanged() }
+        .onChange(of: beaconReports) { _, _ in rebuildCellsIfChanged() }
         .onReceive(Self.colorAgingTick) { _ in rebuildCellsIfChanged() }
     }
 
@@ -299,6 +304,43 @@ struct MapPane: View {
         if fresh != cells {
             cells = fresh
         }
+        let freshReports = computeReportCells()
+        if freshReports != reportCells {
+            reportCells = freshReports
+        }
+    }
+
+    /// Purple cells for stations that heard our beacon, same recency
+    /// window as the heard-station cells (map = current propagation).
+    private struct ReportCell: Identifiable, Equatable {
+        let id: String // the 4-char grid
+        let corners: [CLLocationCoordinate2D]
+
+        static func == (lhs: ReportCell, rhs: ReportCell) -> Bool {
+            lhs.id == rhs.id
+        }
+    }
+
+    private func computeReportCells() -> [ReportCell] {
+        let cutoff = Date().addingTimeInterval(-Self.recencyWindowSeconds)
+        var grids = Set<String>()
+        for report in beaconReports where report.time > cutoff {
+            let grid4 = String(report.reporterGrid.prefix(4)).uppercased()
+            if grid4.count == 4 { grids.insert(grid4) }
+        }
+        return grids.compactMap { grid in
+            guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
+            return ReportCell(
+                id: grid,
+                corners: [
+                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
+                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
+                ]
+            )
+        }
+        .sorted { $0.id < $1.id }
     }
 
     /// Launch camera: the exact view the locate button gives (station grid
@@ -342,6 +384,13 @@ struct MapPane: View {
                     MapPolygon(coordinates: cell.corners)
                         .foregroundStyle(cell.color.opacity(0.30))
                         .stroke(cell.color.opacity(0.8), lineWidth: 1)
+                }
+                // Beacon coverage on top: purple = "they heard US", never
+                // confusable with the red→gray heard-station aging ramp
+                ForEach(reportCells) { cell in
+                    MapPolygon(coordinates: cell.corners)
+                        .foregroundStyle(.purple.opacity(0.22))
+                        .stroke(.purple.opacity(0.85), lineWidth: 1.5)
                 }
             }
 

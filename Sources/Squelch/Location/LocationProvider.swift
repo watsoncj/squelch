@@ -96,4 +96,5 @@ enum SettingsKeys {
     static let lastCQParity = "lastCQParity"
     static let wsprPowerDBm = "wsprPowerDBm"
     static let wsprDutyPct = "wsprDutyPct"
+    static let wsprUpload = "wsprUpload"
 }

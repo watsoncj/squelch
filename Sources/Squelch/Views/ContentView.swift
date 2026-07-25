@@ -8,6 +8,7 @@ struct ContentView: View {
     @ObservedObject var sequencer: QSOSequencer
     @ObservedObject var qsoLog: QSOLog
     @ObservedObject var cat: CATController
+    @ObservedObject var wsprNet: WSPRNetService
     @ObservedObject var actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
@@ -25,6 +26,7 @@ struct ContentView: View {
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @State private var isFullScreen = false
+    @State private var beaconReportsDismissed = false
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -32,6 +34,7 @@ struct ContentView: View {
             // Apple Maps treatment: the map fills the window and the log
             // floats over it as a translucent sidebar
             MapPane(store: store, location: location, stateResolver: actions.stateResolver, selectedMessage: selectedMessage,
+                    beaconReports: wsprNet.reports,
                     onSelectStation: { call in
                         selectedStationCall = call
                         showSidebar = true // detail docks in the sidebar now
@@ -160,6 +163,11 @@ struct ContentView: View {
                 actions.digiModeChanged(to: mode)
             }
         }
+        // Closing the reports card is "not now", not "never" — arming the
+        // beacon again brings it back
+        .onChange(of: actions.wsprBeaconEnabled) { _, on in
+            if on { beaconReportsDismissed = false }
+        }
         .onAppear {
             // Feed-era migration: the column-table default width (540) reads
             // as the new narrow default once
@@ -218,6 +226,16 @@ struct ContentView: View {
                     replyEnabled: txAvailable && sequencer.mode == .idle
                 )
                 .frame(height: 380)
+            } else if wsprNet.reportsRelevant && !beaconReportsDismissed {
+                // Beacon on (or just off): who's hearing us, from WSPRnet.
+                // Station selection wins the slot — reports return when the
+                // detail card closes.
+                Divider()
+                BeaconReportsView(
+                    wsprNet: wsprNet,
+                    onClose: { beaconReportsDismissed = true }
+                )
+                .frame(height: 300)
             }
         }
         .frame(width: sidebarWidth)

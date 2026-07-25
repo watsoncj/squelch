@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     let cat = CATController()
     let waterfall = WaterfallProcessor()
     let stateResolver = StateResolver()
+    let wsprNet = WSPRNetService()
 
     @Published var pendingReply: PendingReply?
     @Published private(set) var wsprBeaconEnabled = false
@@ -118,6 +119,15 @@ final class AppModel: ObservableObject {
                 myCoordinate: self.location.effectiveCoordinate(),
                 dialFrequencyMHz: dial > 0 ? dial : 28.074
             )
+            if self.controller.mode == .wspr,
+               !self.demoMode,
+               UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload) {
+                self.wsprNet.uploadSpots(
+                    results: results,
+                    slotStart: slotStart,
+                    dialMHz: dial > 0 ? dial : 28.1246
+                )
+            }
             self.runSequencer(results: results, slotStart: slotStart)
         }
         if CommandLine.arguments.contains("--demo") {
@@ -232,7 +242,11 @@ final class AppModel: ObservableObject {
     func setWSPRBeacon(_ on: Bool) {
         beaconWork?.cancel()
         beaconWork = nil
+        let changed = wsprBeaconEnabled != on
         wsprBeaconEnabled = on
+        if changed {
+            wsprNet.beaconStateChanged(enabled: on)
+        }
         if on {
             beaconWindowsSinceTX = 0
             decideNextBeaconWindow()
@@ -522,6 +536,7 @@ struct SquelchApp: App {
                 sequencer: model.sequencer,
                 qsoLog: model.qsoLog,
                 cat: model.cat,
+                wsprNet: model.wsprNet,
                 actions: model
             )
             .frame(minWidth: 980, minHeight: 620)
@@ -538,7 +553,7 @@ struct SquelchApp: App {
         .keyboardShortcut("l", modifiers: .command)
 
         Settings {
-            SettingsView(cat: model.cat, location: model.location, controller: model.controller)
+            SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet)
         }
     }
 }

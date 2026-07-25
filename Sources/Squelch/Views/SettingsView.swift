@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject var cat: CATController
     @ObservedObject var location: LocationProvider
     @ObservedObject var controller: DecodeController
+    @ObservedObject var wsprNet: WSPRNetService
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -173,7 +174,18 @@ struct SettingsView: View {
                 }
                 .help("Fraction of 2-minute windows that transmit; the rest receive. 20% is the community norm.")
 
-                Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band.")
+                Toggle("Upload received spots to WSPRnet", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprUpload) }
+                ))
+                .help("Contribute every WSPR decode to wsprnet.org under your callsign and grid — the community propagation map runs on these. Off by default; nothing leaves the app until you opt in.")
+                if UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload), wsprNet.uploadedCount > 0 {
+                    Text("Uploaded \(wsprNet.uploadedCount) spot\(wsprNet.uploadedCount == 1 ? "" : "s") this session")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                }
+
+                Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band. While the beacon is armed, the sidebar shows who's hearing you (reports fetched from the WSPRnet database).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
