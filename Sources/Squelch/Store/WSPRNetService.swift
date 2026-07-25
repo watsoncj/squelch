@@ -239,7 +239,9 @@ final class WSPRNetService: ObservableObject {
         guard let dbm = Int(tokens[3].replacingOccurrences(of: "DBM", with: "")) else { return nil }
         guard tcall != rcall.uppercased() else { return nil } // own beacon loopback
 
-        let version = "Squelch " + ((Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev")
+        // WSPRnet's version column truncates around 10 characters —
+        // "Squelch 1." helps nobody; "Squelch1.4" still reads
+        let version = "Squelch" + ((Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev")
         var components = URLComponents(string: "https://wsprnet.org/post")!
         components.queryItems = [
             URLQueryItem(name: "function", value: "wspr"),
