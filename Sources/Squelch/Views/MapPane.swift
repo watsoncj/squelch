@@ -310,6 +310,39 @@ struct MapPane: View {
         }
     }
 
+    /// A grid cell's outline as many short segments instead of 4 long ones.
+    /// VectorKit misrenders segments whose endpoints are both off-screen
+    /// (zoomed inside the cell): strokes get culled entirely (missing
+    /// borders) and fill/stroke disagree at the edge (jaggies). Vertices
+    /// every quarter-degree keep every visible edge locally anchored.
+    static func cellPerimeter(center: CLLocationCoordinate2D) -> [CLLocationCoordinate2D] {
+        let south = center.latitude - 0.5, north = center.latitude + 0.5
+        let west = center.longitude - 1.0, east = center.longitude + 1.0
+        let step = 0.25
+        var points: [CLLocationCoordinate2D] = []
+        var lon = west
+        while lon < east - step / 2 { // south edge, west → east
+            points.append(CLLocationCoordinate2D(latitude: south, longitude: lon))
+            lon += step
+        }
+        var lat = south
+        while lat < north - step / 2 { // east edge, south → north
+            points.append(CLLocationCoordinate2D(latitude: lat, longitude: east))
+            lat += step
+        }
+        lon = east
+        while lon > west + step / 2 { // north edge, east → west
+            points.append(CLLocationCoordinate2D(latitude: north, longitude: lon))
+            lon -= step
+        }
+        lat = north
+        while lat > south + step / 2 { // west edge, north → south
+            points.append(CLLocationCoordinate2D(latitude: lat, longitude: west))
+            lat -= step
+        }
+        return points
+    }
+
     /// Purple cells for stations that heard our beacon, same recency
     /// window as the heard-station cells (map = current propagation).
     private struct ReportCell: Identifiable, Equatable {
@@ -330,15 +363,7 @@ struct MapPane: View {
         }
         return grids.compactMap { grid in
             guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
-            return ReportCell(
-                id: grid,
-                corners: [
-                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
-                ]
-            )
+            return ReportCell(id: grid, corners: Self.cellPerimeter(center: center))
         }
         .sorted { $0.id < $1.id }
     }
@@ -481,12 +506,7 @@ struct MapPane: View {
                   let center = Maidenhead.coordinate(forGrid: String(grid4.prefix(4))) else { return }
             cells.append(SelectedCell(
                 id: "\(call)-\(grid4.prefix(4))",
-                corners: [
-                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
-                    CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
-                ]
+                corners: Self.cellPerimeter(center: center)
             ))
         }
 
@@ -580,12 +600,7 @@ struct MapPane: View {
         // is nondeterministic, which would defeat the change check)
         return byGrid.compactMap { grid, stations in
             guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
-            let corners = [
-                CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude - 1.0),
-                CLLocationCoordinate2D(latitude: center.latitude - 0.5, longitude: center.longitude + 1.0),
-                CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude + 1.0),
-                CLLocationCoordinate2D(latitude: center.latitude + 0.5, longitude: center.longitude - 1.0),
-            ]
+            let corners = Self.cellPerimeter(center: center)
             let newest = stations.map(\.lastHeard).max() ?? .distantPast
             return GridCell(
                 id: grid,
