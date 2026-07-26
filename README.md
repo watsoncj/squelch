@@ -1,9 +1,8 @@
 # Squelch
 
 A map-first FT8/FT4/WSPR station for macOS. Native SwiftUI — decode, log,
-and work the world from an edge-to-edge propagation map. Built for a
-Digirig audio interface and a Yaesu FT-891 (CAT), adaptable to similar
-setups.
+and work the world from an edge-to-edge propagation map. Verified on the
+Yaesu FT-891 (with a Digirig) and the FT-991; adaptable to similar setups.
 
 ![Squelch decoding 20m FT8 — a Tennessee station working Saudi Arabia,
 with the great-circle path drawn across the Atlantic](docs/screenshot.png)
@@ -23,6 +22,20 @@ open Squelch.app
 
 For development: `swift build`, `swift test`, or open `Package.swift` in
 Xcode. `Scripts/make_release.sh` is the sign/notarize/staple pipeline.
+
+## Supported hardware
+
+Verified stations:
+
+- **Yaesu FT-891** + Digirig Mobile (DR-891 cable set) — audio, CAT, and PTT
+- **Yaesu FT-991** — its built-in USB audio + CAT bridge is all you need;
+  no external interface
+
+In general: any radio with a USB audio path (built in, or through an
+interface like the Digirig) can decode. CAT speaks the Yaesu ASCII
+protocol, so close relatives of the verified rigs are likely to work;
+PTT keys via CAT or serial RTS. Without CAT everything else still runs —
+set the dial by hand and pick the matching frequency in the app.
 
 ## Hardware setup (FT-891 + Digirig)
 
