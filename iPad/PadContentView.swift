@@ -158,13 +158,18 @@ struct PadContentView: View {
             // Receive-only: every preset is fair game; the radio dial is
             // set by hand and this just tells the decoder what to expect
             ForEach(QSYPreset.all) { preset in
-                Button(preset.label) {
+                Button {
                     dialFrequencyMHz = preset.mhz
                     digiMode = preset.mode.rawValue
                     if controller.isRunning {
                         controller.stop()
                         controller.start()
                     }
+                } label: {
+                    // Title + subtitle rows — the mac label's "10m FT8 —
+                    // 28.074" em-dash line wraps at iOS menu width
+                    Text(preset.label.components(separatedBy: " — ").first ?? preset.label)
+                    Text(String(format: "%.4f MHz", preset.mhz))
                 }
             }
         } label: {
