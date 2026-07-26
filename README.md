@@ -128,6 +128,16 @@ advertised power **follows the radio's actual power setting** (read-only —
 the app never changes the radio); without CAT, set the reported dBm
 manually. The usual guards apply.
 
+**WSPRnet integration**: opt in to uploading every received spot to
+[wsprnet.org](https://wsprnet.org) under your callsign (Settings → WSPR
+Beacon — off by default, nothing leaves the app until you enable it).
+While your beacon is armed, a "Heard your beacon" card docks in the
+sidebar showing who's receiving you — reporter, grid, SNR, distance —
+refreshed from the WSPRnet database every few minutes, and reporters
+light up as purple grid squares on the map alongside the red/orange
+heard-station cells: your coverage against current propagation at a
+glance.
+
 ## CAT control & modes
 
 - **CAT (FT-891)**: Settings → CAT Control, pick the radio's *Enhanced*
@@ -161,23 +171,6 @@ manually. The usual guards apply.
   6-character locators) are not decoded — the clean-room decoder handles
   standard type-1 spots, which are the overwhelming majority.
 
-## iPad (receive-only)
-
-Squelch also runs on iPadOS 26+ as a receive-only station: plug the Digirig
-(or any USB audio interface) into the USB-C port, tune the radio by hand,
-and you get the same decoder, feed, map, station cards, and WSPRnet spot
-uploads. iPadOS exposes no USB serial, so CAT control and transmit remain
-Mac features.
-
-Build it with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
-
-```sh
-xcodegen && open SquelchPad.xcodeproj   # run the SquelchPad scheme
-```
-
-The iPad target compiles the same shared sources (`project.yml` excludes the
-Mac chrome and the entire transmit/CAT/serial chain).
-
 ## Project layout
 
 - `Sources/CFT8/` — vendored ft8_lib + `glue.c` (FT8/FT4) with kiss_fft.
@@ -188,14 +181,11 @@ Mac chrome and the entire transmit/CAT/serial chain).
   callsign→country table.
 - `Sources/Squelch/Store/` — decode/QSO persistence, station aggregation,
   HamDB lookups.
-- `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out (Mac only).
-- `iPad/` + `project.yml` — the receive-only iPadOS app shell.
+- `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out.
 - `Sources/Squelch/Views/` — the SwiftUI map, feed, station card, panels.
 
 ## Ideas for later
 
-- WSPRnet spot uploads (be part of the propagation database, not just a
-  reader of it).
 - Multi-caller queue when a CQ gets a pileup (currently first heard wins).
 - ADIF export of qsos.jsonl for LoTW / QRZ logging.
 
