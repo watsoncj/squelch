@@ -1,6 +1,17 @@
 import SwiftUI
 import CoreLocation
-import AppKit
+
+extension View {
+    /// `.buttonStyle(.link)` is mac-only; borderless reads the same on iPad.
+    @ViewBuilder
+    func linkButton() -> some View {
+        #if os(macOS)
+        self.buttonStyle(.link)
+        #else
+        self.buttonStyle(.borderless)
+        #endif
+    }
+}
 
 /// Apple Maps-style detail card for one heard station: identity, stats,
 /// worked-before badge, primary Reply action, and the message thread —
@@ -20,6 +31,7 @@ struct StationDetailView: View {
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
     @State private var ageNow = Date()
     @ObservedObject private var directory = CallsignDirectory.shared
+    @Environment(\.openURL) private var openURL
 
     private static let ageTick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
@@ -114,14 +126,14 @@ struct StationDetailView: View {
                         Button("Retry") {
                             directory.retry(callsign)
                         }
-                        .buttonStyle(.link)
+                        .linkButton()
                         .font(.caption)
                     }
                 case nil:
                     Button("Look up operator") {
                         directory.lookup(callsign)
                     }
-                    .buttonStyle(.link)
+                    .linkButton()
                     .font(.callout)
                     .help("Fetch name, city, and license class from HamDB (FCC/ISED)")
                 }
@@ -131,7 +143,7 @@ struct StationDetailView: View {
             // "who is this" answer available for a callsign
             Button {
                 if let url = URL(string: "https://www.qrz.com/db/\(callsign)") {
-                    NSWorkspace.shared.open(url)
+                    openURL(url)
                 }
             } label: {
                 Label("QRZ", systemImage: "arrow.up.right.square")

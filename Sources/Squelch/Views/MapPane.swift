@@ -74,10 +74,19 @@ enum OfflineBasemap {
         return nil
     }
 
-    static let landPolygons: [LandPolygon] = {
+    /// SwiftPM wraps the geojson in Squelch_Squelch.bundle; the iPad target
+    /// (project.yml) copies it straight into the app bundle instead.
+    private static func geojsonURL() -> URL? {
+        if let direct = Bundle.main.url(forResource: "ne_110m_land", withExtension: "geojson") {
+            return direct
+        }
         guard let bundleURL = resourceBundleURL(),
-              let bundle = Bundle(url: bundleURL),
-              let url = bundle.url(forResource: "ne_110m_land", withExtension: "geojson"),
+              let bundle = Bundle(url: bundleURL) else { return nil }
+        return bundle.url(forResource: "ne_110m_land", withExtension: "geojson")
+    }
+
+    static let landPolygons: [LandPolygon] = {
+        guard let url = geojsonURL(),
               let data = try? Data(contentsOf: url),
               let features = try? MKGeoJSONDecoder().decode(data) else { return [] }
         var polygons: [LandPolygon] = []

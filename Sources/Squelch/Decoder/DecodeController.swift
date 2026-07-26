@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#endif
 import AVFoundation
 import Accelerate
 
@@ -47,20 +49,31 @@ final class DecodeController: ObservableObject {
     private var sleepAssertion: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
 
+    #if os(macOS)
     func start(device: AudioDevice?) {
+        startAuthorized { $0.beginCapture(device: device) }
+    }
+    #else
+    func start() {
+        startAuthorized { $0.beginCapture() }
+    }
+    #endif
+
+    private func startAuthorized(_ begin: @escaping (DecodeController) -> Void) {
         guard !isRunning else { return }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
-            beginCapture(device: device)
+            begin(self)
         case .notDetermined:
             statusText = "Requesting microphone access…"
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
+                    guard let self else { return }
                     if granted {
-                        self?.beginCapture(device: device)
+                        begin(self)
                     } else {
-                        self?.micDenied = true
-                        self?.statusText = "Microphone access denied"
+                        self.micDenied = true
+                        self.statusText = "Microphone access denied"
                     }
                 }
             }
@@ -74,10 +87,12 @@ final class DecodeController: ObservableObject {
         capture.stop()
         timer?.cancel()
         timer = nil
+        #if os(macOS)
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
             self.wakeObserver = nil
         }
+        #endif
         bufferLock.lock()
         sampleBuffer.removeAll()
         bufferLock.unlock()
@@ -90,6 +105,7 @@ final class DecodeController: ObservableObject {
         }
     }
 
+    #if os(macOS)
     private func beginCapture(device: AudioDevice?) {
         mode = DigiMode.current
         decodeQueue.async { [weak self] in self?.decoder = nil } // rebuild for mode
@@ -103,6 +119,27 @@ final class DecodeController: ObservableObject {
             return
         }
         deviceName = device?.name ?? "Default input"
+        finishStart()
+    }
+    #else
+    private func beginCapture() {
+        mode = DigiMode.current
+        decodeQueue.async { [weak self] in self?.decoder = nil } // rebuild for mode
+        capture.onSamples = { [weak self] samples in
+            self?.append(samples)
+        }
+        do {
+            try capture.start()
+        } catch {
+            statusText = error.localizedDescription
+            return
+        }
+        deviceName = AVAudioSession.sharedInstance().currentRoute.inputs.first?.portName ?? "Default input"
+        finishStart()
+    }
+    #endif
+
+    private func finishStart() {
         isRunning = true
         if sleepAssertion == nil {
             sleepAssertion = ProcessInfo.processInfo.beginActivity(
@@ -112,6 +149,7 @@ final class DecodeController: ObservableObject {
         }
         statusText = "Listening (\(mode.rawValue)) — decoding at each \(String(format: "%g", mode.slotSeconds)) s slot boundary"
         scheduleSlotTimer()
+        #if os(macOS)
         // Audio buffered before a sleep plus the gap across it would decode
         // as one garbage slot after waking; start the next slot clean.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -125,6 +163,7 @@ final class DecodeController: ObservableObject {
             self.bufferLock.unlock()
             self.scheduleSlotTimer()
         }
+        #endif
     }
 
     private func append(_ samples: [Float]) {

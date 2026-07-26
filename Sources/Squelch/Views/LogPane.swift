@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 /// SwiftUI list rows re-diff on every update; 5,000 rows at the UI tick
 /// rate pegged the main thread. Filters and search still scan the full
@@ -41,6 +43,22 @@ extension View {
     }
 }
 
+#if !os(macOS)
+/// iPad: a plain SwiftUI field inside the same translucent capsule — the
+/// magnifier and clear button come from the wrapper, like the mac version.
+struct SearchField: View {
+    @Binding var text: String
+    var prompt: String = "Search"
+
+    var body: some View {
+        TextField(prompt, text: $text)
+            .textFieldStyle(.plain)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.characters)
+            .font(.system(size: 13))
+    }
+}
+#else
 /// The standard mac search input (magnifier icon, built-in clear button,
 /// Esc clears) — SwiftUI's .searchable insists on toolbar placement, which
 /// doesn't fit a floating panel.
@@ -84,6 +102,17 @@ struct SearchField: NSViewRepresentable {
             text.wrappedValue = field.stringValue
         }
     }
+}
+#endif
+
+/// Cross-platform clipboard write for the Copy Message action.
+func copyToClipboard(_ string: String) {
+    #if os(macOS)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(string, forType: .string)
+    #else
+    UIPasteboard.general.string = string
+    #endif
 }
 
 struct LogPane<Header: View>: View {
@@ -131,8 +160,7 @@ struct LogPane<Header: View>: View {
                         .disabled(!replyEnabled)
                     }
                     Button("Copy Message") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(message.text, forType: .string)
+                        copyToClipboard(message.text)
                     }
                 }
             }
@@ -154,6 +182,16 @@ struct LogPane<Header: View>: View {
         }
     }
 
+    #if os(macOS)
+    private static var startHint: String {
+        "Connect your radio's audio interface, set your callsign and grid square, then press Start (⌘R)."
+    }
+    #else
+    private static var startHint: String {
+        "Connect your radio's USB audio interface, set your callsign and grid square, then tap Start."
+    }
+    #endif
+
     /// First-run guidance (or an empty search result).
     private var emptyState: some View {
         VStack(spacing: 10) {
@@ -163,14 +201,16 @@ struct LogPane<Header: View>: View {
                     .foregroundStyle(.primary.opacity(0.4))
                 Text("No decodes yet")
                     .font(.headline)
-                Text("Connect your radio's audio interface, set your callsign and grid square, then press Start (⌘R).")
+                Text(Self.startHint)
                     .font(.callout)
                     .foregroundStyle(.primary.opacity(0.7))
                     .multilineTextAlignment(.center)
+                #if os(macOS)
                 SettingsLink {
                     Text("Open Settings…")
                 }
                 .controlSize(.small)
+                #endif
             } else {
                 Text("No matches")
                     .font(.callout)

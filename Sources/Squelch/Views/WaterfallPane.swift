@@ -5,7 +5,9 @@ import SwiftUI
 /// click deliberately does nothing, and setting is blocked while keyed.
 struct WaterfallPane: View {
     @ObservedObject var processor: WaterfallProcessor
+    #if os(macOS)
     @ObservedObject var transmit: TransmitController
+    #endif
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
@@ -16,11 +18,24 @@ struct WaterfallPane: View {
     @State private var hoverX: CGFloat?
 
     /// No TX marker (or offset setting) on frequencies we can't transmit on.
+    /// iPad is receive-only: no marker, no offset control, ever.
     private var txLegal: Bool {
-        TransmitController.isTXLegalMHz(
+        #if os(macOS)
+        return TransmitController.isTXLegalMHz(
             dialFrequencyMHz,
             license: LicenseClass(rawValue: licenseClassRaw) ?? .technician
         )
+        #else
+        return false
+        #endif
+    }
+
+    private var txBusy: Bool {
+        #if os(macOS)
+        return transmit.anyTXActive
+        #else
+        return false
+        #endif
     }
 
     var body: some View {
@@ -98,7 +113,7 @@ struct WaterfallPane: View {
                     Button(String(format: "Set TX offset to %.0f Hz", freq)) {
                         setOffset(atX: hoverX, width: geo.size.width)
                     }
-                    .disabled(transmit.anyTXActive)
+                    .disabled(txBusy)
                 }
             }
             .help(txLegal
@@ -131,7 +146,7 @@ struct WaterfallPane: View {
 
     private func setOffset(atX x: CGFloat, width: CGFloat) {
         guard txLegal else { return }
-        guard !transmit.anyTXActive else { return } // never retune mid-transmission
+        guard !txBusy else { return } // never retune mid-transmission
         txOffsetHz = WaterfallProcessor.frequency(forX: x, width: width).rounded()
     }
 }

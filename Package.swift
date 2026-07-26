@@ -4,6 +4,11 @@ import PackageDescription
 let package = Package(
     name: "Squelch",
     platforms: [.macOS(.v15)], // WindowDragGesture (titlebar drag vs map pan)
+    products: [
+        // Consumed by the iPad app target (project.yml), which compiles the
+        // shared Swift sources directly but needs the C decoder as a module
+        .library(name: "CFT8", targets: ["CFT8"]),
+    ],
     targets: [
         .target(
             name: "CFT8",

@@ -148,6 +148,23 @@ manually. The usual guards apply.
   6-character locators) are not decoded — the clean-room decoder handles
   standard type-1 spots, which are the overwhelming majority.
 
+## iPad (receive-only)
+
+Squelch also runs on iPadOS 26+ as a receive-only station: plug the Digirig
+(or any USB audio interface) into the USB-C port, tune the radio by hand,
+and you get the same decoder, feed, map, station cards, and WSPRnet spot
+uploads. iPadOS exposes no USB serial, so CAT control and transmit remain
+Mac features.
+
+Build it with [XcodeGen](https://github.com/yonaskolb/XcodeGen):
+
+```sh
+xcodegen && open SquelchPad.xcodeproj   # run the SquelchPad scheme
+```
+
+The iPad target compiles the same shared sources (`project.yml` excludes the
+Mac chrome and the entire transmit/CAT/serial chain).
+
 ## Project layout
 
 - `Sources/CFT8/` — vendored ft8_lib + `glue.c` (FT8/FT4) with kiss_fft.
@@ -158,7 +175,8 @@ manually. The usual guards apply.
   callsign→country table.
 - `Sources/Squelch/Store/` — decode/QSO persistence, station aggregation,
   HamDB lookups.
-- `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out.
+- `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out (Mac only).
+- `iPad/` + `project.yml` — the receive-only iPadOS app shell.
 - `Sources/Squelch/Views/` — the SwiftUI map, feed, station card, panels.
 
 ## Ideas for later

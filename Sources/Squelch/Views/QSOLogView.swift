@@ -12,6 +12,7 @@ struct QSOLogView: View {
     @State private var editingRecord: QSORecord?
     @State private var searchText = ""
     @State private var sortOrder = [KeyPathComparator(\QSORecord.start, order: .reverse)]
+    @Environment(\.openURL) private var openURL
 
     private var visibleRecords: [QSORecord] {
         var records = qsoLog.records
@@ -114,7 +115,7 @@ struct QSOLogView: View {
                 }
                 Button("Look Up on QRZ") {
                     if let url = URL(string: "https://www.qrz.com/db/\(record.partner)") {
-                        NSWorkspace.shared.open(url)
+                        openURL(url)
                     }
                 }
             }

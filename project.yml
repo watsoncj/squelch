@@ -1,0 +1,48 @@
+# iPad app target — generate the Xcode project with `xcodegen`.
+# The Mac app stays pure SwiftPM (swift build / Scripts/make_app.sh); this
+# project compiles the SAME shared sources, minus the mac-only chrome and
+# the entire transmit/CAT/serial chain (iPadOS has no USB serial — the
+# iPad build is receive-only by construction).
+name: SquelchPad
+options:
+  bundleIdPrefix: com.watsoncj
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  Squelch:
+    path: .
+targets:
+  SquelchPad:
+    type: application
+    platform: iOS
+    sources:
+      - path: iPad
+      - path: Sources/Squelch
+        excludes:
+          - "SquelchApp.swift"          # mac AppModel + app entry
+          - "Views/ContentView.swift"   # mac toolbar/fullscreen chrome
+          - "Views/FullScreenSupport.swift"
+          - "Views/QSOStatusPanel.swift"
+          - "Views/SettingsView.swift"
+          - "Transmit/TransmitController.swift"
+          - "Transmit/CATController.swift"
+          - "Transmit/SerialPTT.swift"
+          - "Transmit/AudioOutput.swift"
+          - "Audio/AudioDevices.swift"  # CoreAudio HAL enumeration (mac)
+          - "Resources"                 # geojson added as a plain resource below
+      - path: Sources/Squelch/Resources/ne_110m_land.geojson
+        buildPhase: resources
+    dependencies:
+      - package: Squelch
+        product: CFT8
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_VERSION: "5"
+        PRODUCT_BUNDLE_IDENTIFIER: com.watsoncj.squelch.pad
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Squelch
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Squelch listens to your radio's USB audio interface to decode FT8, FT4, and WSPR transmissions."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Used once to compute your Maidenhead grid square from your location, only when you tap Use My Location."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"

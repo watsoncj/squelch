@@ -2,6 +2,12 @@ import Foundation
 import AVFoundation
 import CoreAudio
 
+#if !os(macOS)
+/// iPadOS has no HAL device IDs; the type exists here only so the shared
+/// engine-lifecycle code compiles (always nil off-mac).
+typealias AudioDeviceID = UInt32
+#endif
+
 enum AudioCaptureError: LocalizedError {
     case noInputAvailable
     case deviceSelectionFailed(OSStatus)
@@ -34,7 +40,22 @@ final class AudioCapture {
     /// must not queue a rebuild storm while the first one is in flight.
     private var rebuildRequested = false
 
+    #if os(macOS)
     func start(deviceID: AudioDeviceID?) throws {
+        try startEngine(deviceID: deviceID)
+    }
+    #else
+    /// iPadOS: no device pinning — AVAudioSession routes to the USB audio
+    /// interface (Digirig) automatically when one is connected.
+    func start() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.record, mode: .measurement)
+        try session.setActive(true)
+        try startEngine(deviceID: nil)
+    }
+    #endif
+
+    private func startEngine(deviceID: AudioDeviceID?) throws {
         stop()
         currentDeviceID = deviceID
         rebuildRequested = false
@@ -43,6 +64,7 @@ final class AudioCapture {
         self.engine = engine
         let input = engine.inputNode
 
+        #if os(macOS)
         if let deviceID {
             guard let audioUnit = input.audioUnit else { throw AudioCaptureError.noInputAvailable }
             var device = deviceID
@@ -56,6 +78,7 @@ final class AudioCapture {
             )
             guard status == noErr else { throw AudioCaptureError.deviceSelectionFailed(status) }
         }
+        #endif
 
         let inFormat = input.inputFormat(forBus: 0)
         guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else {
@@ -107,7 +130,7 @@ final class AudioCapture {
         stop()
         onSamples = callback
         do {
-            try start(deviceID: device)
+            try startEngine(deviceID: device)
         } catch {
             guard attempt < 3 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -117,6 +140,7 @@ final class AudioCapture {
     }
 
     private func inputBindingIntact(_ engine: AVAudioEngine) -> Bool {
+        #if os(macOS)
         if let deviceID = currentDeviceID {
             guard let unit = engine.inputNode.audioUnit else { return false }
             var bound = AudioDeviceID(0)
@@ -131,6 +155,7 @@ final class AudioCapture {
             )
             guard status == noErr, bound == deviceID else { return false }
         }
+        #endif
         guard let converter else { return false }
         let format = engine.inputNode.inputFormat(forBus: 0)
         return format.sampleRate == converter.inputFormat.sampleRate
