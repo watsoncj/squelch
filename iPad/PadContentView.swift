@@ -107,8 +107,10 @@ struct PadContentView: View {
     }
 
     /// Start/Stop, frequency label (manual — no CAT on iPad), settings.
+    /// Every control owns a >=44pt touch target — bare icon glyphs are
+    /// unhittable on glass.
     private var controlCapsule: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 4) {
             Button {
                 if controller.isRunning {
                     controller.stop()
@@ -118,6 +120,9 @@ struct PadContentView: View {
             } label: {
                 Label(controller.isRunning ? "Stop" : "Start",
                       systemImage: controller.isRunning ? "stop.fill" : "play.fill")
+                    .padding(.horizontal, 12)
+                    .frame(height: 48)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
 
@@ -130,17 +135,21 @@ struct PadContentView: View {
                         .truncatingRemainder(dividingBy: period) / period
                     SlotRing(fraction: fraction)
                 }
+                .padding(.horizontal, 6)
             }
 
             Button {
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape")
+                    .font(.title3)
+                    .frame(width: 48, height: 48)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 40)
+        .padding(.horizontal, 8)
+        .frame(height: 52)
         .glassCapsule()
     }
 
@@ -161,6 +170,9 @@ struct PadContentView: View {
         } label: {
             Text("\(String(format: "%.4f", dialFrequencyMHz)) · \(digiMode)")
                 .font(.callout.monospacedDigit())
+                .padding(.horizontal, 12)
+                .frame(height: 48)
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
     }

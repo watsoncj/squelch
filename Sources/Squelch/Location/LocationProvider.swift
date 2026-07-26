@@ -69,7 +69,13 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     private func isAuthorized(_ status: CLAuthorizationStatus) -> Bool {
-        status == .authorizedAlways || status == .authorized
+        #if os(macOS)
+        return status == .authorizedAlways || status == .authorized
+        #else
+        // .authorizedWhenInUse is the normal grant on iOS — omitting it
+        // left the query spinning forever (neither authorized nor denied)
+        return status == .authorizedAlways || status == .authorizedWhenInUse
+        #endif
     }
 }
 
