@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The single TX/session status surface — a compact chip that lives in the
 /// toolbar, left of the frequency selector. Priority: transmitting (red,
@@ -26,9 +27,65 @@ struct QSOStatusPanel: View {
             beaconChip
         } else if let error = transmit.txError {
             errorChip(error)
+        } else if controller.micDenied {
+            micDeniedChip
+        } else if let error = controller.startError {
+            startErrorChip(error)
+        } else if controller.isRunning, controller.inputSilent {
+            silentInputChip
         } else if controller.isRunning {
             decodingChip
         }
+    }
+
+    /// The new-station sharp edge: mic permission denied fails silently
+    /// otherwise (dead meter, zero decodes, no explanation).
+    private var micDeniedChip: some View {
+        chip(tint: .red) {
+            Image(systemName: "mic.slash.fill")
+                .foregroundStyle(.red)
+            Text("Microphone access denied")
+                .font(.callout)
+            Button("Open Privacy Settings") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .help("macOS is blocking Squelch's audio input. Enable Squelch under Microphone, then press Start again.")
+    }
+
+    private func startErrorChip(_ error: String) -> some View {
+        chip(tint: .orange) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(error)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 280)
+                .help(error)
+            Button {
+                controller.startError = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    /// Decoding but the input has been dead quiet — indistinguishable from
+    /// a closed band without this.
+    private var silentInputChip: some View {
+        chip(tint: .orange) {
+            Image(systemName: "waveform.slash")
+                .foregroundStyle(.orange)
+            Text("No audio from \(controller.deviceName)")
+                .font(.callout)
+        }
+        .help("Decoding is running but the input is silent. Check the Digirig USB connection, the input device in Settings → Audio Input, and the radio's volume — the level meter should move with band noise.")
     }
 
     /// Lowest priority: a radial ring filling over the decode slot.

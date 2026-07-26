@@ -268,7 +268,8 @@ struct ContentView: View {
                 }
             ),
             onReply: { message in actions.reply(to: message) },
-            replyEnabled: txAvailable && sequencer.mode == .idle
+            replyEnabled: txAvailable && sequencer.mode == .idle,
+            micDenied: controller.micDenied
         ) {
             HStack {
                 Spacer()
@@ -325,6 +326,8 @@ struct ContentView: View {
             || sequencer.mode != .idle
             || actions.wsprBeaconEnabled
             || transmit.txError != nil
+            || controller.micDenied
+            || controller.startError != nil
             || controller.isRunning
         return catTrouble || chipActive
     }

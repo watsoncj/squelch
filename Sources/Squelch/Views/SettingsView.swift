@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @ObservedObject var cat: CATController
@@ -100,12 +101,39 @@ struct SettingsView: View {
                         tint: controller.audioLevelDB > -6 ? .red : .green
                     )
                     .frame(width: 160, height: 5)
-                    Text(controller.isRunning
-                         ? String(format: "%.0f dBFS", controller.audioLevelDB)
-                         : "start decoding for live level")
+                    if controller.isRunning {
+                        Text(String(format: "%.0f dBFS", controller.audioLevelDB))
+                            .font(.caption)
+                            .foregroundStyle(.primary.opacity(0.6))
+                            .monospacedDigit()
+                    } else {
+                        // A dead meter with a passive hint was a first-run
+                        // trap — make starting the decoder one click away
+                        Button("Start decoding") {
+                            devices = AudioDevices.inputDevices()
+                            controller.start(device: devices.first { $0.uid == audioDeviceUID })
+                        }
+                        .controlSize(.small)
+                        .help("The meter shows live input only while decoding runs")
+                    }
+                }
+                if controller.micDenied {
+                    HStack(spacing: 8) {
+                        Label("Microphone access is denied — Squelch can't hear the radio.", systemImage: "mic.slash.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                        Button("Open Privacy Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                if controller.isRunning, controller.inputSilent {
+                    Label("Input is silent — check the Digirig connection, the device above, and the radio's volume.", systemImage: "waveform.slash")
                         .font(.caption)
-                        .foregroundStyle(.primary.opacity(0.6))
-                        .monospacedDigit()
+                        .foregroundStyle(.orange)
                 }
                 Text("The Digirig usually appears as “USB PnP Sound Device” or “USB Audio Device”. Restart decoding after changing this.")
                     .font(.caption)

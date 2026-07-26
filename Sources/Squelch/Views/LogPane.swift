@@ -105,6 +105,19 @@ struct SearchField: NSViewRepresentable {
 }
 #endif
 
+/// Deep link to the mic permission fix — the OS Settings surface differs.
+func openMicrophonePrivacySettings() {
+    #if os(macOS)
+    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+        NSWorkspace.shared.open(url)
+    }
+    #else
+    if let url = URL(string: UIApplication.openSettingsURLString) {
+        UIApplication.shared.open(url)
+    }
+    #endif
+}
+
 /// Cross-platform clipboard write for the Copy Message action.
 func copyToClipboard(_ string: String) {
     #if os(macOS)
@@ -121,6 +134,10 @@ struct LogPane<Header: View>: View {
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
     var replyEnabled = true
+    /// Mic permission was refused: the empty state becomes the fix-it
+    /// guide — a fresh install otherwise fails silently (dead meter, no
+    /// decodes, nothing explaining why).
+    var micDenied = false
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
@@ -195,7 +212,24 @@ struct LogPane<Header: View>: View {
     /// First-run guidance (or an empty search result).
     private var emptyState: some View {
         VStack(spacing: 10) {
-            if store.messages.isEmpty {
+            if store.messages.isEmpty, micDenied {
+                Image(systemName: "mic.slash.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(.red.opacity(0.8))
+                Text("Microphone access needed")
+                    .font(.headline)
+                Text("Squelch can't hear the radio until microphone access is allowed — that's why the level meter is dead and nothing decodes.")
+                    .font(.callout)
+                    .foregroundStyle(.primary.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                Button("Open Privacy Settings") {
+                    openMicrophonePrivacySettings()
+                }
+                .controlSize(.small)
+                Text("Then press Start again.")
+                    .font(.caption)
+                    .foregroundStyle(.primary.opacity(0.6))
+            } else if store.messages.isEmpty {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.largeTitle)
                     .foregroundStyle(.primary.opacity(0.4))

@@ -15,6 +15,13 @@ final class DecodeController: ObservableObject {
     @Published var audioLevelDB: Float = -80
     @Published var lastSlotCount: Int?
     @Published var micDenied = false
+    /// Capture failed to start (no input device, engine error) — shown as
+    /// a chip; statusText alone is invisible since the status bar retired.
+    @Published var startError: String?
+    /// Running but hearing nothing for a sustained stretch: wrong input
+    /// device, dead USB cable, or radio volume at zero. Without this the
+    /// symptom is just "no decodes", indistinguishable from a quiet band.
+    @Published var inputSilent = false
 
     /// Called on the main queue with each slot's decodes.
     var onSlotDecoded: (([FT8Result], Date) -> Void)?
@@ -42,6 +49,11 @@ final class DecodeController: ObservableObject {
     }
 
     private var lastLevelUpdate = Date.distantPast
+    /// Silence detection: above this is "real audio" (Digirig band noise
+    /// sits far higher; digital silence/zeros sit at -80).
+    private static let audibleFloorDB: Float = -70
+    private static let silentAfterSeconds: TimeInterval = 10
+    private var lastAudibleAt = Date.distantPast
 
     /// Held while capture is live so the Mac doesn't idle-sleep mid-session
     /// (the display may still sleep; decoding continues). Lid-close sleep is
@@ -99,6 +111,7 @@ final class DecodeController: ObservableObject {
         isRunning = false
         statusText = "Stopped"
         audioLevelDB = -80
+        inputSilent = false
         if let assertion = sleepAssertion {
             ProcessInfo.processInfo.endActivity(assertion)
             sleepAssertion = nil
@@ -116,6 +129,7 @@ final class DecodeController: ObservableObject {
             try capture.start(deviceID: device?.id)
         } catch {
             statusText = error.localizedDescription
+            startError = error.localizedDescription
             return
         }
         deviceName = device?.name ?? "Default input"
@@ -132,6 +146,7 @@ final class DecodeController: ObservableObject {
             try capture.start()
         } catch {
             statusText = error.localizedDescription
+            startError = error.localizedDescription
             return
         }
         deviceName = AVAudioSession.sharedInstance().currentRoute.inputs.first?.portName ?? "Default input"
@@ -141,6 +156,10 @@ final class DecodeController: ObservableObject {
 
     private func finishStart() {
         isRunning = true
+        micDenied = false // permission was fixed and Start succeeded
+        startError = nil
+        inputSilent = false
+        lastAudibleAt = Date()
         if sleepAssertion == nil {
             sleepAssertion = ProcessInfo.processInfo.beginActivity(
                 options: .idleSystemSleepDisabled,
@@ -184,9 +203,16 @@ final class DecodeController: ObservableObject {
             var rms: Float = 0
             vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
             let db = max(-80, 20 * log10(max(rms, 1e-9)))
+            if db > Self.audibleFloorDB {
+                lastAudibleAt = now
+            }
+            let silent = now.timeIntervalSince(lastAudibleAt) > Self.silentAfterSeconds
             DispatchQueue.main.async {
                 if abs(db - self.audioLevelDB) > 0.8 {
                     self.audioLevelDB = db
+                }
+                if silent != self.inputSilent {
+                    self.inputSilent = silent
                 }
             }
         }

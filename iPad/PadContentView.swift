@@ -174,7 +174,8 @@ struct PadContentView: View {
                     }
                 ),
                 onReply: nil,
-                replyEnabled: false
+                replyEnabled: false,
+                micDenied: controller.micDenied
             ) {
                 HStack {
                     Text("Squelch")
