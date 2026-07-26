@@ -154,32 +154,7 @@ struct PadContentView: View {
     }
 
     private var frequencyMenu: some View {
-        Menu {
-            // Receive-only: every preset is fair game; the radio dial is
-            // set by hand and this just tells the decoder what to expect
-            ForEach(QSYPreset.all) { preset in
-                Button {
-                    dialFrequencyMHz = preset.mhz
-                    digiMode = preset.mode.rawValue
-                    if controller.isRunning {
-                        controller.stop()
-                        controller.start()
-                    }
-                } label: {
-                    // Title + subtitle rows — the mac label's "10m FT8 —
-                    // 28.074" em-dash line wraps at iOS menu width
-                    Text(preset.label.components(separatedBy: " — ").first ?? preset.label)
-                    Text(String(format: "%.4f MHz", preset.mhz))
-                }
-            }
-        } label: {
-            Text("\(String(format: "%.4f", dialFrequencyMHz)) · \(digiMode)")
-                .font(.callout.monospacedDigit())
-                .padding(.horizontal, 12)
-                .frame(height: 48)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
+        PadFrequencyMenu(controller: controller).equatable()
     }
 
     private var panelStack: some View {
@@ -243,5 +218,48 @@ struct PadContentView: View {
         // (flush-to-edge here would run under the status bar)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .padding([.leading, .top, .bottom], 8)
+    }
+}
+
+/// The frequency picker, quarantined from the parent's update stream:
+/// decode-level publishes re-render PadContentView every second or so, and
+/// each re-render rebuilds an open Menu's UIKit content — snapping its
+/// scroll position back to the top. Equatable == true means parent updates
+/// never touch it; its own @AppStorage still invalidates it directly.
+private struct PadFrequencyMenu: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool { true }
+
+    let controller: DecodeController
+
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
+    @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
+
+    var body: some View {
+        Menu {
+            // Receive-only: every preset is fair game; the radio dial is
+            // set by hand and this just tells the decoder what to expect
+            ForEach(QSYPreset.all) { preset in
+                Button {
+                    dialFrequencyMHz = preset.mhz
+                    digiMode = preset.mode.rawValue
+                    if controller.isRunning {
+                        controller.stop()
+                        controller.start()
+                    }
+                } label: {
+                    // Title + subtitle rows — the mac label's "10m FT8 —
+                    // 28.074" em-dash line wraps at iOS menu width
+                    Text(preset.label.components(separatedBy: " — ").first ?? preset.label)
+                    Text(String(format: "%.4f MHz", preset.mhz))
+                }
+            }
+        } label: {
+            Text("\(String(format: "%.4f", dialFrequencyMHz)) · \(digiMode)")
+                .font(.callout.monospacedDigit())
+                .padding(.horizontal, 12)
+                .frame(height: 48)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
     }
 }
