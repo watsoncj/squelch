@@ -208,18 +208,35 @@ struct MapPane: View {
                         .contentShape(Rectangle())
                 }
                 .help("Map appearance")
+                // arrowEdge means "anchor edge the arrow touches" on macOS
+                // but "popover edge holding the arrow" on iOS — .leading on
+                // iPad opened the flyout rightward, off the screen edge
+                #if os(macOS)
                 .popover(isPresented: $showMapModes, arrowEdge: .leading) {
                     MapModeFlyout(mapStyleRaw: $mapStyleRaw)
                 }
+                #else
+                .popover(isPresented: $showMapModes, arrowEdge: .trailing) {
+                    MapModeFlyout(mapStyleRaw: $mapStyleRaw)
+                        .presentationCompactAdaptation(.popover)
+                }
+                #endif
 
+                // Dim + disable when no grid is configured: the silent
+                // guard inside zoomToMyStation reads as a broken button
                 Button {
                     zoomToMyStation()
                 } label: {
                     Image(systemName: "location")
+                        .foregroundStyle(location.effectiveCoordinate() == nil
+                                         ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                         .frame(width: 40, height: 36)
                         .contentShape(Rectangle())
                 }
-                .help("Center the map on your station")
+                .disabled(location.effectiveCoordinate() == nil)
+                .help(location.effectiveCoordinate() == nil
+                      ? "Set your grid square in Settings first"
+                      : "Center the map on your station")
 
                 sideToggle("square.grid.3x3", isOn: $showGridCells,
                            help: "Show heard stations as highlighted grid squares")
