@@ -163,7 +163,10 @@ final class AppModel: ObservableObject {
     ) -> (call: String, grid: String?, report: String?, snr: Float)? {
         for result in results {
             let tokens = result.text.uppercased().split(separator: " ").map(String.init)
-            guard tokens.count >= 3, tokens[0] == myCall.uppercased() else { continue }
+            // Brackets stripped: our call arrives hashed ("<W0CJW/AG> …")
+            // from partners when it's nonstandard
+            let addressee = tokens[0].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            guard tokens.count >= 3, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
             guard FT8MessageParser.isCallsign(from) else { continue }
             let payload = tokens[2]

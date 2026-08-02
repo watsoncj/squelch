@@ -156,7 +156,10 @@ final class QSOSequencer: ObservableObject {
         guard mode != .idle, slotParity != txParity else { return }
         for decode in decodes {
             let tokens = decode.text.uppercased().split(separator: " ").map(String.init)
-            guard tokens.count >= 2, tokens[0] == myCall.uppercased() else { continue }
+            // Partners hash OUR call (h22) when it's nonstandard — a reply
+            // arrives as "<W0CJW/AG> K1ABC R-05"; match brackets-stripped
+            let addressee = tokens[0].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            guard tokens.count >= 2, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
             let payload = tokens.count >= 3 ? tokens[2] : ""
             handle(from: from, payload: payload, snr: decode.snr)
