@@ -112,7 +112,11 @@ enum WSPRCodec {
     /// 22-bit integer → (grid, dBm).
     static func unpackGridPower(_ m: UInt32) -> (grid: String, dBm: Int)? {
         let dBm = Int(m % 128) - 64
-        guard (0...60).contains(dBm) else { return nil }
+        // Real WSPR power steps are …0, …3, …7 only. Anything else means
+        // this is a type-2/3 (compound call / 6-char grid) payload that a
+        // type-1 unpack would garble into a fake grid+power — off-air,
+        // K6FIB/M once became "K6FIB CH84 25dBm". Reject rather than invent.
+        guard (0...60).contains(dBm), [0, 3, 7].contains(dBm % 10) else { return nil }
         let m1 = Int(m / 128)
         let rest = m1 / 180
         let tail = m1 % 180

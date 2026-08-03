@@ -118,6 +118,20 @@ final class WSPRCodecTests: XCTestCase {
         XCTAssertNil(WSPRCodec.packGridPower(grid: "DM79", dBm: 61))
     }
 
+    /// Type-2/3 payloads (compound calls, 6-char grids) garble into fake
+    /// type-1 grid+power pairs — the giveaway is a power step that real
+    /// WSPR never transmits (only …0, …3, …7).
+    func testUnpackRejectsImpossiblePowerSteps() {
+        if let packed = WSPRCodec.packGridPower(grid: "DM79", dBm: 25) {
+            XCTAssertNil(WSPRCodec.unpackGridPower(packed), "25 dBm is not a WSPR power step")
+        }
+        for dbm in [0, 3, 7, 10, 23, 37, 60] {
+            let packed = WSPRCodec.packGridPower(grid: "DM79", dBm: dbm)
+            XCTAssertNotNil(packed)
+            XCTAssertEqual(WSPRCodec.unpackGridPower(packed!)?.dBm, dbm)
+        }
+    }
+
     /// THE clean-room gate: audio synthesized purely from the public spec
     /// must decode in the independently-implemented (vendored) decoder.
     /// Any packing/polynomial/interleave/sync mistake fails this.
