@@ -144,6 +144,28 @@ struct QSOLogView: View {
         )
     }
 
+    /// Selected rows as tab-separated text (visible-column order, current
+    /// sort) — pastes cleanly into a spreadsheet or a message.
+    private func selectionText(_ ids: Set<UUID>) -> String? {
+        let rows = visibleRecords.filter { ids.contains($0.id) }
+        guard !rows.isEmpty else { return nil }
+        let unit = DistanceUnit.current(distanceUnitRaw)
+        return rows.map { record in
+            let geo = geo(for: record)
+            return [
+                whenText(for: record),
+                record.partner,
+                record.name ?? "",
+                locationText(for: record) ?? "",
+                record.partnerGrid ?? "",
+                geo.map { unit.text(fromKm: $0.km) } ?? "",
+                geo.map { compassBearingText(degrees: $0.bearing) } ?? "",
+                "\(record.reportSent) / \(record.reportReceived ?? "—")",
+                "\(bandName(forMHz: record.dialFrequencyMHz)) · \(record.mode)",
+            ].joined(separator: "\t")
+        }.joined(separator: "\n")
+    }
+
     /// Great-circle distance/bearing from my grid — computed at display
     /// time so a Settings grid change updates every row.
     private func geo(for record: QSORecord) -> (km: Double, bearing: Double)? {
@@ -230,7 +252,21 @@ struct QSOLogView: View {
             .width(min: 70, ideal: 90)
         }
         .searchable(text: $searchText, prompt: "Search call, name, notes, grid, state, or mode")
+#if os(macOS)
+        // ⌘C / Edit ▸ Copy on the focused table
+        .onCopyCommand {
+            guard let text = selectionText(selection) else { return [] }
+            return [NSItemProvider(object: text as NSString)]
+        }
+#endif
         .contextMenu(forSelectionType: UUID.self) { ids in
+            if !ids.isEmpty {
+                Button("Copy \(ids.count == 1 ? "QSO" : "\(ids.count) QSOs")") {
+                    if let text = selectionText(ids) {
+                        copyToClipboard(text)
+                    }
+                }
+            }
             if ids.count == 1, let record = qsoLog.records.first(where: { $0.id == ids.first }) {
                 Button("Edit QSO") {
                     editingRecord = record
