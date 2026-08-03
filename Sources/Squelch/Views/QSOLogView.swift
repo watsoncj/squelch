@@ -2,15 +2,21 @@ import SwiftUI
 import CoreLocation
 import UniformTypeIdentifiers
 
-/// Wraps generated ADIF text for the save panel. Export-only.
-struct ADIFDocument: FileDocument {
+/// Wraps generated export text (ADIF or Cabrillo) for the save panel.
+/// Export-only.
+struct LogExportDocument: FileDocument {
     static let adiType = UTType(filenameExtension: "adi", conformingTo: .plainText) ?? .plainText
-    static let readableContentTypes = [adiType]
+    static let cabrilloType = UTType(filenameExtension: "log", conformingTo: .plainText) ?? .plainText
+    static let readableContentTypes = [adiType, cabrilloType]
 
     let text: String
+    let contentType: UTType
+    let defaultFilename: String
 
-    init(text: String) {
+    init(text: String, contentType: UTType, defaultFilename: String) {
         self.text = text
+        self.contentType = contentType
+        self.defaultFilename = defaultFilename
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -34,7 +40,8 @@ struct QSOLogView: View {
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
-    @State private var exportDocument: ADIFDocument?
+    @State private var exportDocument: LogExportDocument?
+    @StateObject private var backfiller = QSOBackfiller()
     @State private var editingRecord: QSORecord?
     @State private var searchText = ""
     @State private var sortOrder = [KeyPathComparator(\QSORecord.start, order: .reverse)]
@@ -203,18 +210,58 @@ struct QSOLogView: View {
         }
         .toolbar {
             ToolbarItem {
-                Button {
-                    // Generated on demand — not per render
-                    exportDocument = ADIFDocument(text: ADIFExporter.adi(
-                        records: qsoLog.records,
-                        stationCallsign: myCallsign.uppercased(),
-                        myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
-                    ))
+                if let progress = backfiller.progress {
+                    Button {
+                        backfiller.cancel()
+                    } label: {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("\(progress.done)/\(progress.total)")
+                                .monospacedDigit()
+                        }
+                    }
+                    .help("Looking up missing operator info — click to stop")
+                } else {
+                    Button {
+                        backfiller.start(log: qsoLog)
+                    } label: {
+                        Label("Look Up Missing Info", systemImage: "person.crop.circle.badge.questionmark")
+                    }
+                    .disabled(!qsoLog.records.contains(where: QSOBackfiller.needsBackfill))
+                    .help("Fill missing names, states, and grids from HamDB (US/Canada callsigns). Never overwrites what you've entered.")
+                }
+            }
+            ToolbarItem {
+                Menu {
+                    Button("ADIF (.adi) — LoTW, QRZ, eQSL, POTA…") {
+                        // Generated on demand — not per render
+                        exportDocument = LogExportDocument(
+                            text: ADIFExporter.adi(
+                                records: qsoLog.records,
+                                stationCallsign: myCallsign.uppercased(),
+                                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
+                            ),
+                            contentType: LogExportDocument.adiType,
+                            defaultFilename: "squelch-log.adi"
+                        )
+                    }
+                    Button("Cabrillo (.log) — contest submission") {
+                        exportDocument = LogExportDocument(
+                            text: CabrilloExporter.log(
+                                records: qsoLog.records,
+                                stationCallsign: myCallsign.uppercased(),
+                                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
+                            ),
+                            contentType: LogExportDocument.cabrilloType,
+                            defaultFilename: "squelch-log.log"
+                        )
+                    }
                 } label: {
-                    Label("Export ADIF", systemImage: "square.and.arrow.up")
+                    Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(qsoLog.records.isEmpty)
-                .help("Export all QSOs as an ADIF (.adi) file for LoTW, QRZ Logbook, eQSL, POTA…")
+                .help("Export all QSOs — ADIF for LoTW, QRZ Logbook, eQSL, POTA; Cabrillo for contest entries")
             }
             ToolbarItem {
                 Button {
@@ -231,8 +278,8 @@ struct QSOLogView: View {
                 set: { if !$0 { exportDocument = nil } }
             ),
             document: exportDocument,
-            contentType: ADIFDocument.adiType,
-            defaultFilename: "squelch-log.adi"
+            contentType: exportDocument?.contentType ?? LogExportDocument.adiType,
+            defaultFilename: exportDocument?.defaultFilename ?? "squelch-log.adi"
         ) { _ in exportDocument = nil }
         .sheet(isPresented: $showingAdd) {
             QSOFormSheet(existing: nil, allRecords: qsoLog.records) { record in

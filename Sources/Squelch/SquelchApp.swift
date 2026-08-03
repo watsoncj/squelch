@@ -59,20 +59,9 @@ final class AppModel: ObservableObject {
                       // Re-read by id: the user may have edited it meanwhile
                       var current = qsoLog.records.first(where: { $0.id == record.id })
                 else { return }
-                if let grid = entry.grid {
-                    if current.partnerGrid == nil {
-                        current.partnerGrid = grid
-                    } else if let heard = current.partnerGrid, heard.count == 4,
-                              grid.hasPrefix(heard) {
-                        // Extend to 6 chars only when it matches the on-air
-                        // grid — a portable station's real square wins
-                        current.partnerGrid = grid
-                    }
+                if current.merge(entry) {
+                    qsoLog.update(current)
                 }
-                if current.name == nil { current.name = entry.name }
-                current.state = entry.state
-                current.country = entry.country
-                qsoLog.update(current)
             }
         }
         sequencer.onQSOAbandoned = { [weak self] partner in
