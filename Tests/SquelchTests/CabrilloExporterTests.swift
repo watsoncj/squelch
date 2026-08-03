@@ -68,6 +68,11 @@ final class CabrilloExporterTests: XCTestCase {
         XCTAssertTrue(log.contains("CALLSIGN: W0CJW\n"))
         XCTAssertTrue(log.contains("GRID-LOCATOR: DM79\n")) // 6-char trimmed to 4
         XCTAssertTrue(log.contains("CONTEST: \n"))
+        let contested = CabrilloExporter.log(
+            records: [newer], stationCallsign: "W0CJW", myGrid: "DM79LB",
+            contest: "ARRL-VHF"
+        )
+        XCTAssertTrue(contested.contains("CONTEST: ARRL-VHF\n"))
         XCTAssertTrue(log.contains("CREATED-BY: Squelch\n"))
         XCTAssertTrue(log.hasSuffix("END-OF-LOG:\n"))
         XCTAssertEqual(log.components(separatedBy: "QSO:").count - 1, 2)

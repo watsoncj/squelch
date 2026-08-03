@@ -5,14 +5,15 @@ import Foundation
 /// emits); the CONTEST/CATEGORY header lines are left for the operator to
 /// fill in, since they differ per contest. Pure functions, no I/O.
 enum CabrilloExporter {
-    static func log(records: [QSORecord], stationCallsign: String, myGrid: String?) -> String {
+    static func log(records: [QSORecord], stationCallsign: String, myGrid: String?,
+                    contest: String? = nil) -> String {
         let myGrid4 = String((myGrid ?? "").prefix(4)).uppercased()
         var out = "START-OF-LOG: 3.0\n"
         out += "CALLSIGN: \(stationCallsign)\n"
         if !myGrid4.isEmpty {
             out += "GRID-LOCATOR: \(myGrid4)\n"
         }
-        out += "CONTEST: \n" // fill in per the contest's rules
+        out += "CONTEST: \(contest ?? "")\n" // robots want the official name — check the rules
         out += "CATEGORY-OPERATOR: SINGLE-OP\n"
         out += "CATEGORY-TRANSMITTER: ONE\n"
         out += "CATEGORY-POWER: LOW\n"

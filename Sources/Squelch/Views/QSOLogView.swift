@@ -57,6 +57,7 @@ struct QSOLogView: View {
                     || $0.mode.uppercased().contains(query)
                     || ($0.name ?? "").uppercased().contains(query)
                     || ($0.notes ?? "").uppercased().contains(query)
+                    || ($0.contest ?? "").uppercased().contains(query)
                     || (locationText(for: $0)?.uppercased().contains(query) ?? false)
             }
         }
@@ -98,6 +99,43 @@ struct QSOLogView: View {
             parts.append("\(countries.count) countries")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private var loggedContests: [(name: String, count: Int)] {
+        Dictionary(grouping: qsoLog.records.compactMap(\.contest), by: { $0 })
+            .map { (name: $0.key, count: $0.value.count) }
+            .sorted { $0.name < $1.name }
+    }
+
+    // Documents are generated on demand — not per render
+    private func exportADIF() {
+        exportDocument = LogExportDocument(
+            text: ADIFExporter.adi(
+                records: qsoLog.records,
+                stationCallsign: myCallsign.uppercased(),
+                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
+            ),
+            contentType: LogExportDocument.adiType,
+            defaultFilename: "squelch-log.adi"
+        )
+    }
+
+    /// nil exports everything; a contest name exports just that contest's
+    /// QSOs with the CONTEST: header pre-filled.
+    private func exportCabrillo(contest: String?) {
+        let records = contest.map { name in qsoLog.records.filter { $0.contest == name } }
+            ?? qsoLog.records
+        let slug = contest.map { "-" + $0.lowercased().replacingOccurrences(of: " ", with: "-") } ?? ""
+        exportDocument = LogExportDocument(
+            text: CabrilloExporter.log(
+                records: records,
+                stationCallsign: myCallsign.uppercased(),
+                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased(),
+                contest: contest
+            ),
+            contentType: LogExportDocument.cabrilloType,
+            defaultFilename: "squelch\(slug).log"
+        )
     }
 
     /// Great-circle distance/bearing from my grid — computed at display
@@ -235,27 +273,18 @@ struct QSOLogView: View {
             ToolbarItem {
                 Menu {
                     Button("ADIF (.adi) — LoTW, QRZ, eQSL, POTA…") {
-                        // Generated on demand — not per render
-                        exportDocument = LogExportDocument(
-                            text: ADIFExporter.adi(
-                                records: qsoLog.records,
-                                stationCallsign: myCallsign.uppercased(),
-                                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
-                            ),
-                            contentType: LogExportDocument.adiType,
-                            defaultFilename: "squelch-log.adi"
-                        )
+                        exportADIF()
                     }
-                    Button("Cabrillo (.log) — contest submission") {
-                        exportDocument = LogExportDocument(
-                            text: CabrilloExporter.log(
-                                records: qsoLog.records,
-                                stationCallsign: myCallsign.uppercased(),
-                                myGrid: myGrid.isEmpty ? nil : myGrid.uppercased()
-                            ),
-                            contentType: LogExportDocument.cabrilloType,
-                            defaultFilename: "squelch-log.log"
-                        )
+                    Button("Cabrillo (.log) — all QSOs") {
+                        exportCabrillo(contest: nil)
+                    }
+                    if !loggedContests.isEmpty {
+                        Divider()
+                        ForEach(loggedContests, id: \.name) { entry in
+                            Button("Cabrillo — \(entry.name) (\(entry.count) QSO\(entry.count == 1 ? "" : "s"))") {
+                                exportCabrillo(contest: entry.name)
+                            }
+                        }
                     }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
@@ -319,6 +348,7 @@ private struct QSOFormSheet: View {
     @State private var reportReceived: String
     @State private var name: String
     @State private var notes: String
+    @State private var contest: String
     @State private var lookupDebounce: DispatchWorkItem?
     // Autofill may replace its own earlier fill (callsign corrected),
     // never a value the user typed
@@ -345,6 +375,13 @@ private struct QSOFormSheet: View {
         _reportReceived = State(initialValue: existing?.reportReceived ?? "")
         _name = State(initialValue: existing?.name ?? "")
         _notes = State(initialValue: existing?.notes ?? "")
+        _contest = State(initialValue: existing?.contest ?? "")
+    }
+
+    /// Contest names already in the log — one tap beats retyping
+    /// "ARRL-VHF" three slightly different ways.
+    private var knownContests: [String] {
+        Array(Set(allRecords.compactMap(\.contest))).sorted()
     }
 
     private var normalizedCall: String {
@@ -386,6 +423,22 @@ private struct QSOFormSheet: View {
                 TextField("Frequency (MHz)", value: $frequencyMHz, format: .number.precision(.fractionLength(3)))
                 TextField("Report sent", text: $reportSent, prompt: Text(reportHint))
                 TextField("Report received", text: $reportReceived, prompt: Text(reportHint))
+                HStack(spacing: 4) {
+                    TextField("Contest (optional)", text: $contest)
+                        .help("Tag contest QSOs so the Cabrillo export can bundle just this contest")
+                    if !knownContests.isEmpty {
+                        Menu {
+                            ForEach(knownContests, id: \.self) { known in
+                                Button(known) { contest = known }
+                            }
+                        } label: {
+                            Image(systemName: "chevron.up.chevron.down")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("Contests already in the log")
+                    }
+                }
                 TextField("Notes", text: $notes, axis: .vertical)
                     .lineLimit(2...4)
             }
@@ -512,7 +565,11 @@ private struct QSOFormSheet: View {
             name: name.trimmingCharacters(in: .whitespaces).isEmpty ? nil : name,
             notes: notes.trimmingCharacters(in: .whitespaces).isEmpty ? nil : notes,
             state: state,
-            country: country
+            country: country,
+            contest: {
+                let trimmed = contest.trimmingCharacters(in: .whitespaces)
+                return trimmed.isEmpty ? nil : trimmed
+            }()
         )
     }
 }

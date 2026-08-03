@@ -78,6 +78,16 @@ final class ADIFExporterTests: XCTestCase {
         XCTAssertTrue(line.contains("<COMMENT:18>line one; line two "))
     }
 
+    func testContestIDIncludedWhenTagged() {
+        var tagged = record()
+        tagged.contest = "ARRL-VHF"
+        let line = ADIFExporter.line(for: tagged, stationCallsign: "W0CJW", myGrid: nil)
+        XCTAssertTrue(line.contains("<CONTEST_ID:8>ARRL-VHF "))
+
+        let untagged = ADIFExporter.line(for: record(), stationCallsign: "W0CJW", myGrid: nil)
+        XCTAssertFalse(untagged.contains("<CONTEST_ID"))
+    }
+
     func testEmptyReportAndZeroFrequencyOmitted() {
         var r = record(reportSent: "")
         r = QSORecord(

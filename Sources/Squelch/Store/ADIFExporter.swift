@@ -42,6 +42,7 @@ enum ADIFExporter {
         })
         s += field("STATE", record.state)
         s += field("COUNTRY", record.country)
+        s += field("CONTEST_ID", record.contest)
         s += field("MY_GRIDSQUARE", myGrid)
         s += field("STATION_CALLSIGN", stationCallsign)
         s += field("OPERATOR", stationCallsign)
