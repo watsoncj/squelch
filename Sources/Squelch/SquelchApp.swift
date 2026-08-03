@@ -49,15 +49,31 @@ final class AppModel: ObservableObject {
             // The exchange itself often never carries the grid (answerer
             // side, mid-exchange entries) — backfill from the station cache
             if record.partnerGrid == nil, let grid = store.stations[record.partner]?.grid {
-                record = QSORecord(
-                    id: record.id, partner: record.partner,
-                    partnerGrid: String(grid.prefix(4)).uppercased(),
-                    reportSent: record.reportSent, reportReceived: record.reportReceived,
-                    start: record.start, end: record.end,
-                    dialFrequencyMHz: record.dialFrequencyMHz, mode: record.mode
-                )
+                record.partnerGrid = grid.uppercased()
             }
             qsoLog.append(record)
+            // Enrich with license data (name, state, precise grid) — one
+            // session-cached HamDB request; DX calls just come back missing
+            CallsignDirectory.shared.lookup(record.partner) { [qsoLog] result in
+                guard case .found(let entry) = result,
+                      // Re-read by id: the user may have edited it meanwhile
+                      var current = qsoLog.records.first(where: { $0.id == record.id })
+                else { return }
+                if let grid = entry.grid {
+                    if current.partnerGrid == nil {
+                        current.partnerGrid = grid
+                    } else if let heard = current.partnerGrid, heard.count == 4,
+                              grid.hasPrefix(heard) {
+                        // Extend to 6 chars only when it matches the on-air
+                        // grid — a portable station's real square wins
+                        current.partnerGrid = grid
+                    }
+                }
+                if current.name == nil { current.name = entry.name }
+                current.state = entry.state
+                current.country = entry.country
+                qsoLog.update(current)
+            }
         }
         sequencer.onQSOAbandoned = { [weak self] partner in
             self?.recentlyAbandoned = (partner, Date())

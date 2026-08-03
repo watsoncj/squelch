@@ -10,6 +10,9 @@ final class CallsignDirectory: ObservableObject {
     struct Entry: Equatable {
         let name: String
         let city: String?
+        let state: String?   // "CT"
+        let country: String? // "United States" / "Canada"
+        let grid: String?    // license-address Maidenhead, e.g. "FN31PR"
         let licenseClass: String?
     }
 
@@ -21,21 +24,42 @@ final class CallsignDirectory: ObservableObject {
     }
 
     @Published private(set) var lookups: [String: LookupState] = [:]
+    private var waiters: [String: [(LookupState) -> Void]] = [:]
 
-    func lookup(_ callsign: String) {
+    /// Fire (or join) a lookup. `onResult` is called once on the main queue
+    /// with the terminal state — immediately if it's already cached.
+    func lookup(_ callsign: String, onResult: ((LookupState) -> Void)? = nil) {
         let call = callsign.uppercased()
-        guard !call.isEmpty, lookups[call] == nil else { return }
+        guard !call.isEmpty else { return }
+        switch lookups[call] {
+        case .found, .missing, .failed:
+            onResult?(lookups[call]!)
+            return
+        case .pending:
+            if let onResult { waiters[call, default: []].append(onResult) }
+            return
+        case nil:
+            break
+        }
+        if let onResult { waiters[call, default: []].append(onResult) }
         lookups[call] = .pending
         guard let url = URL(string: "https://api.hamdb.org/v1/\(call)/json/squelch") else {
-            lookups[call] = .failed
+            settle(call, .failed)
             return
         }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             let result: LookupState = error != nil ? .failed : Self.classify(data)
             DispatchQueue.main.async {
-                self?.lookups[call] = result
+                self?.settle(call, result)
             }
         }.resume()
+    }
+
+    private func settle(_ call: String, _ result: LookupState) {
+        lookups[call] = result
+        for waiter in waiters.removeValue(forKey: call) ?? [] {
+            waiter(result)
+        }
     }
 
     /// Forget a failed lookup so the button can try again.
@@ -77,6 +101,10 @@ final class CallsignDirectory: ObservableObject {
         return .found(Entry(
             name: name,
             city: field("addr2").map { $0.capitalized },
+            state: field("state").map { $0.uppercased() },
+            country: field("country"),
+            grid: field("grid").map { $0.uppercased() }
+                .flatMap { Maidenhead.isValidGrid($0) ? $0 : nil },
             licenseClass: field("class").flatMap(className)
         ))
     }

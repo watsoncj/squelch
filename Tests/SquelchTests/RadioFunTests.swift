@@ -257,6 +257,17 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(entry.name, "Jane Doe")
         XCTAssertEqual(entry.city, "Newington")
         XCTAssertEqual(entry.licenseClass, "General")
+        XCTAssertEqual(entry.state, "CT")
+        XCTAssertEqual(entry.country, "United States")
+        XCTAssertEqual(entry.grid, "FN31PR")
+
+        // A garbage grid must come back nil, not poison the entry
+        let badGrid = found.replacingOccurrences(of: "FN31pr", with: "XX99xx")
+        guard case .found(let bad) = CallsignDirectory.classify(Data(badGrid.utf8)) else {
+            return XCTFail("expected .found")
+        }
+        XCTAssertNil(bad.grid)
+        XCTAssertEqual(bad.state, "CT")
 
         let notFound = """
         {"hamdb":{"version":"1","callsign":{"call":"NOT_FOUND","class":"NOT_FOUND",

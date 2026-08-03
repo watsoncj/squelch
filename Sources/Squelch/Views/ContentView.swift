@@ -269,7 +269,8 @@ struct ContentView: View {
             ),
             onReply: { message in actions.reply(to: message) },
             replyEnabled: txAvailable && sequencer.mode == .idle,
-            micDenied: controller.micDenied
+            micDenied: controller.micDenied,
+            workedCalls: qsoLog.workedCalls
         ) {
             HStack {
                 Spacer()

@@ -1,16 +1,21 @@
 import Foundation
 
-/// A completed FT8 contact.
+/// A completed contact — auto-sequenced FT8 or manually logged.
 struct QSORecord: Identifiable, Codable {
     let id: UUID
     let partner: String
-    let partnerGrid: String?
+    var partnerGrid: String?
     let reportSent: String
     let reportReceived: String?
     let start: Date
     let end: Date
     let dialFrequencyMHz: Double
-    let mode: String // "FT8"
+    let mode: String // "FT8", "SSB", …
+    // Later additions, optional so pre-existing JSONL lines still decode
+    var name: String? = nil
+    var notes: String? = nil
+    var state: String? = nil   // 2-letter US/CA region code from license lookup
+    var country: String? = nil // license-country name from lookup
 }
 
 /// FT8 auto-sequence state machine. Pure logic, no I/O: the app calls

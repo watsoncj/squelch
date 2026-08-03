@@ -138,6 +138,9 @@ struct LogPane<Header: View>: View {
     /// guide — a fresh install otherwise fails silently (dead meter, no
     /// decodes, nothing explaining why).
     var micDenied = false
+    /// Uppercased calls already in the QSO log — rows get a worked-before
+    /// seal. Defaulted so callers without a log (iPad) need no change.
+    var workedCalls: Set<String> = []
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
@@ -155,6 +158,7 @@ struct LogPane<Header: View>: View {
                     myCall: myCallsign,
                     countryText: countryText(for: msg),
                     distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) },
+                    workedBefore: msg.callsign.map { workedCalls.contains($0.uppercased()) } ?? false,
                     now: ageNow
                 )
                 .listRowSeparator(.hidden)
@@ -288,6 +292,7 @@ struct LogPane<Header: View>: View {
         let myCall: String
         let countryText: String?
         let distanceText: String?
+        let workedBefore: Bool
         let now: Date
 
         private var callColor: Color {
@@ -304,6 +309,12 @@ struct LogPane<Header: View>: View {
                     Text(message.callsign ?? "—")
                         .font(.body.monospaced().bold())
                         .foregroundStyle(callColor)
+                    if workedBefore, message.callsign != myCall {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                            .help("Worked before — in your QSO log")
+                    }
                     if message.callsign == myCall {
                         Text("you")
                             .font(.caption2)

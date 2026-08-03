@@ -131,6 +131,14 @@ func bandName(forMHz mhz: Double) -> String {
     }
 }
 
+/// "245° WSW" — degrees plus the 16-point compass name.
+func compassBearingText(degrees: Double) -> String {
+    let compass = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    let idx = Int((degrees + 11.25) / 22.5) % 16
+    return String(format: "%.0f° %@", degrees, compass[idx])
+}
+
 enum DistanceUnit: String, CaseIterable, Identifiable {
     case miles = "Miles"
     case kilometers = "Kilometers"

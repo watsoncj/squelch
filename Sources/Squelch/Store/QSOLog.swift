@@ -3,6 +3,9 @@ import Foundation
 /// Completed contacts, persisted as JSONL alongside the decode log.
 final class QSOLog: ObservableObject {
     @Published private(set) var records: [QSORecord] = [] // newest first
+    /// Uppercased partner calls — the worked-before check, O(1) per row.
+    /// Changes only alongside `records`, whose @Published emission carries it.
+    private(set) var workedCalls: Set<String> = []
 
     private let fileURL: URL
     private let encoder = JSONEncoder()
@@ -19,6 +22,7 @@ final class QSOLog: ObservableObject {
     }
 
     func append(_ record: QSORecord) {
+        workedCalls.insert(record.partner.uppercased())
         records.insert(record, at: 0)
         guard var data = try? encoder.encode(record) else { return }
         data.append(0x0A)
@@ -34,6 +38,7 @@ final class QSOLog: ObservableObject {
     func delete(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         records.removeAll { ids.contains($0.id) }
+        workedCalls = Set(records.map { $0.partner.uppercased() })
         rewriteFile()
     }
 
@@ -41,6 +46,7 @@ final class QSOLog: ObservableObject {
     func update(_ record: QSORecord) {
         guard let index = records.firstIndex(where: { $0.id == record.id }) else { return }
         records[index] = record
+        workedCalls = Set(records.map { $0.partner.uppercased() })
         rewriteFile()
     }
 
@@ -62,5 +68,6 @@ final class QSOLog: ObservableObject {
         records = content.split(separator: "\n")
             .compactMap { try? decoder.decode(QSORecord.self, from: Data($0.utf8)) }
             .reversed()
+        workedCalls = Set(records.map { $0.partner.uppercased() })
     }
 }

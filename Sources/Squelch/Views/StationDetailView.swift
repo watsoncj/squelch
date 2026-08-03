@@ -186,11 +186,7 @@ struct StationDetailView: View {
     private var bearingText: String? {
         guard let me = location.effectiveCoordinate(),
               let them = station?.coordinate else { return nil }
-        let deg = Maidenhead.bearingDegrees(from: me, to: them)
-        let compass = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                       "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
-        let idx = Int((deg + 11.25) / 22.5) % 16
-        return String(format: "%.0f° %@", deg, compass[idx])
+        return compassBearingText(degrees: Maidenhead.bearingDegrees(from: me, to: them))
     }
 
     private func stat(_ label: String, _ value: String) -> some View {

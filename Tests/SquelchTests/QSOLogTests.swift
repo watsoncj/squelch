@@ -80,6 +80,39 @@ final class QSOLogTests: XCTestCase {
         XCTAssertEqual(reloaded.records.last?.reportSent, "-05")
     }
 
+    func testLegacyLineWithoutNewFieldsStillDecodes() {
+        // A line written before name/notes/state/country existed
+        let legacy = """
+        {"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","partner":"K1ABC","partnerGrid":"EN34","reportSent":"-07","reportReceived":"-12","start":"2024-01-01T00:00:00Z","end":"2024-01-01T00:01:30Z","dialFrequencyMHz":28.074,"mode":"FT8"}
+        """
+        try? (legacy + "\n").data(using: .utf8)?.write(to: tempURL)
+
+        let log = QSOLog(fileURL: tempURL)
+        XCTAssertEqual(log.records.count, 1)
+        let loaded = log.records[0]
+        XCTAssertEqual(loaded.partner, "K1ABC")
+        XCTAssertNil(loaded.name)
+        XCTAssertNil(loaded.notes)
+        XCTAssertNil(loaded.state)
+        XCTAssertNil(loaded.country)
+    }
+
+    func testEnrichedFieldsPersistAcrossReload() {
+        let log = QSOLog(fileURL: tempURL)
+        var enriched = record("K1ABC")
+        enriched.name = "Joe Ham"
+        enriched.notes = "POTA activation"
+        enriched.state = "CT"
+        enriched.country = "United States"
+        log.append(enriched)
+
+        let reloaded = QSOLog(fileURL: tempURL)
+        XCTAssertEqual(reloaded.records.first?.name, "Joe Ham")
+        XCTAssertEqual(reloaded.records.first?.notes, "POTA activation")
+        XCTAssertEqual(reloaded.records.first?.state, "CT")
+        XCTAssertEqual(reloaded.records.first?.country, "United States")
+    }
+
     func testDeleteRewritesFile() {
         let log = QSOLog(fileURL: tempURL)
         let keep = record("K1ABC")
