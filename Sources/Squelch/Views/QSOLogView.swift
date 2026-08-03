@@ -64,12 +64,16 @@ struct QSOLogView: View {
         return records.sorted(using: sortOrder)
     }
 
-    /// "CO, USA" — the license state stored at log time wins (exact); a
-    /// grid-center geocode is the fallback for older records, and it can
-    /// miss near state borders.
+    /// "CO, USA" — the state/country stored on the record (lookup or
+    /// hand-entered) wins; a grid-center geocode is the fallback for older
+    /// records, and it can miss near state borders.
     private func locationText(for record: QSORecord) -> String? {
+        let storedCountry = record.country.map { $0 == "United States" ? "USA" : $0 }
         if let state = record.state {
-            return "\(state), \(record.country == "Canada" ? "Canada" : "USA")"
+            return "\(state), \(storedCountry ?? "USA")"
+        }
+        if let storedCountry {
+            return storedCountry
         }
         guard let country = CallsignCountry.lookup(record.partner) else { return nil }
         if FT8MessageParser.isUSCallsign(record.partner),
@@ -85,7 +89,9 @@ struct QSOLogView: View {
         var parts = ["\(records.count) QSO\(records.count == 1 ? "" : "s")"]
         let states = Set(records.compactMap { record -> String? in
             if let state = record.state {
-                return record.country == "Canada" ? nil : state
+                // Provinces and other countries' subdivisions aren't WAS states
+                let country = record.country
+                return (country == nil || country == "United States") ? state : nil
             }
             guard FT8MessageParser.isUSCallsign(record.partner),
                   let grid = record.partnerGrid else { return nil }
@@ -349,11 +355,15 @@ private struct QSOFormSheet: View {
     @State private var name: String
     @State private var notes: String
     @State private var contest: String
+    @State private var state: String
+    @State private var country: String
     @State private var lookupDebounce: DispatchWorkItem?
     // Autofill may replace its own earlier fill (callsign corrected),
     // never a value the user typed
     @State private var lastAutoFilledGrid = ""
     @State private var lastAutoFilledName = ""
+    @State private var lastAutoFilledState = ""
+    @State private var lastAutoFilledCountry = ""
 
     private static let standardModes = ["FT8", "FT4", "SSB", "CW", "FM", "AM", "RTTY"]
 
@@ -376,6 +386,8 @@ private struct QSOFormSheet: View {
         _name = State(initialValue: existing?.name ?? "")
         _notes = State(initialValue: existing?.notes ?? "")
         _contest = State(initialValue: existing?.contest ?? "")
+        _state = State(initialValue: existing?.state ?? "")
+        _country = State(initialValue: existing?.country ?? "")
     }
 
     /// Contest names already in the log — one tap beats retyping
@@ -416,6 +428,9 @@ private struct QSOFormSheet: View {
                 workedBeforeRow
                 TextField("Name", text: $name)
                 TextField("Grid (optional)", text: $grid, prompt: Text("e.g. EN34"))
+                TextField("State (optional)", text: $state, prompt: Text("e.g. CO"))
+                    .help("Filled by the callsign lookup — set it yourself when the callsign isn't in HamDB")
+                TextField("Country (optional)", text: $country, prompt: Text("e.g. United States"))
                 DatePicker("When", selection: $when)
                 Picker("Mode", selection: $mode) {
                     ForEach(modes, id: \.self) { Text($0) }
@@ -539,19 +554,21 @@ private struct QSOFormSheet: View {
             name = entry.name
             lastAutoFilledName = entry.name
         }
+        if let s = entry.state, state.isEmpty || state == lastAutoFilledState {
+            state = s
+            lastAutoFilledState = s
+        }
+        if let c = entry.country, country.isEmpty || country == lastAutoFilledCountry {
+            country = c
+            lastAutoFilledCountry = c
+        }
     }
 
     private var builtRecord: QSORecord {
         let call = normalizedCall
         let duration = existing.map { $0.end.timeIntervalSince($0.start) } ?? 0
-        // License state/country: keep what the record had (same call), let a
-        // fresh lookup win
-        var state = existing?.partner == call ? existing?.state : nil
-        var country = existing?.partner == call ? existing?.country : nil
-        if case .found(let entry) = directory.lookups[call] {
-            state = entry.state
-            country = entry.country
-        }
+        let state = state.trimmingCharacters(in: .whitespaces).uppercased()
+        let country = country.trimmingCharacters(in: .whitespaces)
         return QSORecord(
             id: existing?.id ?? UUID(),
             partner: call,
@@ -564,8 +581,8 @@ private struct QSOFormSheet: View {
             mode: mode,
             name: name.trimmingCharacters(in: .whitespaces).isEmpty ? nil : name,
             notes: notes.trimmingCharacters(in: .whitespaces).isEmpty ? nil : notes,
-            state: state,
-            country: country,
+            state: state.isEmpty ? nil : state,
+            country: country.isEmpty ? nil : country,
             contest: {
                 let trimmed = contest.trimmingCharacters(in: .whitespaces)
                 return trimmed.isEmpty ? nil : trimmed
