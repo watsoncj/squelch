@@ -22,7 +22,15 @@ enum WSPRDecoderEngine {
     /// Decode a ~2-minute slot of 12 kHz audio. Stateless.
     /// Backed by the clean-room WSPRDecoder (type-1 messages).
     static func decodeSlot(_ samples: [Float], rcall: String, rgrid: String, dialHz: Int) -> [WSPRSpot] {
-        WSPRDecoder.decode(samples).map { r in
+        decodeSlotDetailed(samples, rcall: rcall, rgrid: rgrid, dialHz: dialHz).spots
+    }
+
+    /// decodeSlot plus the strongest sync correlation — the "is WSPR-shaped
+    /// signal present at all" diagnostic.
+    static func decodeSlotDetailed(_ samples: [Float], rcall: String, rgrid: String,
+                                   dialHz: Int) -> (spots: [WSPRSpot], strongestSync: Float) {
+        let detailed = WSPRDecoder.decodeDetailed(samples)
+        let spots = detailed.results.map { r in
             WSPRSpot(
                 call: r.call,
                 grid: r.grid,
@@ -33,5 +41,6 @@ enum WSPRDecoderEngine {
                 frequencyHz: Double(dialHz) + r.audioFrequencyHz
             )
         }
+        return (spots, detailed.strongestSync)
     }
 }

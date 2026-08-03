@@ -22,6 +22,23 @@ final class DecodeController: ObservableObject {
     /// device, dead USB cable, or radio volume at zero. Without this the
     /// symptom is just "no decodes", indistinguishable from a quiet band.
     @Published var inputSilent = false
+    /// The input is slamming full scale — overdriven audio distorts and
+    /// kills weak-signal decoding.
+    @Published var inputClipping = false
+    /// FT8/FT4 decodes are piling into one narrow slice of audio — the
+    /// signature of a narrow IF filter (a healthy band spreads decodes
+    /// across ~200–2800 Hz). Found the hard way: an FT-891 whose data-mode
+    /// WIDTH sat at minimum decoded only 750–1250 Hz all day and starved
+    /// WSPR (1400–1600 Hz) completely. The observed 5th–95th percentile
+    /// span is published so the warning can show it.
+    @Published var narrowFilterSpan: (lo: Int, hi: Int)?
+    /// WSPR only: several consecutive slots contained strong WSPR-shaped
+    /// sync structure yet nothing decoded. Real signals are arriving but
+    /// something is mangling them — radio DSP (noise reduction, auto-notch,
+    /// EQ) is the usual culprit. Discovered the hard way: an FT-891 with
+    /// DNR enabled on data mode crushed local −4 dB beacons to nothing,
+    /// silently, all day.
+    @Published var wsprAudioSuspect = false
 
     /// Called on the main queue with each slot's decodes.
     var onSlotDecoded: (([FT8Result], Date) -> Void)?
@@ -54,6 +71,20 @@ final class DecodeController: ObservableObject {
     private static let audibleFloorDB: Float = -70
     private static let silentAfterSeconds: TimeInterval = 10
     private var lastAudibleAt = Date.distantPast
+
+    // Clipping: sustained (not one static pop), self-clearing
+    private var clippedLevelWindows = 0
+    private var cleanLevelWindows = 0
+
+    // Rolling audio frequencies of recent FT8/FT4 decodes (filter diagnosis)
+    private var recentDecodeFreqs: [Float] = []
+
+    // "Strong sync but no decodes" streak across WSPR slots
+    private var wsprStrongUnverifiedSlots = 0
+    /// Real WSPR structure scores ≥ 2 even below the decode floor; noise
+    /// candidates stay near the 1.1 gate.
+    private static let wsprStrongSyncThreshold: Float = 1.8
+    private static let wsprSuspectAfterSlots = 3
 
     /// Held while capture is live so the Mac doesn't idle-sleep mid-session
     /// (the display may still sleep; decoding continues). Lid-close sleep is
@@ -159,6 +190,13 @@ final class DecodeController: ObservableObject {
         micDenied = false // permission was fixed and Start succeeded
         startError = nil
         inputSilent = false
+        inputClipping = false
+        clippedLevelWindows = 0
+        cleanLevelWindows = 0
+        wsprAudioSuspect = false
+        wsprStrongUnverifiedSlots = 0
+        narrowFilterSpan = nil
+        recentDecodeFreqs.removeAll()
         lastAudibleAt = Date()
         if sleepAssertion == nil {
             sleepAssertion = ProcessInfo.processInfo.beginActivity(
@@ -207,12 +245,27 @@ final class DecodeController: ObservableObject {
                 lastAudibleAt = now
             }
             let silent = now.timeIntervalSince(lastAudibleAt) > Self.silentAfterSeconds
+            var peak: Float = 0
+            vDSP_maxmgv(samples, 1, &peak, vDSP_Length(samples.count))
+            if peak >= 0.985 {
+                clippedLevelWindows += 1
+                cleanLevelWindows = 0
+            } else {
+                cleanLevelWindows += 1
+                if cleanLevelWindows >= 10 {
+                    clippedLevelWindows = 0
+                }
+            }
+            let clipping = clippedLevelWindows >= 3
             DispatchQueue.main.async {
                 if abs(db - self.audioLevelDB) > 0.8 {
                     self.audioLevelDB = db
                 }
                 if silent != self.inputSilent {
                     self.inputSilent = silent
+                }
+                if clipping != self.inputClipping {
+                    self.inputClipping = clipping
                 }
             }
         }
@@ -269,6 +322,7 @@ final class DecodeController: ObservableObject {
         // Always report the slot — even empty — so the QSO sequencer keeps
         // getting its transmit windows when a slot's audio is unusable.
         let results: [FT8Result]
+        var wsprSlotSync: Float? // nil = no WSPR decode was attempted
         if slotSamples.count < minDecodableSamples || Self.isMisaligned(now: now, period: period) {
             results = []
         } else if mode == .wspr {
@@ -276,24 +330,66 @@ final class DecodeController: ObservableObject {
             let rcall = defaults.string(forKey: SettingsKeys.myCallsign) ?? ""
             let rgrid = String((defaults.string(forKey: SettingsKeys.myGrid) ?? "").prefix(4))
             let dialHz = Int(defaults.double(forKey: SettingsKeys.dialFrequencyMHz) * 1_000_000)
-            results = WSPRDecoderEngine
-                .decodeSlot(slotSamples, rcall: rcall, rgrid: rgrid, dialHz: dialHz)
-                .map { spot in
-                    FT8Result(
-                        snr: spot.snr,
-                        timeOffset: spot.dt,
-                        freqHz: Float(spot.frequencyHz - Double(dialHz)),
-                        text: "WSPR \(spot.call) \(spot.grid) \(spot.powerDBm)dBm"
-                    )
-                }
+            let outcome = WSPRDecoderEngine
+                .decodeSlotDetailed(slotSamples, rcall: rcall, rgrid: rgrid, dialHz: dialHz)
+            wsprSlotSync = outcome.strongestSync
+            results = outcome.spots.map { spot in
+                FT8Result(
+                    snr: spot.snr,
+                    timeOffset: spot.dt,
+                    freqHz: Float(spot.frequencyHz - Double(dialHz)),
+                    text: "WSPR \(spot.call) \(spot.grid) \(spot.powerDBm)dBm"
+                )
+            }
         } else if let decoder {
             results = decoder.decodeSlot(slotSamples)
         } else {
             results = []
         }
+        let isWSPR = mode == .wspr
         DispatchQueue.main.async {
             self.lastSlotCount = results.count
+            if let sync = wsprSlotSync {
+                self.noteWSPRSlot(spotCount: results.count, strongestSync: sync)
+            }
+            if !isWSPR {
+                self.noteDecodedFrequencies(results.map(\.freqHz))
+            }
             self.onSlotDecoded?(results, slotStart)
+        }
+    }
+
+    /// Feed FT8/FT4 decode audio frequencies into the narrow-filter check:
+    /// plenty of decodes all bunched into one thin slice means the radio's
+    /// IF width is eating the rest of the passband.
+    func noteDecodedFrequencies(_ freqs: [Float]) {
+        recentDecodeFreqs.append(contentsOf: freqs)
+        if recentDecodeFreqs.count > 200 {
+            recentDecodeFreqs.removeFirst(recentDecodeFreqs.count - 200)
+        }
+        guard recentDecodeFreqs.count >= 40 else { return }
+        let sorted = recentDecodeFreqs.sorted()
+        let lo = sorted[Int(0.05 * Double(sorted.count))]
+        let hi = sorted[max(0, Int(0.95 * Double(sorted.count)) - 1)]
+        // Hysteresis so the chip doesn't flap at the boundary
+        if hi - lo < 900 {
+            narrowFilterSpan = (Int(lo), Int(hi))
+        } else if hi - lo > 1200 {
+            narrowFilterSpan = nil
+        }
+    }
+
+    /// Track the "strong sync, zero decodes" streak that betrays mangled
+    /// audio. Any decode — or the structure vanishing — clears it.
+    func noteWSPRSlot(spotCount: Int, strongestSync: Float) {
+        if spotCount > 0 || strongestSync < Self.wsprStrongSyncThreshold {
+            wsprStrongUnverifiedSlots = 0
+            wsprAudioSuspect = false
+        } else {
+            wsprStrongUnverifiedSlots += 1
+            if wsprStrongUnverifiedSlots >= Self.wsprSuspectAfterSlots {
+                wsprAudioSuspect = true
+            }
         }
     }
 }

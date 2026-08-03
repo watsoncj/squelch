@@ -33,6 +33,12 @@ struct QSOStatusPanel: View {
             startErrorChip(error)
         } else if controller.isRunning, controller.inputSilent {
             silentInputChip
+        } else if controller.isRunning, controller.inputClipping {
+            clippingChip
+        } else if controller.isRunning, let span = controller.narrowFilterSpan {
+            narrowFilterChip(span)
+        } else if controller.isRunning, controller.wsprAudioSuspect {
+            mangledAudioChip
         } else if controller.isRunning {
             decodingChip
         }
@@ -86,6 +92,42 @@ struct QSOStatusPanel: View {
                 .font(.callout)
         }
         .help("Decoding is running but the input is silent. Check the Digirig USB connection, the input device in Settings → Audio Input, and the radio's volume — the level meter should move with band noise.")
+    }
+
+    /// The input is overdriving — distortion kills weak-signal decodes.
+    private var clippingChip: some View {
+        chip(tint: .orange) {
+            Image(systemName: "waveform.badge.exclamationmark")
+                .foregroundStyle(.orange)
+            Text("Audio input clipping")
+                .font(.callout)
+        }
+        .help("The input is hitting full scale. Lower the radio's AF/USB output level (or the interface gain) until the meter stays out of the top — clipped audio distorts and weak signals stop decoding.")
+    }
+
+    /// Decodes bunched into a thin audio slice: the radio's IF width is
+    /// eating the rest of the passband.
+    private func narrowFilterChip(_ span: (lo: Int, hi: Int)) -> some View {
+        chip(tint: .orange) {
+            Image(systemName: "waveform.path.badge.minus")
+                .foregroundStyle(.orange)
+            Text("RX filter looks narrow")
+                .font(.callout)
+        }
+        .help("Decodes are only arriving between about \(span.lo) and \(span.hi) Hz — the rest of the passband is silent. Check the radio's IF WIDTH / narrow-filter setting for its data mode and widen it to ~3000 Hz (watch for a NAR indicator). Signals outside a narrow filter vanish without a trace.")
+    }
+
+    /// WSPR-shaped signals keep arriving but never decode — almost always
+    /// the radio's DSP chewing the audio (any brand: NR/DNR, auto-notch/DNF,
+    /// contour, RX EQ), occasionally a badly off-frequency dial.
+    private var mangledAudioChip: some View {
+        chip(tint: .orange) {
+            Image(systemName: "waveform.badge.magnifyingglass")
+                .foregroundStyle(.orange)
+            Text("Signals heard, none decode")
+                .font(.callout)
+        }
+        .help("WSPR-like signals are reaching the decoder but nothing decodes. Turn OFF the radio's noise reduction, auto-notch, contour, and receive EQ for data modes — they silently destroy weak digital signals. Also confirm the dial matches the WSPR frequency exactly.")
     }
 
     /// Lowest priority: a radial ring filling over the decode slot.

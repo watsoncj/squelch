@@ -49,7 +49,10 @@ final class WSPRTests: XCTestCase {
             spots = WSPRDecoderEngine.decodeSlot(audio, rcall: "W0CJW", rgrid: "DM79", dialHz: 28_124_600)
             expectation.fulfill()
         }
-        wait(for: [expectation], timeout: 20)
+        // Generous: this test is about surviving the worker-queue stack
+        // size, not decode speed — a debug build works through every
+        // candidate's deep budget
+        wait(for: [expectation], timeout: 120)
         XCTAssertEqual(spots.first?.call, "W0CJW")
     }
 
