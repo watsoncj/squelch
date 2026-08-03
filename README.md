@@ -27,7 +27,10 @@ Xcode. `Scripts/make_release.sh` is the sign/notarize/staple pipeline.
 
 Verified stations:
 
-- **Yaesu FT-891** + Digirig Mobile (DR-891 cable set) — audio, CAT, and PTT
+- **Yaesu FT-891** + Digirig Mobile (DR-891 cable set) — audio, CAT, and PTT.
+  Setting it up from scratch? Read [the FT-891 digital setup guide](docs/ft891-digital-setup.md)
+  first — the radio has several factory-state sharp edges (WIDTH,
+  DNR, band-stacks, tuner memories) that silently kill weak-signal RX.
 - **Yaesu FT-991** — its built-in USB audio + CAT bridge is all you need;
   no external interface
 
