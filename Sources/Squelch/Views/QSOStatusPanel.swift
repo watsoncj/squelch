@@ -11,6 +11,10 @@ struct QSOStatusPanel: View {
     @ObservedObject var model: AppModel
     @ObservedObject var controller: DecodeController
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
+    @AppStorage(SettingsKeys.huntEnabled) private var huntEnabled = false
+    @AppStorage(SettingsKeys.huntDX) private var huntDX = false
+    @AppStorage(SettingsKeys.huntNewStates) private var huntNewStates = false
+    @AppStorage(SettingsKeys.huntNewCountries) private var huntNewCountries = false
 
     private var period: Double {
         (DigiMode(rawValue: digiMode) ?? .ft8).slotSeconds
@@ -39,6 +43,8 @@ struct QSOStatusPanel: View {
             narrowFilterChip(span)
         } else if controller.isRunning, controller.wsprAudioSuspect {
             mangledAudioChip
+        } else if controller.isRunning, huntEnabled, DigiMode.current.supportsQSO {
+            huntingChip
         } else if controller.isRunning {
             decodingChip
         }
@@ -130,6 +136,31 @@ struct QSOStatusPanel: View {
         .help("WSPR-like signals are reaching the decoder but nothing decodes. Turn OFF the radio's noise reduction, auto-notch, contour, and receive EQ for data modes — they silently destroy weak digital signals. Also confirm the dial matches the WSPR frequency exactly.")
     }
 
+    /// Hunt mode armed and scanning — the decode ring wears binoculars so
+    /// the auto-TX standing order is always visible.
+    private var huntingChip: some View {
+        chip(tint: .green) {
+            Image(systemName: "binoculars.fill")
+                .foregroundStyle(.green)
+            Text("Hunting CQs")
+                .font(.callout)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let fraction = context.date.timeIntervalSince1970
+                    .truncatingRemainder(dividingBy: period) / period
+                SlotRing(fraction: fraction, tint: .green)
+            }
+        }
+        .help("Watching for \(huntCriteriaText) — a matching CQ arms a reply with a countdown you can cancel")
+    }
+
+    private var huntCriteriaText: String {
+        var parts: [String] = []
+        if huntDX { parts.append("DX") }
+        if huntNewStates { parts.append("new states") }
+        if huntNewCountries { parts.append("new countries") }
+        return parts.isEmpty ? "nothing (pick criteria under Hunt)" : parts.joined(separator: ", ")
+    }
+
     /// Lowest priority: a radial ring filling over the decode slot.
     /// Deliberately minimal — input level lives in Settings › Audio Input.
     private var decodingChip: some View {
@@ -181,10 +212,15 @@ struct QSOStatusPanel: View {
     }
 
     private func pendingChip(_ pending: PendingReply) -> some View {
-        chip(tint: .orange) {
-            Image(systemName: "phone.arrow.down.left.fill")
+        let hunted: CQHunter.Reason? = {
+            if case .huntedCQ(let reason) = pending.kind { return reason }
+            return nil
+        }()
+        return chip(tint: .orange) {
+            Image(systemName: hunted == nil ? "phone.arrow.down.left.fill" : "binoculars.fill")
                 .foregroundStyle(.orange)
-            Text("\(pending.call) calling · answering in")
+            Text(hunted.map { "\($0.label) · calling \(pending.call) in" }
+                 ?? "\(pending.call) calling · answering in")
                 .font(.callout)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let remaining = max(0, pending.fireAt.timeIntervalSince(context.date).rounded(.up))

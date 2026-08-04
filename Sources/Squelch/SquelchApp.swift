@@ -2,9 +2,16 @@ import SwiftUI
 import os
 
 /// Owns the long-lived model objects and wires decode results into the store.
-/// A station calling us that auto-answer has armed, pending its countdown.
+/// An armed, countdown-pending transmission: a station calling us that
+/// auto-answer picked up, or a CQ the hunter wants to chase.
 struct PendingReply: Equatable {
+    enum Kind: Equatable {
+        case callingUs                  // they addressed us — answer per grid/report
+        case huntedCQ(CQHunter.Reason)  // their CQ matched the hunt criteria
+    }
+
     let call: String
+    let kind: Kind
     let grid: String?    // they sent their grid → we enter as caller
     let report: String?  // they sent a report → we enter as answerer
     let snr: Float
@@ -40,6 +47,11 @@ final class AppModel: ObservableObject {
     private var recentlyAbandoned: (call: String, at: Date)?
     private static let abandonGraceSeconds: TimeInterval = 120
 
+    /// Calls the hunter must leave alone this session: hunts the user
+    /// canceled, and partners who never answered — without this the same
+    /// CQ re-arms every 15 s slot.
+    private var huntPassedCalls: Set<String> = []
+
     /// Demo mode must never key the radio, even with PTT configured.
     let demoMode = CommandLine.arguments.contains("--demo")
 
@@ -66,6 +78,9 @@ final class AppModel: ObservableObject {
         }
         sequencer.onQSOAbandoned = { [weak self] partner in
             self?.recentlyAbandoned = (partner, Date())
+            // A station that never came back is a station the hunter
+            // shouldn't chase again this session
+            self?.huntPassedCalls.insert(partner)
         }
         transmit.preTransmitHook = { [cat] in
             cat.ensureDataUSB()
@@ -119,6 +134,7 @@ final class AppModel: ObservableObject {
             )
         } else {
             considerAutoAnswer(results: results, theirParity: parity, period: period)
+            considerHunt(results: results, theirParity: parity, period: period)
         }
 
         firePendingReplyIfDue(upcomingParity: 1 - parity, period: period)
@@ -152,8 +168,56 @@ final class AppModel: ObservableObject {
         recentlyAbandoned = nil
         pendingReply = PendingReply(
             call: candidate.call,
+            kind: .callingUs,
             grid: candidate.grid,
             report: candidate.report,
+            snr: candidate.snr,
+            theirParity: theirParity,
+            fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
+        )
+    }
+
+    /// While idle with hunt mode on: a CQ from a "new one" (DX, unworked
+    /// state, unworked country) arms the same countdown-gated reply as
+    /// auto-answer — the chip announces the catch and Cancel keeps us
+    /// quiet. Auto-answer wins when both trigger in a slot (someone
+    /// calling us beats someone calling everyone).
+    private func considerHunt(results: [FT8Result], theirParity: Int, period: Double) {
+        guard pendingReply == nil,
+              UserDefaults.standard.bool(forKey: SettingsKeys.huntEnabled),
+              DigiMode.current.supportsQSO else { return }
+        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
+        guard !myCall.isEmpty else { return }
+        // A hunt that fires into a TX-illegal band would error out every
+        // slot — don't arm at all
+        let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+        guard TransmitController.isTXLegalMHz(dial) else { return }
+
+        let flags = CQHunter.Flags(
+            dx: UserDefaults.standard.bool(forKey: SettingsKeys.huntDX),
+            newStates: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewStates),
+            newCountries: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewCountries)
+        )
+        let stateForGrid: (String) -> String? = { [stateResolver] grid in
+            stateResolver.state(forGrid: grid, isUS: true)
+        }
+        let worked = CQHunter.workedSets(records: qsoLog.records, stateForGrid: stateForGrid)
+        guard let candidate = CQHunter.pick(
+            decodes: results.map { ($0.text, $0.snr) },
+            myCall: myCall,
+            flags: flags,
+            workedCalls: qsoLog.workedCalls,
+            workedStates: worked.states,
+            workedCountries: worked.countries,
+            passedCalls: huntPassedCalls,
+            stateForGrid: stateForGrid
+        ) else { return }
+
+        pendingReply = PendingReply(
+            call: candidate.call,
+            kind: .huntedCQ(candidate.reason),
+            grid: candidate.grid,
+            report: nil,
             snr: candidate.snr,
             theirParity: theirParity,
             fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
@@ -197,15 +261,31 @@ final class AppModel: ObservableObject {
               now >= pending.fireAt.addingTimeInterval(-1) else { return }
 
         pendingReply = nil
-        if let grid = pending.grid {
-            sequencer.engageAsCaller(call: pending.call, grid: grid, snr: pending.snr, theirParity: pending.theirParity)
-        } else if let report = pending.report {
-            sequencer.engageAsAnswerer(call: pending.call, report: report, snr: pending.snr, theirParity: pending.theirParity)
+        switch pending.kind {
+        case .huntedCQ:
+            sequencer.replyTo(call: pending.call, snr: pending.snr, cqParity: pending.theirParity, grid: pending.grid)
+        case .callingUs:
+            if let grid = pending.grid {
+                sequencer.engageAsCaller(call: pending.call, grid: grid, snr: pending.snr, theirParity: pending.theirParity)
+            } else if let report = pending.report {
+                sequencer.engageAsAnswerer(call: pending.call, report: report, snr: pending.snr, theirParity: pending.theirParity)
+            }
         }
     }
 
     func cancelPendingReply() {
+        // Canceling a hunt means "not this one" — don't re-arm on their
+        // next CQ this session
+        if let pending = pendingReply, case .huntedCQ = pending.kind {
+            huntPassedCalls.insert(pending.call)
+        }
         pendingReply = nil
+    }
+
+    /// Re-arming the hunt starts fresh: passed-over stations are back in
+    /// season.
+    func huntToggled(on: Bool) {
+        if on { huntPassedCalls.removeAll() }
     }
 
     // MARK: - WSPR beacon

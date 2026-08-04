@@ -19,10 +19,12 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
+    @AppStorage(SettingsKeys.huntEnabled) private var huntEnabled = false
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
     @State private var showCheatsheet = false
     @State private var showFrequencies = false
+    @State private var showHunt = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @State private var isFullScreen = false
@@ -154,6 +156,9 @@ struct ContentView: View {
             if !isFullScreen {
                 toolbarItems
             }
+        }
+        .onChange(of: huntEnabled) { _, on in
+            actions.huntToggled(on: on)
         }
         .onChange(of: digiMode) { _, raw in
             if raw != DigiMode.wspr.rawValue {
@@ -430,6 +435,17 @@ struct ContentView: View {
                     }
                     .disabled(sequencer.mode == .idle && !txAvailable)
                     .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
+
+                    Button {
+                        showHunt.toggle()
+                    } label: {
+                        Label("Hunt", systemImage: huntEnabled ? "binoculars.fill" : "binoculars")
+                            .foregroundStyle(huntEnabled ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
+                    }
+                    .help("Hunt mode — auto-reply to CQs from new ones: DX, unworked states, unworked countries")
+                    .popover(isPresented: $showHunt, arrowEdge: .bottom) {
+                        HuntFlyout()
+                    }
                 }
 
                 Button {
@@ -501,6 +517,46 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// Hunt mode flyout: master switch plus the criteria checkboxes.
+    /// Enabling with nothing selected auto-picks DX so the switch never
+    /// silently hunts nothing.
+    private struct HuntFlyout: View {
+        @AppStorage(SettingsKeys.huntEnabled) private var enabled = false
+        @AppStorage(SettingsKeys.huntDX) private var dx = false
+        @AppStorage(SettingsKeys.huntNewStates) private var newStates = false
+        @AppStorage(SettingsKeys.huntNewCountries) private var newCountries = false
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("CQ Hunter")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                Toggle("Hunt while decoding", isOn: $enabled)
+                    .toggleStyle(.switch)
+                    .onChange(of: enabled) { _, on in
+                        if on, !dx, !newStates, !newCountries {
+                            dx = true
+                        }
+                    }
+                Divider()
+                Group {
+                    Toggle("DX (outside my country)", isOn: $dx)
+                        .help("Any CQ from a station outside your own country")
+                    Toggle("Unseen states", isOn: $newStates)
+                        .help("US stations in states missing from your QSO log — Worked All States, on autopilot")
+                    Toggle("Unseen countries", isOn: $newCountries)
+                        .help("Countries missing from your QSO log, judged by callsign prefix")
+                }
+                .disabled(!enabled)
+                Text("A matching CQ arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. Worked calls are skipped; directed CQs (CQ DX, CQ EU) are respected.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 240, alignment: .leading)
+            }
+            .padding(14)
         }
     }
 

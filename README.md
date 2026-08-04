@@ -4,8 +4,9 @@ A map-first FT8/FT4/WSPR station for macOS. Native SwiftUI — decode, log,
 and work the world from an edge-to-edge propagation map. Verified on the
 Yaesu FT-891 (with a Digirig) and the FT-991; adaptable to similar setups.
 
-![Squelch decoding 20m FT8 — a Tennessee station working Saudi Arabia,
-with the great-circle path drawn across the Atlantic](docs/screenshot.png)
+![Squelch decoding 20m FT8 with the CQ Hunter armed — worked-grid heatmap
+over North America, a station detail card, the live waterfall, and a
+great-circle path arcing across the Atlantic](docs/screenshot.png)
 
 ## Install
 
@@ -77,7 +78,9 @@ Keep the Mac's clock synced — these modes depend on it.
 - **Waterfall**: floating spectrogram panel; double-click (or right-click)
   to move your TX offset. Signals paint on glass — silence is transparent.
 - **QSO log** (⌘L): sortable, searchable, with resolved state/country per
-  contact and manual add/edit for off-app QSOs. Persists to
+  contact and manual add/edit for off-app QSOs. Exports **ADIF** (.adi —
+  LoTW, QRZ Logbook, eQSL, POTA) and **Cabrillo** (.log, all QSOs or
+  per-contest). Persists to
   `~/Library/Application Support/Squelch/qsos.jsonl` (decodes to
   `decodes.jsonl` alongside).
 
@@ -95,8 +98,15 @@ until a callsign is set, and a watchdog force-drops PTT no matter what.
   the standard exchange automatically: grid → R±NN → 73.
 - **Call CQ**: transmits `CQ <your call> <grid>` on the quieter slot
   parity, answers whoever comes back, then resumes CQing. Auto-stops after
-  10 unanswered calls. Auto-answer of stations calling you is always
-  countdown-gated with a visible Cancel.
+  10 unanswered calls. Auto-answer of stations calling you (opt-in,
+  Settings → Transmit) is always countdown-gated with a visible Cancel.
+- **Hunt** (binoculars button): while decoding, auto-reply to CQs from
+  "new ones" — DX (outside your country), US states missing from your QSO
+  log, or countries missing from it. Each catch arms the same
+  countdown-gated reply as auto-answer (the chip names the catch: "New
+  state: UT · calling K7ABC in 12 s" — Cancel to pass). Worked calls are
+  skipped, directed CQs (`CQ DX`, `CQ EU`) are respected, and a canceled
+  or unresponsive station isn't chased again that session.
 - **Halt TX**: spacebar (or the Halt button on the red status chip) kills
   everything instantly.
 
@@ -186,11 +196,13 @@ glance.
   HamDB lookups.
 - `Sources/Squelch/Transmit/` — encoder, QSO sequencer, CAT, PTT, audio out.
 - `Sources/Squelch/Views/` — the SwiftUI map, feed, station card, panels.
+- `iPad/` — SquelchPad, a receive-only iPad build of the same shared
+  sources (no serial/PTT on iPadOS); generate the Xcode project with
+  `xcodegen`.
 
 ## Ideas for later
 
 - Multi-caller queue when a CQ gets a pileup (currently first heard wins).
-- ADIF export of qsos.jsonl for LoTW / QRZ logging.
 
 ## License
 
