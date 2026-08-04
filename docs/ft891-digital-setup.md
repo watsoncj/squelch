@@ -104,6 +104,9 @@ which is excellent and covers the TX side too.)
   Yaesu's ADMS-11 programming software (or a third-party CAT backup tool)
   so the next reset or firmware update is a restore, not a scavenger hunt.
 
+Waterfall screenshots of the broken and fixed states are in
+[wdh-experiment-notes.md](wdh-experiment-notes.md).
+
 ## Verifying empirically (how this list was built)
 
 Squelch's status chips catch several of these live: "Radio in \<mode\>"
