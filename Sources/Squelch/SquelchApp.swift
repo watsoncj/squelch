@@ -30,6 +30,7 @@ final class AppModel: ObservableObject {
     let waterfall = WaterfallProcessor()
     let stateResolver = StateResolver()
     let wsprNet = WSPRNetService()
+    let updater = UpdateChecker()
 
     @Published var pendingReply: PendingReply?
     @Published private(set) var wsprBeaconEnabled = false
@@ -115,6 +116,12 @@ final class AppModel: ObservableObject {
         }
         if CommandLine.arguments.contains("--demo") {
             seedDemoData()
+        } else {
+            // Demo runs stay pristine for screenshots/GUI driving — no
+            // update chip materializing mid-capture
+            Task { @MainActor [updater] in
+                updater.startAutomaticChecks()
+            }
         }
     }
 
@@ -618,6 +625,7 @@ struct SquelchApp: App {
                 qsoLog: model.qsoLog,
                 cat: model.cat,
                 wsprNet: model.wsprNet,
+                updater: model.updater,
                 actions: model
             )
             .frame(minWidth: 980, minHeight: 620)
@@ -626,6 +634,13 @@ struct SquelchApp: App {
         // toolbar items floating over the map
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    model.updater.checkNow()
+                }
+            }
+        }
 
         Window("QSO Log", id: "qso-log") {
             QSOLogView(qsoLog: model.qsoLog, stateResolver: model.stateResolver)

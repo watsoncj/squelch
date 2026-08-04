@@ -24,6 +24,7 @@ targets:
           - "Views/FullScreenSupport.swift"
           - "Views/QSOStatusPanel.swift"
           - "Views/SettingsView.swift"
+          - "Update"                    # mac self-updater (AppKit + bundle swap)
           - "Transmit/TransmitController.swift"
           - "Transmit/CATController.swift"
           - "Transmit/SerialPTT.swift"

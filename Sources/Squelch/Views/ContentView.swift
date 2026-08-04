@@ -9,6 +9,7 @@ struct ContentView: View {
     @ObservedObject var qsoLog: QSOLog
     @ObservedObject var cat: CATController
     @ObservedObject var wsprNet: WSPRNetService
+    @ObservedObject var updater: UpdateChecker
     @ObservedObject var actions: AppModel
 
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
@@ -335,7 +336,7 @@ struct ContentView: View {
             || controller.micDenied
             || controller.startError != nil
             || controller.isRunning
-        return catTrouble || chipActive
+        return catTrouble || chipActive || updater.readyVersion != nil
     }
 
     /// Volatile: CAT trouble light + the TX/QSO/beacon/decoding chip.
@@ -363,6 +364,31 @@ struct ContentView: View {
                 // Status chip: TX / answer / session / beacon / error /
                 // decoding vitals — appears only when something is happening
                 QSOStatusPanel(sequencer: sequencer, transmit: transmit, model: actions, controller: controller)
+
+                // Update chip: appears only once the new version is
+                // downloaded AND signature-verified; the user picks the
+                // restart moment. Guarded against mid-QSO fat-fingers.
+                if let version = updater.readyVersion {
+                    let midQSO = transmit.anyTXActive
+                        || sequencer.mode != .idle
+                        || actions.pendingReply != nil
+                    Button {
+                        updater.installAndRelaunch()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                            Text("\(version) ready — Restart")
+                                .font(.callout)
+                        }
+                        .frame(height: 26)
+                        .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(midQSO)
+                    .help(midQSO
+                          ? "Squelch \(version) is ready — restart is held until the QSO/TX finishes"
+                          : "Squelch \(version) is downloaded and verified — click to restart into it")
+                }
     }
 
     /// Stable: constant membership, near-constant width — this container
