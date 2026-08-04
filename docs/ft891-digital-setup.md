@@ -31,11 +31,28 @@ Three properties of the FT-891 make a fresh reset treacherous:
 
 ## The checklist (menu numbers from the Advance Manual)
 
+### Menu group 08 — the complete DATA recipe
+
+These five items together took the station from zero to its first live
+WSPR decode. Defaults in parentheses; every one of them ships wrong for
+FT8/WSPR. (Independently confirmed by
+[TheModernHam's FT-891 digital settings guide](https://themodernham.com/ft-891-the-ultimate-digital-settings-menu-guide-for-digital-modes/),
+which is excellent and covers the TX side too.)
+
+- **08-01 DATA MODE = OTHERS** (default PSK) — PSK engages the radio's
+  own PSK audio handling on the DATA jack; OTHERS is the clean
+  pass-through digital software needs.
+- **08-03 OTHER DISP = 1500 Hz** (default 0).
+- **08-04 OTHER SHIFT = 1500 Hz** (default 0) — sets the DATA passband's
+  carrier point. **At the default 0, the receive passband is centered in
+  the wrong place** (~1000 Hz instead of 1500), so even a 3000 Hz WIDTH
+  passes roughly 400–1600 Hz and starves everything above — the exact
+  crushed-spectrum signature chased for hours in this saga.
+- **08-05 DATA LCUT FREQ = OFF** (default 300 Hz).
+- **08-07 DATA HCUT FREQ = OFF** (default 3000 Hz).
+- **08-12 DAT BFO = USB.**
+
 ### Mode & sideband
-- **08-01 DATA MODE = OTHERS** (not PSK). PSK engages the radio's own
-  PSK-specific audio handling on the DATA jack; OTHERS is the clean
-  pass-through that FT8/WSPR software needs. This was the final fix that
-  produced the first live WSPR decode after everything else checked out.
 - **Mode: DATA-USB on every band you'll use.** Set it per band — the
   band-stack remembers. Digital is USB even on 40/80/160 m where voice is
   LSB. Wrong sideband = inverted spectrum = zero decodes with
@@ -51,9 +68,8 @@ Three properties of the FT-891 make a fresh reset treacherous:
   rest of the passband is silent. WSPR (1400–1600 Hz) starves completely.
 - **No NAR indicator** on the display.
 - **SHIFT (SFT) = 0.**
-- **08-05 DATA LCUT FREQ**: default 300 Hz is workable; 100 Hz is kinder.
-- **08-07 DATA HCUT FREQ**: 3000 Hz (default) or higher. A lower value
-  puts a hard wall through the FT8 band and on top of WSPR.
+- **08-05 DATA LCUT FREQ = OFF and 08-07 DATA HCUT FREQ = OFF** (see the
+  menu-08 recipe above).
 - **DNR OFF, DNF OFF, CONTOUR OFF, NB OFF** for data modes. DNF hunts and
   kills steady carriers — a WSPR tone *is* a steady carrier.
 
