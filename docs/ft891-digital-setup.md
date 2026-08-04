@@ -32,6 +32,10 @@ Three properties of the FT-891 make a fresh reset treacherous:
 ## The checklist (menu numbers from the Advance Manual)
 
 ### Mode & sideband
+- **08-01 DATA MODE = OTHERS** (not PSK). PSK engages the radio's own
+  PSK-specific audio handling on the DATA jack; OTHERS is the clean
+  pass-through that FT8/WSPR software needs. This was the final fix that
+  produced the first live WSPR decode after everything else checked out.
 - **Mode: DATA-USB on every band you'll use.** Set it per band — the
   band-stack remembers. Digital is USB even on 40/80/160 m where voice is
   LSB. Wrong sideband = inverted spectrum = zero decodes with
