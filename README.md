@@ -98,8 +98,9 @@ until a callsign is set, and a watchdog force-drops PTT no matter what.
   the standard exchange automatically: grid → R±NN → 73.
 - **Call CQ**: transmits `CQ <your call> <grid>` on the quieter slot
   parity, answers whoever comes back, then resumes CQing. Auto-stops after
-  10 unanswered calls. Auto-answer of stations calling you (opt-in,
-  Settings → Transmit) is always countdown-gated with a visible Cancel.
+  10 unanswered calls. Auto-answer of stations calling you (opt-in, under
+  the Hunt button's Auto-Reply flyout) is always countdown-gated with a
+  visible Cancel.
 - **Hunt** (binoculars button): while decoding, auto-reply to CQs from
   "new ones" — DX (outside your country), US states missing from your QSO
   log, or countries missing from it. Each catch arms the same

@@ -468,7 +468,7 @@ struct ContentView: View {
                         Label("Hunt", systemImage: huntEnabled ? "binoculars.fill" : "binoculars")
                             .foregroundStyle(huntEnabled ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
                     }
-                    .help("Hunt mode — auto-reply to CQs from new ones: DX, unworked states, unworked countries")
+                    .help("Auto-reply — answer stations calling you, and hunt CQs from new ones: DX, unworked states, unworked countries")
                     .popover(isPresented: $showHunt, arrowEdge: .bottom) {
                         HuntFlyout()
                     }
@@ -546,10 +546,12 @@ struct ContentView: View {
         }
     }
 
-    /// Hunt mode flyout: master switch plus the criteria checkboxes.
-    /// Enabling with nothing selected auto-picks DX so the switch never
-    /// silently hunts nothing.
+    /// Auto-reply flyout: everything that keys the radio while idle, in
+    /// one place. Answering stations that call us, plus hunt mode with
+    /// its criteria checkboxes. Enabling hunt with nothing selected
+    /// auto-picks DX so the switch never silently hunts nothing.
     private struct HuntFlyout: View {
+        @AppStorage(SettingsKeys.autoAnswer) private var answerMe = false
         @AppStorage(SettingsKeys.huntEnabled) private var enabled = false
         @AppStorage(SettingsKeys.huntDX) private var dx = false
         @AppStorage(SettingsKeys.huntNewStates) private var newStates = false
@@ -557,17 +559,20 @@ struct ContentView: View {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
-                Text("CQ Hunter")
+                Text("Auto-Reply")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
-                Toggle("Hunt while decoding", isOn: $enabled)
+                Toggle("Answer stations calling me", isOn: $answerMe)
+                    .toggleStyle(.switch)
+                    .help("While idle, a station calling you directly arms a reply")
+                Divider()
+                Toggle("Hunt CQs from new ones", isOn: $enabled)
                     .toggleStyle(.switch)
                     .onChange(of: enabled) { _, on in
                         if on, !dx, !newStates, !newCountries {
                             dx = true
                         }
                     }
-                Divider()
                 Group {
                     Toggle("DX (outside my country)", isOn: $dx)
                         .help("Any CQ from a station outside your own country")
@@ -577,7 +582,7 @@ struct ContentView: View {
                         .help("Countries missing from your QSO log, judged by callsign prefix")
                 }
                 .disabled(!enabled)
-                Text("A matching CQ arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. Worked calls are skipped; directed CQs (CQ DX, CQ EU) are respected.")
+                Text("Either match arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. A station calling you beats a hunted CQ; worked calls are skipped and directed CQs (CQ DX, CQ EU) are respected.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 240, alignment: .leading)
