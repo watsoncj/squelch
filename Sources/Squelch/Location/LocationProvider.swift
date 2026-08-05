@@ -107,4 +107,5 @@ enum SettingsKeys {
     static let wsprPowerDBm = "wsprPowerDBm"
     static let wsprDutyPct = "wsprDutyPct"
     static let wsprUpload = "wsprUpload"
+    static let autoUpdateCheck = "autoUpdateCheck"
 }

@@ -30,6 +30,19 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(UpdateChecker.isNewer("1.9.1", than: "1.9"))
     }
 
+    // MARK: - Metered-network politeness
+
+    func testAutomaticRequestsAvoidConstrainedAndExpensiveNetworks() {
+        let url = URL(string: "https://example.com/Squelch-1.9.0.zip")!
+        let automatic = UpdateChecker.request(for: url, userInitiated: false)
+        XCTAssertFalse(automatic.allowsConstrainedNetworkAccess)
+        XCTAssertFalse(automatic.allowsExpensiveNetworkAccess)
+
+        let manual = UpdateChecker.request(for: url, userInitiated: true)
+        XCTAssertTrue(manual.allowsConstrainedNetworkAccess)
+        XCTAssertTrue(manual.allowsExpensiveNetworkAccess)
+    }
+
     // MARK: - Release feed parsing
 
     private func release(from json: String) throws -> UpdateChecker.Release {

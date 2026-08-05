@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var location: LocationProvider
     @ObservedObject var controller: DecodeController
     @ObservedObject var wsprNet: WSPRNetService
+    @ObservedObject var updater: UpdateChecker
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -260,6 +261,22 @@ struct SettingsView: View {
                 }
 
                 Text("When connected, the app's dial frequency follows the radio's VFO, and the frequency menu QSYs the radio directly.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.autoUpdateCheck) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.autoUpdateCheck) }
+                ))
+                .help("Every 6 hours, quietly — skipped on hotspots and in Low Data Mode. Nothing installs until you click the restart chip.")
+
+                Button("Check Now") {
+                    updater.checkNow()
+                }
+
+                Text("Updates come from the app's GitHub Releases page, and the download is verified against this app's code signature before the restart chip appears.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

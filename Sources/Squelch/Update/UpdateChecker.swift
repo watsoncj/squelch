@@ -12,6 +12,11 @@ import os
 /// pinned to the *running* app's Team ID. Ad-hoc dev builds (make_app.sh)
 /// have no Team ID and never auto-install; a manual check there just
 /// offers the releases page.
+///
+/// Automatic checks and downloads stay off constrained (Low Data Mode)
+/// and expensive (hotspot) networks — portable ops on a phone tether
+/// shouldn't pay for a background zip. A manual check is explicit
+/// consent and goes through regardless.
 @MainActor
 final class UpdateChecker: ObservableObject {
     enum Phase: Equatable {
@@ -68,6 +73,9 @@ final class UpdateChecker: ObservableObject {
     func checkNow() { check(manual: true) }
 
     private func check(manual: Bool) {
+        // Checked at fire time, not at scheduling, so the Settings toggle
+        // takes effect immediately in both directions without a relaunch.
+        if !manual, !UserDefaults.standard.bool(forKey: SettingsKeys.autoUpdateCheck) { return }
         switch phase {
         case .ready(let version):
             if manual { offerRestart(version: version) }
@@ -87,7 +95,7 @@ final class UpdateChecker: ObservableObject {
         phase = .checking
         inFlight = Task {
             do {
-                let release = try await Self.fetchLatestRelease()
+                let release = try await Self.fetchLatestRelease(userInitiated: manual)
                 let remote = Self.normalized(release.tagName)
                 guard Self.isNewer(remote, than: Self.currentVersion) else {
                     phase = .idle
@@ -108,7 +116,7 @@ final class UpdateChecker: ObservableObject {
                 }
                 phase = .downloading(remote)
                 Self.log.info("downloading \(remote) from \(asset.browserDownloadURL)")
-                let app = try await Self.downloadAndStage(asset: asset, version: remote)
+                let app = try await Self.downloadAndStage(asset: asset, version: remote, userInitiated: manual)
                 guard let team = Self.teamIdentifier(ofCodeAt: Bundle.main.bundleURL),
                       Self.validate(appAt: app, teamID: team) else {
                     try? FileManager.default.removeItem(at: Self.stagingRoot)
@@ -213,8 +221,19 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
-    nonisolated static func fetchLatestRelease() async throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
+    /// Only user-initiated traffic may use constrained (Low Data Mode) or
+    /// expensive (hotspot) networks; on those, an automatic request fails
+    /// like an offline one and the 6-hour timer simply tries again later.
+    nonisolated static func request(for url: URL, userInitiated: Bool) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.allowsConstrainedNetworkAccess = userInitiated
+        request.allowsExpensiveNetworkAccess = userInitiated
+        return request
+    }
+
+    nonisolated static func fetchLatestRelease(userInitiated: Bool) async throws -> Release {
+        var request = Self.request(for: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!,
+                                   userInitiated: userInitiated)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
@@ -263,8 +282,9 @@ final class UpdateChecker: ObservableObject {
     /// Download the zip, extract, and return the contained .app. Quarantine
     /// is stripped — we do our own (stricter) verification against the
     /// running app's Team ID, and the payload is notarized anyway.
-    nonisolated static func downloadAndStage(asset: Asset, version: String) async throws -> URL {
-        let (zip, _) = try await URLSession.shared.download(from: asset.browserDownloadURL)
+    nonisolated static func downloadAndStage(asset: Asset, version: String, userInitiated: Bool) async throws -> URL {
+        let (zip, _) = try await URLSession.shared.download(
+            for: request(for: asset.browserDownloadURL, userInitiated: userInitiated))
         let fm = FileManager.default
         let dir = stagingRoot.appendingPathComponent(version, isDirectory: true)
         try? fm.removeItem(at: stagingRoot)

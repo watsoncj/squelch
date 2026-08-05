@@ -588,6 +588,7 @@ struct SquelchApp: App {
             SettingsKeys.catBaud: 0, // auto-detect
             SettingsKeys.wsprPowerDBm: 37,
             SettingsKeys.wsprDutyPct: 20,
+            SettingsKeys.autoUpdateCheck: true,
         ])
     }
 
@@ -649,7 +650,7 @@ struct SquelchApp: App {
         .keyboardShortcut("l", modifiers: .command)
 
         Settings {
-            SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet)
+            SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet, updater: model.updater)
         }
     }
 }
