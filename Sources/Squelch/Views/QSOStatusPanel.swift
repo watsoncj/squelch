@@ -182,13 +182,7 @@ struct QSOStatusPanel: View {
             // spent 44% blocked in CA commit waits — sluggish scrolling)
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .foregroundStyle(.red)
-            Text(transmit.isTuning
-                 ? "TUNING"
-                 : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText))
-                .font(.callout.weight(.semibold).monospaced())
-                // Min width so successive TX messages of similar length
-                // ("K5XL W0CJW -17" vs "CQ W0CJW DM79") don't jitter
-                .frame(minWidth: 160, alignment: .leading)
+            txStatusText
             // Progress through the slot window (2 min for a WSPR beacon,
             // 15 s for FT8) — red to match the TX state
             if !transmit.isTuning {
@@ -219,9 +213,17 @@ struct QSOStatusPanel: View {
         return chip(tint: .orange) {
             Image(systemName: hunted == nil ? "phone.arrow.down.left.fill" : "binoculars.fill")
                 .foregroundStyle(.orange)
-            Text(hunted.map { "\($0.label) · calling \(pending.call) in" }
-                 ?? "\(pending.call) calling · answering in")
-                .font(.callout)
+            HStack(spacing: 4) {
+                if let hunted {
+                    Text("\(hunted.label) · calling")
+                    callsignButton(pending.call)
+                    Text("in")
+                } else {
+                    callsignButton(pending.call)
+                    Text("calling · answering in")
+                }
+            }
+            .font(.callout)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let remaining = max(0, pending.fireAt.timeIntervalSince(context.date).rounded(.up))
                 counterText(Int(remaining))
@@ -240,8 +242,16 @@ struct QSOStatusPanel: View {
         chip(tint: sequencer.mode == .cqLoop ? .blue : .green) {
             Image(systemName: sequencer.mode == .cqLoop ? "megaphone.fill" : "person.line.dotted.person.fill")
                 .foregroundStyle(sequencer.mode == .cqLoop ? .blue : .green)
-            Text(title)
+            if sequencer.mode != .cqLoop, let partner = sequencer.currentPartner {
+                HStack(spacing: 4) {
+                    Text("QSO with")
+                    callsignButton(partner)
+                }
                 .font(.callout.weight(.semibold))
+            } else {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+            }
             nextTXCountdown
             Button("Stop") {
                 model.haltTX()
@@ -339,6 +349,48 @@ struct QSOStatusPanel: View {
             content()
         }
         .frame(height: 26) // constant across states: no vertical breathing
+    }
+
+    /// The red chip's message text, with the addressee (the station we're
+    /// transmitting TO) clickable like the other chips' callsigns. CQs and
+    /// TUNING have no addressee and render as plain text.
+    private var txStatusText: some View {
+        let text = transmit.isTuning
+            ? "TUNING"
+            : (transmit.currentTXText.isEmpty ? "TRANSMITTING" : transmit.currentTXText)
+        let addressee = transmit.isTuning
+            ? nil
+            : FT8MessageParser.parse(transmit.currentTXText).addressee
+        return HStack(spacing: 0) {
+            if let addressee, text.hasPrefix(addressee + " ") {
+                Button(addressee) {
+                    model.focusMostRecent(callsign: addressee)
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .help("Select \(addressee)'s latest decode in the list")
+                Text(text.dropFirst(addressee.count))
+            } else {
+                Text(text)
+            }
+        }
+        .font(.callout.weight(.semibold).monospaced())
+        // Min width so successive TX messages of similar length
+        // ("K5XL W0CJW -17" vs "CQ W0CJW DM79") don't jitter
+        .frame(minWidth: 160, alignment: .leading)
+    }
+
+    /// A chip callsign that selects and reveals that station's most
+    /// recent decode in the sidebar list. The link pointer is the
+    /// clickable-affordance; the surrounding text stays inert.
+    private func callsignButton(_ call: String) -> some View {
+        Button(call) {
+            model.focusMostRecent(callsign: call)
+        }
+        .buttonStyle(.plain)
+        .fontWeight(.semibold)
+        .pointerStyle(.link)
+        .help("Select \(call)'s latest decode in the list")
     }
 
     /// Fixed-width seconds counter so ticking never changes the chip width.

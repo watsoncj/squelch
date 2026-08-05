@@ -33,6 +33,9 @@ final class AppModel: ObservableObject {
     let updater = UpdateChecker()
 
     @Published var pendingReply: PendingReply?
+    /// One-shot request from a toolbar chip's callsign: select and reveal
+    /// this decode in the sidebar list (ContentView consumes and clears).
+    @Published var focusedMessageID: DecodedMessage.ID?
     @Published private(set) var wsprBeaconEnabled = false
     /// Decided one window ahead so the panel can announce it (pure
     /// per-window randomness read as "broken" during dry streaks).
@@ -278,6 +281,13 @@ final class AppModel: ObservableObject {
                 sequencer.engageAsAnswerer(call: pending.call, report: report, snr: pending.snr, theirParity: pending.theirParity)
             }
         }
+    }
+
+    /// Toolbar chip callsign clicked: hand the list this station's most
+    /// recent decode to select and reveal.
+    func focusMostRecent(callsign: String) {
+        let call = callsign.uppercased()
+        focusedMessageID = store.messages.first { $0.callsign?.uppercased() == call }?.id
     }
 
     func cancelPendingReply() {

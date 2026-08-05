@@ -17,6 +17,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
+    @AppStorage(SettingsKeys.waterfallMaximized) private var waterfallMaximized = false
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
@@ -123,12 +124,18 @@ struct ContentView: View {
                 .overlay(alignment: .bottom) {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
-                        WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller)
+                        WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller,
+                                      highlightMessages: waterfallHighlights)
                             .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .padding(.leading, max(10, panelObscuredWidth + 10))
                             .padding(.bottom, 10)
                             .padding(.trailing, 10)
+                            // Maximized fills the map. Windowed, the safe
+                            // area already keeps it below the toolbar; full
+                            // screen has no inset (toolbar auto-hides), so
+                            // clear the floating capsules explicitly.
+                            .padding(.top, waterfallMaximized && isFullScreen ? 56 : 0)
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -152,6 +159,19 @@ struct ContentView: View {
                 }
         }
         .background(WindowAccessor(isFullScreen: $isFullScreen))
+        .onChange(of: actions.focusedMessageID) { _, id in
+            // Chip callsign clicked: select the station's latest decode
+            // (LogPane reveals whatever gets selected). Mirror the list
+            // binding's side effect — the station card follows
+            // selectedStationCall, not the row selection.
+            guard let id else { return }
+            selectedMessageID = id
+            if let call = store.messages.first(where: { $0.id == id })?.callsign,
+               call != myCallsign {
+                selectedStationCall = call
+            }
+            actions.focusedMessageID = nil
+        }
         .toolbarBackground(.hidden, for: .windowToolbar)
         .toolbar {
             if !isFullScreen {
@@ -616,6 +636,13 @@ struct ContentView: View {
     private var selectedMessage: DecodedMessage? {
         guard let id = selectedMessageID else { return nil }
         return store.messages.first { $0.id == id }
+    }
+
+    /// Every decode from the selected station — the waterfall boxes each
+    /// of their transmissions, not just the selected row's slot.
+    private var waterfallHighlights: [DecodedMessage] {
+        guard let call = selectedMessage?.callsign else { return [] }
+        return store.messages.filter { $0.callsign == call }
     }
 
     private var isWSPRMode: Bool {

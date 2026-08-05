@@ -9,19 +9,34 @@ final class WaterfallProcessor: ObservableObject {
     static let minHz: Double = 200
     static let maxHz: Double = 3000
 
-    @Published private(set) var image: CGImage?
+    /// The rendered spectrogram plus the absolute pooled-row index of its
+    /// top (newest) edge — the pane uses the index delta between frames to
+    /// hold a scrolled-back view stationary while new rows arrive — and
+    /// one wall-clock date per pooled row (oldest first), which maps a
+    /// decode's slot time onto image rows even across decoding gaps.
+    struct Frame {
+        let image: CGImage
+        let newestRow: Int
+        let rowDates: [Date]
+    }
+
+    @Published private(set) var frame: Frame?
+
+    var image: CGImage? { frame?.image }
 
     private let sampleRate = Double(FT8Decoder.sampleRate)
     private let fftSize = 2048
     private let log2n = vDSP_Length(11)
     private let hop = 1800 // 150 ms per row
-    private let historyRows = 360 // ~54 s of history
+    private let historyRows = 2400 // ~6 min of history, scrollable in the pane
 
     private let queue = DispatchQueue(label: "squelch.waterfall", qos: .utility)
     private var fftSetup: FFTSetup?
     private var window = [Float]()
     private var pending = [Float]()
     private var rows: [[UInt8]] = [] // palette indices, oldest first
+    private var rowDates: [Date] = [] // wall-clock arrival, parallel to rows
+    private var totalRows = 0 // monotonic count of rows ever appended
     private var rowsSinceImage = 0
     private var palette = WaterfallProcessor.palettes[.standard]!
 
@@ -50,11 +65,15 @@ final class WaterfallProcessor: ObservableObject {
         }
     }
 
-    /// Recolor to match the basemap; history recolors immediately since
-    /// rows store intensity, not color.
-    func setStyle(_ style: MapStyleChoice) {
+    /// Recolor to match the basemap and appearance; history recolors
+    /// immediately since rows store intensity, not color. Dark mode
+    /// paints toward white over the dark pane material; light mode
+    /// darkens toward deep tones over the light material — the alpha
+    /// ramp (silence transparent, signal solid) is shared.
+    func setStyle(_ style: MapStyleChoice, dark: Bool) {
         queue.async { [weak self] in
-            guard let self, let palette = Self.palettes[style] else { return }
+            guard let self,
+                  let palette = (dark ? Self.palettes : Self.palettesLight)[style] else { return }
             self.palette = palette
             self.rebuildImage()
         }
@@ -65,7 +84,9 @@ final class WaterfallProcessor: ObservableObject {
             guard let self else { return }
             self.pending.removeAll()
             self.rows.removeAll()
-            DispatchQueue.main.async { self.image = nil }
+            self.rowDates.removeAll()
+            self.totalRows = 0
+            DispatchQueue.main.async { self.frame = nil }
         }
     }
 
@@ -140,7 +161,10 @@ final class WaterfallProcessor: ObservableObject {
             return UInt8(min(max(t, 0), 1) * 255)
         }
         rows.append(row)
+        rowDates.append(Date())
+        totalRows += 1
         if rows.count > historyRows {
+            rowDates.removeFirst(rows.count - historyRows)
             rows.removeFirst(rows.count - historyRows)
         }
         rowsSinceImage += 1
@@ -150,16 +174,24 @@ final class WaterfallProcessor: ObservableObject {
         guard !rows.isEmpty else { return }
         let width = binCount
 
-        // Max-pool time rows down to roughly display resolution so a
-        // 1:1-ish pixel mapping keeps 12.6 s signals as SOLID vertical
-        // streaks (plain scaling drops rows and chops them into dashes).
-        let targetHeight = 132
-        let factor = max(1, Int((Double(rows.count) / Double(targetHeight)).rounded(.up)))
+        // Max-pool pairs of rows to a FIXED time scale — 300 ms per image
+        // row — so the pane shows a window onto history at constant zoom
+        // and scrolls through the rest. 1:1-ish pixel mapping keeps 12.6 s
+        // signals as SOLID vertical streaks (plain scaling drops rows and
+        // chops them into dashes). Pairing is anchored to each row's
+        // ABSOLUTE index, so appends and history-cap trims never rejigger
+        // existing pairs — pooled rows are stable, and the pane can track
+        // positions across frames by pooled-row index.
+        let firstAbsolute = totalRows - rows.count
         var pooled: [[UInt8]] = []
-        pooled.reserveCapacity(rows.count / factor + 1)
+        var pooledDates: [Date] = []
+        pooled.reserveCapacity(rows.count / 2 + 1)
+        pooledDates.reserveCapacity(rows.count / 2 + 1)
         var index = 0
         while index < rows.count {
-            let group = rows[index..<min(index + factor, rows.count)]
+            let span = (firstAbsolute + index).isMultiple(of: 2) ? 2 : 1
+            let upper = min(index + span, rows.count)
+            let group = rows[index..<upper]
             var merged = group.first!
             for row in group.dropFirst() {
                 for x in 0..<width {
@@ -167,7 +199,8 @@ final class WaterfallProcessor: ObservableObject {
                 }
             }
             pooled.append(merged)
-            index += factor
+            pooledDates.append(rowDates[upper - 1])
+            index += span
         }
 
         let height = pooled.count
@@ -204,13 +237,15 @@ final class WaterfallProcessor: ObservableObject {
             return context.makeImage()
         }
         if let cgImage {
+            let newestRow = (totalRows - 1) / 2
             DispatchQueue.main.async { [weak self] in
-                self?.image = cgImage
+                self?.frame = Frame(image: cgImage, newestRow: newestRow, rowDates: pooledDates)
             }
         }
     }
 
-    /// One palette per basemap, sampled from each style's dominant tones.
+    /// One palette per basemap for DARK appearance, sampled from each
+    /// style's dominant tones; traces brighten toward white.
     static let palettes: [MapStyleChoice: [(UInt8, UInt8, UInt8)]] = [
         // Standard dark map: navy water → blue → cyan → warm label yellow
         .standard: makePalette([
@@ -243,6 +278,40 @@ final class WaterfallProcessor: ObservableObject {
             (0.68, (140, 148, 160)),
             (0.86, (220, 210, 150)),
             (1.00, (255, 255, 255)),
+        ]),
+    ]
+
+    /// LIGHT-appearance counterparts: the pane material is near-white,
+    /// so traces deepen toward dark saturated tones instead of white —
+    /// same hue family as each basemap, lightness ramp inverted.
+    static let palettesLight: [MapStyleChoice: [(UInt8, UInt8, UInt8)]] = [
+        // Standard light map: cool paper grays → blue → deep navy
+        .standard: makePalette([
+            (0.00, (160, 170, 185)),
+            (0.40, (90, 115, 180)),
+            (0.70, (35, 70, 150)),
+            (1.00, (10, 15, 50)),
+        ]),
+        // Hybrid: soft sage → vegetation green → forest floor
+        .hybrid: makePalette([
+            (0.00, (150, 165, 150)),
+            (0.40, (90, 130, 90)),
+            (0.70, (40, 90, 45)),
+            (1.00, (8, 30, 12)),
+        ]),
+        // Satellite: pale sand → scrub → dark earth
+        .satellite: makePalette([
+            (0.00, (170, 160, 140)),
+            (0.40, (130, 110, 75)),
+            (0.70, (90, 65, 30)),
+            (1.00, (30, 18, 5)),
+        ]),
+        // Offline: light grays → charcoal
+        .offline: makePalette([
+            (0.00, (165, 165, 170)),
+            (0.40, (110, 112, 120)),
+            (0.70, (60, 62, 70)),
+            (1.00, (5, 5, 8)),
         ]),
     ]
 

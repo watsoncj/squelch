@@ -152,6 +152,25 @@ struct LogPane<Header: View>: View {
     @State private var ageNow = Date()
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: selection) { _, id in
+                    // Reveal externally-driven selections (toolbar chip
+                    // callsign click). A nil anchor is a no-op for rows
+                    // already on screen, so user clicks never jump.
+                    guard let id else { return }
+                    if !visibleRows.contains(where: { $0.id == id }),
+                       store.messages.contains(where: { $0.id == id }) {
+                        searchText = "" // row hidden by the search filter
+                    }
+                    withAnimation {
+                        proxy.scrollTo(id)
+                    }
+                }
+        }
+    }
+
+    private var list: some View {
         List(visibleRows, selection: $selection) { msg in
                 FeedRow(
                     message: msg,

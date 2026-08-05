@@ -3,19 +3,45 @@ import SwiftUI
 /// Scrolling passband spectrogram. Hover reads out the frequency;
 /// DOUBLE-click (or right-click menu) moves the TX offset — a single
 /// click deliberately does nothing, and setting is blocked while keyed.
+///
+/// Time runs at a fixed 300 ms per point: the pane is a window onto ~6
+/// minutes of history — scroll down to look back, drag the top edge to
+/// resize, or maximize to fill the map. Newest audio is pinned to the
+/// top, so an untouched pane always shows live signal. Scrolling away
+/// from the live edge PAUSES the view — the offset tracks incoming
+/// rows so the content holds still in absolute time while the image
+/// stays current (palette changes recolor a paused view immediately);
+/// returning to the top goes live again.
 struct WaterfallPane: View {
     @ObservedObject var processor: WaterfallProcessor
     #if os(macOS)
     @ObservedObject var transmit: TransmitController
     #endif
     @ObservedObject var controller: DecodeController
+    /// Decodes from the selected station — their transmissions get boxed
+    /// in the same blue as the selected grid cell on the map.
+    var highlightMessages: [DecodedMessage] = []
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
 
+    @AppStorage(SettingsKeys.waterfallHeight) private var paneHeight = 110.0
+    @AppStorage(SettingsKeys.waterfallMaximized) private var maximized = false
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var hoverX: CGFloat?
+    @State private var dragStartHeight: CGFloat?
+    /// Points scrolled back from the live edge; 0 means live. While
+    /// scrolled back, the offset is bumped by each frame's row delta so
+    /// the view holds still in absolute time — the image itself is
+    /// always the processor's current one, so palette changes (map
+    /// style, light/dark) recolor a paused view immediately.
+    @State private var scrollback: CGFloat = 0
+    @State private var thumbDragStart: CGFloat?
+
+    private var paused: Bool { scrollback > 0 }
 
     /// No TX marker (or offset setting) on frequencies we can't transmit on.
     /// iPad is receive-only: no marker, no offset control, ever.
@@ -42,10 +68,20 @@ struct WaterfallPane: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 if let image = processor.image {
+                    // One point per image row (fixed time scale). No
+                    // ScrollView: phased trackpad scrolls never reach a
+                    // SwiftUI ScrollView floating over the Map (MapKit's
+                    // gesture handling eats them), so an NSEvent monitor
+                    // below feeds a manual offset instead.
+                    let imageHeight = CGFloat(image.height)
+                    let offset = min(scrollback, max(0, imageHeight - geo.size.height))
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .interpolation(.none)
-                        .frame(width: geo.size.width, height: geo.size.height)
+                        .frame(width: geo.size.width, height: imageHeight)
+                        .offset(y: -offset)
+                        .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                        .clipped()
                 } else {
                     // No fill: the panel's material shows through, matching
                     // the sidebar's translucent look
@@ -55,6 +91,37 @@ struct WaterfallPane: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+
+                // Selected station's transmissions, boxed in the map's
+                // selection blue. Row dates place each decode in time even
+                // across decoding gaps; the x span is the FT8 tone spread.
+                if !highlightMessages.isEmpty, let frame = processor.frame {
+                    let imageHeight = CGFloat(frame.image.height)
+                    let offset = min(scrollback, max(0, imageHeight - geo.size.height))
+                    let toneSpanHz = 50.0 // 8 tones × 6.25 Hz
+                    ForEach(highlightMessages) { message in
+                        let start = message.slotStart.addingTimeInterval(TimeInterval(message.timeOffset))
+                        let end = start.addingTimeInterval(DigiMode.current == .wspr ? 110.6 : 12.64)
+                        if let first = frame.rowDates.firstIndex(where: { $0 >= start }),
+                           frame.rowDates[first] <= end {
+                            let last = frame.rowDates.lastIndex(where: { $0 <= end }) ?? first
+                            let lowX = WaterfallProcessor.x(
+                                forFrequency: Double(message.audioFrequency) - 2, width: geo.size.width)
+                            let highX = WaterfallProcessor.x(
+                                forFrequency: Double(message.audioFrequency) + toneSpanHz + 2, width: geo.size.width)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(.blue.opacity(0.18))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(.blue.opacity(0.9), lineWidth: 1.5)
+                                )
+                                .frame(width: max(4, highX - lowX),
+                                       height: CGFloat(last - first) + 1)
+                                .offset(x: lowX, y: imageHeight - 1 - CGFloat(last) - offset)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
 
                 // TX offset marker
@@ -79,12 +146,35 @@ struct WaterfallPane: View {
                         .position(x: min(max(txX, 26), geo.size.width - 26), y: 9)
                 }
 
-                // Hover crosshair + frequency readout
+                #if os(macOS)
+                ScrollWheelCatcher { delta in
+                    let imageHeight = CGFloat(processor.image?.height ?? 0)
+                    let maxOffset = max(0, imageHeight - geo.size.height)
+                    scrollback = min(max(scrollback - delta, 0), maxOffset)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                #endif
+
+                if paused {
+                    Text("Scroll to top to go live")
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(6)
+                }
+
+                // Hover crosshair + frequency readout — decoration only,
+                // never a hit target (it tracks the cursor, so it would
+                // shadow anything interactive underneath)
                 if let hoverX {
                     Rectangle()
-                        .fill(.white.opacity(0.55))
+                        .fill(Color.primary.opacity(0.55))
                         .frame(width: 1, height: geo.size.height)
                         .position(x: hoverX, y: geo.size.height / 2)
+                        .allowsHitTesting(false)
                     let freq = WaterfallProcessor.frequency(forX: hoverX, width: geo.size.width)
                     Text(String(format: "%.0f Hz", freq))
                         .font(.caption2.monospacedDigit())
@@ -92,6 +182,46 @@ struct WaterfallPane: View {
                         .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
                         .foregroundStyle(.white)
                         .position(x: min(max(hoverX, 24), geo.size.width - 24), y: geo.size.height - 8)
+                        .allowsHitTesting(false)
+                }
+
+                // Hand-rolled overlay scroller (scroll events arrive via
+                // the NSEvent monitor, so there's no ScrollView to draw
+                // one). Shown while paused — it doubles as the where-am-I-
+                // in-history readout — and the thumb drags like the real
+                // thing. Topmost in the stack so nothing shadows the drag.
+                if paused, let image = processor.image {
+                    let contentHeight = CGFloat(image.height)
+                    let maxOffset = max(0, contentHeight - geo.size.height)
+                    if maxOffset > 0 {
+                        let trackHeight = geo.size.height - 8
+                        let thumbHeight = max(24, trackHeight * geo.size.height / contentHeight)
+                        let travel = trackHeight - thumbHeight
+                        let thumbY = 4 + travel * (min(scrollback, maxOffset) / maxOffset)
+                        Capsule()
+                            .fill(Color.primary.opacity(0.4))
+                            .frame(width: 5, height: thumbHeight)
+                            .frame(width: 16) // grab zone wider than the capsule
+                            .contentShape(Rectangle())
+                            .offset(x: geo.size.width - 16, y: thumbY)
+                            .gesture(
+                                DragGesture(minimumDistance: 1)
+                                    .onChanged { value in
+                                        let start = thumbDragStart ?? scrollback
+                                        thumbDragStart = start
+                                        let perPoint = maxOffset / max(1, travel)
+                                        // Clamp above zero so the drag can't
+                                        // dismiss its own thumb mid-gesture
+                                        scrollback = min(max(start + value.translation.height * perPoint, 0.5), maxOffset)
+                                    }
+                                    .onEnded { _ in
+                                        thumbDragStart = nil
+                                        if scrollback < 2 {
+                                            scrollback = 0
+                                        }
+                                    }
+                            )
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -119,28 +249,81 @@ struct WaterfallPane: View {
             .help(txLegal
                   ? "Double-click (or right-click) to move the TX offset. Single clicks do nothing."
                   : "Receive only on this frequency")
+            .onChange(of: processor.frame?.newestRow) { previous, current in
+                // New rows landed on top: push the offset down by the same
+                // amount so a scrolled-back view stays put in absolute time
+                // (clamped once the history cap starts eating the far end)
+                guard paused, let previous, let current else { return }
+                let imageHeight = CGFloat(processor.image?.height ?? 0)
+                let maxOffset = max(0, imageHeight - geo.size.height)
+                scrollback = min(scrollback + CGFloat(current - previous), maxOffset)
+            }
             .overlay(alignment: .topTrailing) {
-                // Panel's own hide toggle, like the sidebar's
-                Button {
-                    showWaterfall = false
-                } label: {
-                    Image(systemName: "rectangle.bottomthird.inset.filled")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 26, height: 22)
-                        .contentShape(Rectangle())
+                HStack(spacing: 0) {
+                    #if os(macOS)
+                    Button {
+                        maximized.toggle()
+                    } label: {
+                        Image(systemName: maximized
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help(maximized ? "Restore the waterfall" : "Maximize the waterfall")
+                    #endif
+
+                    // Panel's own hide toggle, like the sidebar's
+                    Button {
+                        showWaterfall = false
+                    } label: {
+                        Image(systemName: "rectangle.bottomthird.inset.filled")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Hide the waterfall")
                 }
-                .buttonStyle(.borderless)
-                .help("Hide the waterfall")
                 .padding(4)
             }
+            #if os(macOS)
+            .overlay(alignment: .top) {
+                // Grab strip on the top edge, the sidebar handle turned on
+                // its side; dragging always drops out of maximized so the
+                // height under the cursor is where the pane stays.
+                Rectangle()
+                    .fill(.clear)
+                    .frame(height: 10)
+                    .contentShape(Rectangle())
+                    .offset(y: -5) // straddle the edge
+                    .pointerStyle(.rowResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { value in
+                                let start = dragStartHeight ?? geo.size.height
+                                dragStartHeight = start
+                                maximized = false
+                                paneHeight = min(560, max(90, start - value.translation.height))
+                            }
+                            .onEnded { _ in dragStartHeight = nil }
+                    )
+            }
+            #endif
         }
-        .frame(height: 110)
+        .frame(height: maximized ? nil : CGFloat(paneHeight))
+        .frame(maxHeight: maximized ? .infinity : nil)
         .clipped()
         .onAppear {
-            processor.setStyle(MapStyleChoice(rawValue: mapStyleRaw) ?? .standard)
+            processor.setStyle(MapStyleChoice(rawValue: mapStyleRaw) ?? .standard, dark: colorScheme == .dark)
         }
         .onChange(of: mapStyleRaw) { _, raw in
-            processor.setStyle(MapStyleChoice(rawValue: raw) ?? .standard)
+            processor.setStyle(MapStyleChoice(rawValue: raw) ?? .standard, dark: colorScheme == .dark)
+        }
+        .onChange(of: colorScheme) { _, scheme in
+            processor.setStyle(MapStyleChoice(rawValue: mapStyleRaw) ?? .standard, dark: scheme == .dark)
         }
     }
 
@@ -150,3 +333,61 @@ struct WaterfallPane: View {
         txOffsetHz = WaterfallProcessor.frequency(forX: x, width: width).rounded()
     }
 }
+
+#if os(macOS)
+import AppKit
+
+/// Grabs scroll-wheel events over the pane with a local NSEvent monitor
+/// and hands the vertical delta to the view. A monitor sees every event
+/// (trackpad phases, momentum, legacy wheels) before dispatch, which a
+/// SwiftUI ScrollView floating over MapKit does not. The view itself is
+/// invisible to hit-testing, so hover, double-click, and the context
+/// menu underneath are untouched.
+private struct ScrollWheelCatcher: NSViewRepresentable {
+    let onScroll: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> CatcherView { CatcherView(onScroll: onScroll) }
+    func updateNSView(_ view: CatcherView, context: Context) { view.onScroll = onScroll }
+
+    final class CatcherView: NSView {
+        var onScroll: (CGFloat) -> Void
+        private var monitor: Any?
+
+        init(onScroll: @escaping (CGFloat) -> Void) {
+            self.onScroll = onScroll
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil, monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                    guard let self, let window = self.window, event.window === window else {
+                        return event
+                    }
+                    let point = self.convert(event.locationInWindow, from: nil)
+                    guard self.bounds.contains(point) else { return event }
+                    // scrollingDeltaY already respects natural-scroll
+                    // direction; momentum events arrive here too
+                    self.onScroll(event.scrollingDeltaY)
+                    return nil // consumed — nothing underneath scrolls
+                }
+            } else if window == nil, let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+}
+#endif
