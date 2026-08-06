@@ -210,7 +210,11 @@ final class WaterfallProcessor: ObservableObject {
             let y = height - 1 - rowIndex
             let base = y * width * 4
             for x in 0..<width {
-                let idx = Int(row[x])
+                // Gamma lift (γ < 1): FT8 pulls decodes from signals only a
+                // few dB over the noise median, which a linear ramp renders
+                // near-transparent. Applied at display time so stored rows
+                // stay linear and history re-lifts on rebuild.
+                let idx = Int(Self.displayRamp[Int(row[x])])
                 let color = palette[idx]
                 // Liquid-glass waterfall: alpha IS intensity — silence
                 // draws nothing (the panel material is the background,
@@ -242,6 +246,18 @@ final class WaterfallProcessor: ObservableObject {
                 self?.frame = Frame(image: cgImage, newestRow: newestRow, rowDates: pooledDates)
             }
         }
+    }
+
+    /// Display transfer for the intensity → palette/alpha mapping: a toe
+    /// then a gamma lift. The toe keeps everything up through the noise
+    /// median (floor + ~2 dB ≈ t 0.05) transparent so the band doesn't
+    /// haze over; above it, γ < 1 lifts the weak-but-decodable traces
+    /// FT8 works with. 255 stays a fixed point, so strong signals still
+    /// saturate.
+    private static let displayRamp: [UInt8] = (0..<256).map { i in
+        let toe = 0.05
+        let t = max(0, Double(i) / 255 - toe) / (1 - toe)
+        return UInt8((pow(t, 0.65) * 255).rounded())
     }
 
     /// One palette per basemap for DARK appearance, sampled from each

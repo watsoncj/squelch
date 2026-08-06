@@ -106,19 +106,20 @@ struct WaterfallPane: View {
                         if let first = frame.rowDates.firstIndex(where: { $0 >= start }),
                            frame.rowDates[first] <= end {
                             let last = frame.rowDates.lastIndex(where: { $0 <= end }) ?? first
+                            // Outline only — a fill would tint the pixels and
+                            // skew the intensity reading. Padded so the stroke
+                            // sits in clear noise, not on the outermost tones.
+                            let padHz = 7.0
+                            let padRows = 2
                             let lowX = WaterfallProcessor.x(
-                                forFrequency: Double(message.audioFrequency) - 2, width: geo.size.width)
+                                forFrequency: Double(message.audioFrequency) - padHz, width: geo.size.width)
                             let highX = WaterfallProcessor.x(
-                                forFrequency: Double(message.audioFrequency) + toneSpanHz + 2, width: geo.size.width)
+                                forFrequency: Double(message.audioFrequency) + toneSpanHz + padHz, width: geo.size.width)
                             RoundedRectangle(cornerRadius: 3)
-                                .fill(.blue.opacity(0.18))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .stroke(.blue.opacity(0.9), lineWidth: 1.5)
-                                )
+                                .stroke(.blue.opacity(0.9), lineWidth: 1.5)
                                 .frame(width: max(4, highX - lowX),
-                                       height: CGFloat(last - first) + 1)
-                                .offset(x: lowX, y: imageHeight - 1 - CGFloat(last) - offset)
+                                       height: CGFloat(last - first) + 1 + CGFloat(padRows * 2))
+                                .offset(x: lowX, y: imageHeight - 1 - CGFloat(last + padRows) - offset)
                                 .allowsHitTesting(false)
                         }
                     }
