@@ -247,6 +247,263 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
     }
 
+    // MARK: Pileup runners — busy is not gone
+
+    func testBusyPartnerPausesRetries() {
+        // The P40AA shape: runner answers us, then services other callers
+        // for more slots than maxRetries before acknowledging
+        let seq = makeSequencer()
+        seq.maxRetries = 2
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW R-07")
+
+        // Four slots of them working others (and CQing) — beyond
+        // maxRetries, but audibly alive, so we stay in line
+        for heard in ["KJ5EQM P40AA +02", "W4HV P40AA +01", "CQ P40AA FK52", "W3MTN P40AA RR73"] {
+            seq.ingest(decodes: [.init(text: heard, snr: -8)], slotParity: 0)
+            XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW R-07",
+                           "gave up during '\(heard)'")
+        }
+
+        // The straggling acknowledgment completes the QSO normally
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW 73")
+        XCTAssertEqual(completed?.partner, "P40AA")
+        XCTAssertEqual(completed?.reportReceived, "-10")
+    }
+
+    func testSilentPartnerStillTimesOut() {
+        let seq = makeSequencer()
+        seq.maxRetries = 1
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC -05", snr: -4)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW R-03")
+        // True silence (nothing decodable from them at all) burns retries
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW R-03")
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    func testBusyForgivenessIsBounded() {
+        let seq = makeSequencer()
+        seq.maxRetries = 1
+        seq.maxBusyPasses = 2
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // R-07
+        // Endless pileup: 2 busy passes forgiven, then 1 retry, then out
+        var sent = 0
+        for _ in 0..<10 {
+            seq.ingest(decodes: [.init(text: "N0ONE P40AA +00", snr: -8)], slotParity: 0)
+            if seq.transmission(forSlotParity: 1) != nil { sent += 1 }
+        }
+        XCTAssertEqual(sent, 3, "2 forgiven + 1 retry, then give up")
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    // MARK: Late signoffs — abandoned exchanges that completed anyway
+
+    func testLateSignoffLogsAbandonedQSO() {
+        let seq = makeSequencer()
+        seq.maxRetries = 1
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0, grid: "FK52")
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // R-07
+        seq.ingest(decodes: [], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // retry
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1)) // gave up
+        XCTAssertEqual(seq.mode, .idle)
+        XCTAssertTrue(completed.isEmpty)
+
+        // Their RR73 straggles in while we're idle: complete + log
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA RR73", snr: -9)], slotParity: 0)
+        XCTAssertEqual(completed.count, 1)
+        XCTAssertEqual(completed.first?.partner, "P40AA")
+        XCTAssertEqual(completed.first?.partnerGrid, "FK52")
+        XCTAssertEqual(completed.first?.reportSent, "-07")
+        XCTAssertEqual(completed.first?.reportReceived, "-10")
+
+        // A duplicate copy of the RR73 must not double-log
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA RR73", snr: -9)], slotParity: 0)
+        XCTAssertEqual(completed.count, 1)
+    }
+
+    func testLateSignoffWhileWorkingAnotherStation() {
+        let seq = makeSequencer()
+        seq.maxRetries = 0
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        // Abandon P40AA after reports were exchanged
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+
+        // Move on to HL5BPF; P40AA's RR73 lands mid-exchange
+        seq.replyTo(call: "HL5BPF", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [
+            .init(text: "W0CJW P40AA RR73", snr: -9),
+            .init(text: "W0CJW HL5BPF +05", snr: -8),
+        ], slotParity: 0)
+        // The abandoned QSO logged, and the live one is undisturbed
+        XCTAssertEqual(completed.count, 1)
+        XCTAssertEqual(completed.first?.partner, "P40AA")
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "HL5BPF W0CJW R-07")
+        XCTAssertEqual(seq.currentPartner, "HL5BPF")
+    }
+
+    func testLateSignoffExpiresAfterGrace() {
+        let seq = makeSequencer()
+        seq.maxRetries = 0
+        var fakeNow = Date(timeIntervalSince1970: 1_000_000)
+        seq.now = { fakeNow }
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+
+        fakeNow = fakeNow.addingTimeInterval(seq.lateSignoffGrace + 60)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA RR73", snr: -9)], slotParity: 0)
+        XCTAssertTrue(completed.isEmpty, "signoff beyond the grace window must not log")
+    }
+
+    func testAbandonWithoutTheirReportDoesNotArmLateSignoff() {
+        // Answerer gave up before they ever sent a report: reports never
+        // crossed both ways, so a late RR73 can't make it a QSO
+        let seq = makeSequencer()
+        seq.maxRetries = 0
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // grid call
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1)) // gave up pre-report
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -4)], slotParity: 0)
+        XCTAssertTrue(completed.isEmpty)
+    }
+
+    // MARK: Courtesy re-acks — logged QSOs whose final never arrived
+
+    func testReAcknowledgesLostRR73InPlaceOfCQ() {
+        let seq = makeSequencer()
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        // Full caller-side QSO from a CQ loop
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0) // our report
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
+        XCTAssertEqual(completed.count, 1)
+
+        // Wind-down, back to CQ
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+
+        // They lost the RR73 and are still rogering: one re-ack in place
+        // of a CQ, no second log entry, then business as usual
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -9)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
+        XCTAssertEqual(completed.count, 1, "re-ack must not re-log")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+    }
+
+    func testResends73WhenPartnerRepeatsRR73FromIdle() {
+        let seq = makeSequencer()
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        // Answerer-side QSO completes; 73 sent once; we go idle
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC -05", snr: -4)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // roger
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -4)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW 73")
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+
+        // Their RR73 comes again — our 73 was lost; send it once more
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -6)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "K1ABC W0CJW 73")
+        XCTAssertEqual(completed.count, 1)
+        // One shot: nothing queued after it's sent
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+    }
+
+    func testNoReAckWhileWorkingAnotherStation() {
+        let seq = makeSequencer()
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        // Complete K1ABC (answerer side), then engage HL5BPF
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC -05", snr: -4)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -4)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // 73
+        seq.ingest(decodes: [], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // winds down to idle
+
+        seq.replyTo(call: "HL5BPF", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        // K1ABC's stray roger lands mid-exchange: current QSO wins
+        seq.ingest(decodes: [
+            .init(text: "W0CJW K1ABC R-12", snr: -9),
+            .init(text: "W0CJW HL5BPF +05", snr: -8),
+        ], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "HL5BPF W0CJW R-07")
+        XCTAssertEqual(completed.count, 1)
+    }
+
+    func testReAckExpiresWithGraceWindow() {
+        let seq = makeSequencer()
+        var fakeNow = Date(timeIntervalSince1970: 2_000_000)
+        seq.now = { fakeNow }
+
+        seq.replyTo(call: "K1ABC", snr: -3, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC -05", snr: -4)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -4)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // 73
+        seq.ingest(decodes: [], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1) // idle
+
+        fakeNow = fakeNow.addingTimeInterval(seq.lateSignoffGrace + 60)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC RR73", snr: -6)], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1), "stale partner must not trigger TX")
+    }
+
     func testRepeatedRogerReportResendsRR73() {
         let seq = makeSequencer()
         seq.startCQ(parity: 0)

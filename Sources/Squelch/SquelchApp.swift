@@ -137,12 +137,13 @@ final class AppModel: ObservableObject {
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
 
-        if sequencer.mode != .idle {
-            sequencer.ingest(
-                decodes: results.map { QSOSequencer.Decode(text: $0.text, snr: $0.snr) },
-                slotParity: parity
-            )
-        } else {
+        // Always ingest — even idle, a straggling RR73 from an abandoned
+        // exchange can complete and log a QSO (ingest no-ops otherwise)
+        sequencer.ingest(
+            decodes: results.map { QSOSequencer.Decode(text: $0.text, snr: $0.snr) },
+            slotParity: parity
+        )
+        if sequencer.mode == .idle {
             considerAutoAnswer(results: results, theirParity: parity, period: period)
             considerHunt(results: results, theirParity: parity, period: period)
         }

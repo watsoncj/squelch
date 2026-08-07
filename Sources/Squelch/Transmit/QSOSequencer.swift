@@ -56,6 +56,15 @@ final class QSOSequencer: ObservableObject {
     var myGrid4 = ""
     var maxRetries = 3
     var maxUnansweredCQ = 10
+    /// Extra no-progress TX slots tolerated while the partner is heard
+    /// working OTHER stations — pileup runners service several callers
+    /// between our slots, so busy is not gone. Bounds total patience.
+    var maxBusyPasses = 10
+    /// How long after giving up a straggling RR73/73 still completes
+    /// (and logs) the exchange.
+    var lateSignoffGrace: TimeInterval = 300
+    /// Clock, injectable for tests.
+    var now: () -> Date = { Date() }
     var onQSOComplete: ((QSORecord) -> Void)?
     /// Fired when we give up on a partner mid-exchange (retries exhausted) —
     /// lets the app re-engage if their reply straggles in moments later.
@@ -76,6 +85,33 @@ final class QSOSequencer: ObservableObject {
     private var respondedSinceLastTX = true
     private var finalMessagesLeft = 0 // remaining sends of a courtesy RR73/73
     private var resumeCQAfterQSO = false
+    /// Who the partner was heard working this receive slot (or "CQ") —
+    /// proof of life that pauses the retry countdown.
+    private var partnerBusyWith: String?
+    private var busyPassesLeft = 0
+
+    /// Exchanges given up on with both reports already exchanged, kept so
+    /// a straggling signoff still completes and logs the contact — pileup
+    /// runners routinely acknowledge minutes after our last slot. Keyed
+    /// by partner call; survives across subsequent QSOs, pruned by age.
+    private struct AbandonedExchange {
+        let partnerGrid: String?
+        let reportSent: String
+        let reportReceived: String?
+        let qsoStart: Date
+        let abandonedAt: Date
+    }
+    private var abandoned: [String: AbandonedExchange] = [:]
+
+    /// The mirror of `abandoned`: QSOs we completed and LOGGED whose
+    /// partner may have lost our final. A repeated roger from them within
+    /// the grace window earns a courtesy re-acknowledgment (never a
+    /// second log entry) — we expect runners to do this for us, so we
+    /// do it for them. Keyed by call, value is completion time.
+    private var recentlyCompleted: [String: Date] = [:]
+    /// One-shot courtesy re-ack queued for the next TX slot of the given
+    /// parity; only ever sent from idle/cqLoop.
+    private var courtesyTX: (text: String, parity: Int)?
 
     // MARK: - Commands
 
@@ -93,12 +129,14 @@ final class QSOSequencer: ObservableObject {
         reset()
         mode = .qsoAsAnswerer
         partner = call
+        abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
         partnerGrid = grid // from their CQ — they won't send it again
         txParity = 1 - cqParity
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
         awaiting = .report
         retriesLeft = maxRetries
+        busyPassesLeft = maxBusyPasses
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Answering \(call)")
@@ -110,12 +148,14 @@ final class QSOSequencer: ObservableObject {
         reset()
         mode = .qsoAsCaller
         partner = call
+        abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
         partnerGrid = grid
         txParity = 1 - theirParity
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(reportSent)"
         awaiting = .rogerReport
         retriesLeft = maxRetries
+        busyPassesLeft = maxBusyPasses
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Answering \(call) with report")
@@ -128,6 +168,7 @@ final class QSOSequencer: ObservableObject {
         reset()
         mode = .qsoAsAnswerer
         partner = call
+        abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
         partnerGrid = grid
         reportReceived = report
         txParity = 1 - theirParity
@@ -135,6 +176,7 @@ final class QSOSequencer: ObservableObject {
         currentTX = "\(call) \(myCall) R\(reportSent)"
         awaiting = .rr73
         retriesLeft = maxRetries
+        busyPassesLeft = maxBusyPasses
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Roger report to \(call)")
@@ -158,15 +200,75 @@ final class QSOSequencer: ObservableObject {
     // MARK: - Slot hooks
 
     /// Feed decodes from a completed receive slot (opposite parity to ours).
+    /// Called every slot, even while idle — late signoffs from abandoned
+    /// exchanges arrive after we've moved on.
     func ingest(decodes: [Decode], slotParity: Int) {
+        let brackets = CharacterSet(charactersIn: "<>")
+        let cutoff = now().addingTimeInterval(-lateSignoffGrace)
+        abandoned = abandoned.filter { $0.value.abandonedAt >= cutoff }
+        recentlyCompleted = recentlyCompleted.filter { $0.value >= cutoff }
+
+        for decode in decodes {
+            let tokens = decode.text.uppercased().split(separator: " ").map(String.init)
+            guard tokens.count >= 3,
+                  tokens[0].trimmingCharacters(in: brackets) == myCall.uppercased() else { continue }
+            let from = tokens[1].trimmingCharacters(in: brackets)
+            guard from != partner else { continue }
+            let payload = tokens[2]
+
+            // A straggling RR73/73 from a partner we gave up on: the
+            // exchange was complete on the air the whole time — log it,
+            // whatever state we're in now. (No TX: we may be mid-QSO
+            // with someone else.)
+            if Self.isSignoff(payload), let pending = abandoned.removeValue(forKey: from) {
+                let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+                onQSOComplete?(QSORecord(
+                    id: UUID(),
+                    partner: from,
+                    partnerGrid: pending.partnerGrid,
+                    reportSent: pending.reportSent,
+                    reportReceived: pending.reportReceived,
+                    start: pending.qsoStart,
+                    end: now(),
+                    dialFrequencyMHz: dial,
+                    mode: "FT8"
+                ))
+                if mode == .idle || mode == .cqLoop {
+                    describe("Late \(payload) from \(from) — QSO logged")
+                }
+                continue
+            }
+
+            // The mirror case: a partner we already logged lost our final
+            // and is still asking. Re-acknowledge — from idle any slot,
+            // from cqLoop only in our own slot (in place of one CQ, never
+            // transmitting both parities) — and never mid-exchange.
+            guard recentlyCompleted[from] != nil,
+                  mode == .idle || (mode == .cqLoop && 1 - slotParity == txParity)
+            else { continue }
+            if Self.rogerReportValue(payload) != nil {
+                courtesyTX = ("\(from) \(myCall) RR73", 1 - slotParity)
+                describe("\(from) missed our RR73 — re-acknowledging")
+            } else if payload == "RR73" || payload == "RRR" {
+                courtesyTX = ("\(from) \(myCall) 73", 1 - slotParity)
+                describe("\(from) missed our 73 — re-sending")
+            }
+        }
+
         guard mode != .idle, slotParity != txParity else { return }
         for decode in decodes {
             let tokens = decode.text.uppercased().split(separator: " ").map(String.init)
             // Partners hash OUR call (h22) when it's nonstandard — a reply
             // arrives as "<W0CJW/AG> K1ABC R-05"; match brackets-stripped
-            let addressee = tokens[0].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            let addressee = tokens[0].trimmingCharacters(in: brackets)
+            // Our partner transmitting to ANYONE is proof of life — note
+            // who, so the retry countdown pauses instead of burning
+            if let partner, tokens.count >= 2, addressee != myCall.uppercased(),
+               tokens[1].trimmingCharacters(in: brackets) == partner {
+                partnerBusyWith = addressee
+            }
             guard tokens.count >= 2, addressee == myCall.uppercased() else { continue }
-            let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+            let from = tokens[1].trimmingCharacters(in: brackets)
             let payload = tokens.count >= 3 ? tokens[2] : ""
             handle(from: from, payload: payload, snr: decode.snr)
         }
@@ -174,6 +276,15 @@ final class QSOSequencer: ObservableObject {
 
     /// Ask what to transmit in the slot of the given parity (nil = stay quiet).
     func transmission(forSlotParity parity: Int) -> String? {
+        // Courtesy re-ack for an already-logged QSO whose final never
+        // made it across — one shot, no QSO state touched
+        if let courtesy = courtesyTX,
+           mode == .idle || mode == .cqLoop,
+           parity == courtesy.parity {
+            courtesyTX = nil
+            return courtesy.text
+        }
+
         guard mode != .idle, parity == txParity, let tx = currentTX else { return nil }
 
         if !respondedSinceLastTX {
@@ -192,11 +303,29 @@ final class QSOSequencer: ObservableObject {
                     finishQSOSession()
                     return transmission(forSlotParity: parity) // may CQ again
                 }
+            } else if let other = partnerBusyWith, busyPassesLeft > 0 {
+                // Heard working someone else (or CQing between customers):
+                // busy is not gone — stay in line without burning a retry
+                busyPassesLeft -= 1
+                describe(other == "CQ"
+                         ? "\(partner ?? "?") is CQing — staying in line"
+                         : "\(partner ?? "?") is working \(other) — staying in line")
             } else {
                 retriesLeft -= 1
                 if retriesLeft < 0 {
                     describe("No reply from \(partner ?? "?") — giving up")
                     if let partner {
+                        // Both reports made it across → a late signoff can
+                        // still complete this; remember what we'd log
+                        if let qsoStart, reportReceived != nil {
+                            abandoned[partner] = AbandonedExchange(
+                                partnerGrid: partnerGrid,
+                                reportSent: reportSent,
+                                reportReceived: reportReceived,
+                                qsoStart: qsoStart,
+                                abandonedAt: now()
+                            )
+                        }
                         onQSOAbandoned?(partner)
                     }
                     finishQSOSession()
@@ -205,6 +334,7 @@ final class QSOSequencer: ObservableObject {
             }
         }
         respondedSinceLastTX = false
+        partnerBusyWith = nil // per-slot evidence, consumed above
         return tx
     }
 
@@ -215,6 +345,7 @@ final class QSOSequencer: ObservableObject {
         case (.cqLoop, .answer):
             // Anyone answering our CQ with a grid (or a bare report)
             guard FT8MessageParser.isGrid(payload) || Self.isReport(payload) || payload.isEmpty else { return }
+            courtesyTX = nil // live exchange outranks a queued re-ack
             partner = from
             partnerGrid = FT8MessageParser.isGrid(payload) ? payload : nil
             reportSent = Self.formatReport(snr)
@@ -222,6 +353,7 @@ final class QSOSequencer: ObservableObject {
             mode = .qsoAsCaller
             awaiting = .rogerReport
             retriesLeft = maxRetries
+                busyPassesLeft = maxBusyPasses
             currentTX = "\(from) \(myCall) \(reportSent)"
             markResponded("Answering \(from)\(partnerGrid.map { " (\($0))" } ?? "")")
 
@@ -246,6 +378,7 @@ final class QSOSequencer: ObservableObject {
                 currentTX = "\(from) \(myCall) R\(reportSent)"
                 awaiting = .rr73
                 retriesLeft = maxRetries
+                busyPassesLeft = maxBusyPasses
                 markResponded("Roger report to \(from)")
             } else if Self.isSignoff(payload) {
                 completeQSO()
@@ -308,6 +441,7 @@ final class QSOSequencer: ObservableObject {
             mode: "FT8"
         )
         onQSOComplete?(record)
+        recentlyCompleted[partner] = now()
     }
 
     /// QSO (or attempt) is over: resume CQing if that's how we got here.
@@ -341,6 +475,11 @@ final class QSOSequencer: ObservableObject {
         respondedSinceLastTX = true
         finalMessagesLeft = 0
         resumeCQAfterQSO = false
+        partnerBusyWith = nil
+        busyPassesLeft = 0
+        courtesyTX = nil
+        // `abandoned` and `recentlyCompleted` deliberately survive:
+        // they outlive the QSO they came from
     }
 
     private func markResponded(_ text: String) {
