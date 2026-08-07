@@ -90,6 +90,39 @@ final class WaterfallProcessor: ObservableObject {
         }
     }
 
+    /// Mean recent intensity per FFT bin (0–1), for the TX-offset wand.
+    /// Rows from slots of `excludedParity` are skipped — our own
+    /// transmissions land there and would mask the very QRM being
+    /// scored. Empty spectrum when no qualifying rows exist. Completion
+    /// on the main queue.
+    func averagedSpectrum(
+        excludingParity excludedParity: Int?,
+        slotSeconds: Double,
+        seconds: TimeInterval,
+        completion: @escaping (_ spectrum: [Float], _ startHz: Double, _ hzPerBin: Double) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let cutoff = Date().addingTimeInterval(-seconds)
+            var sum = [Double](repeating: 0, count: self.binCount)
+            var used = 0
+            for (index, date) in self.rowDates.enumerated().reversed() {
+                if date < cutoff { break }
+                if let excludedParity,
+                   Int(date.timeIntervalSince1970 / slotSeconds) % 2 == excludedParity {
+                    continue
+                }
+                let row = self.rows[index]
+                for x in 0..<self.binCount { sum[x] += Double(row[x]) }
+                used += 1
+            }
+            let hzPerBin = self.sampleRate / Double(self.fftSize)
+            let startHz = Double(self.binLo) * hzPerBin
+            let spectrum = used > 0 ? sum.map { Float($0 / Double(used) / 255) } : []
+            DispatchQueue.main.async { completion(spectrum, startHz, hzPerBin) }
+        }
+    }
+
     // MARK: - Frequency ↔ x mapping (used by the view; unit-tested)
 
     static func frequency(forX x: CGFloat, width: CGFloat) -> Double {

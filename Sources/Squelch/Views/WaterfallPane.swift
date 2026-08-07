@@ -21,6 +21,10 @@ struct WaterfallPane: View {
     /// Decodes from the selected station — their transmissions get boxed
     /// in the same blue as the selected grid cell on the map.
     var highlightMessages: [DecodedMessage] = []
+    /// Read at wand-tap time only (not observed): recent decodes and our
+    /// slot parity, for picking a clear TX offset. nil on iPad (RX-only).
+    var store: DecodeStore?
+    var sequencer: QSOSequencer?
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
@@ -262,6 +266,20 @@ struct WaterfallPane: View {
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 0) {
                     #if os(macOS)
+                    if txLegal, store != nil {
+                        Button {
+                            pickBestOffset()
+                        } label: {
+                            Image(systemName: "wand.and.stars")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 26, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(txBusy)
+                        .help("Move the TX offset to the clearest frequency — judged from recent decodes and the waterfall")
+                    }
+
                     Button {
                         maximized.toggle()
                     } label: {
@@ -333,6 +351,41 @@ struct WaterfallPane: View {
         guard !txBusy else { return } // never retune mid-transmission
         txOffsetHz = WaterfallProcessor.frequency(forX: x, width: width).rounded()
     }
+
+    #if os(macOS)
+    /// The wand: score the passband from recent decodes (same-parity
+    /// stations are the dangerous ones — they collide with us at the
+    /// partner's receiver, invisibly to us while we transmit) plus the
+    /// waterfall's averaged spectrum, and move the TX marker to the
+    /// clearest offset.
+    private func pickBestOffset() {
+        guard txLegal, !txBusy, let store else { return }
+        let slotSeconds = DigiMode.current.slotSeconds
+        // Mid-QSO/CQ our parity is fixed; idle (between hunts) it isn't
+        let myParity: Int? = sequencer.flatMap { $0.mode == .idle ? nil : $0.txParity }
+        let myCall = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
+        let now = Date()
+        let occupants: [TXOffsetPicker.Occupant] = store.messages
+            .prefix { now.timeIntervalSince($0.slotStart) < 180 }
+            .filter { $0.callsign?.uppercased() != myCall }
+            .map { message in
+                TXOffsetPicker.Occupant(
+                    frequency: Double(message.audioFrequency),
+                    sameParity: myParity.map { message.slotParity(slotSeconds: slotSeconds) == $0 },
+                    age: now.timeIntervalSince(message.slotStart))
+            }
+        processor.averagedSpectrum(excludingParity: myParity, slotSeconds: slotSeconds, seconds: 90) { spectrum, startHz, hzPerBin in
+            guard !txBusy else { return } // TX may have started while we averaged
+            withAnimation(.snappy) {
+                txOffsetHz = TXOffsetPicker.pick(
+                    occupants: occupants,
+                    spectrum: spectrum,
+                    spectrumStartHz: startHz,
+                    spectrumHzPerBin: hzPerBin)
+            }
+        }
+    }
+    #endif
 }
 
 #if os(macOS)
