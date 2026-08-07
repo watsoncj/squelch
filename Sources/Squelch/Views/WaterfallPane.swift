@@ -25,6 +25,9 @@ struct WaterfallPane: View {
     /// slot parity, for picking a clear TX offset. nil on iPad (RX-only).
     var store: DecodeStore?
     var sequencer: QSOSequencer?
+    /// Inspect-mode hit: routes the clicked transmission through the same
+    /// select-and-reveal flow as a chip-callsign click.
+    var onSelectMessage: ((DecodedMessage.ID) -> Void)?
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
@@ -36,7 +39,21 @@ struct WaterfallPane: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var hoverX: CGFloat?
+    @State private var hoverY: CGFloat?
     @State private var dragStartHeight: CGFloat?
+    /// Inspect mode: armed by the crosshair button (one-shot, like a
+    /// browser's element picker); ⌥-click inspects without arming.
+    @State private var inspecting = false
+    /// ⌥ held: hover shows the inspect outline/chip without arming —
+    /// the modifier IS the mode, for as long as it's down.
+    @State private var optionHeld = false
+    @State private var inspection: InspectionPresentation?
+    @State private var inspectionAnchor = CGRect.zero
+
+    struct InspectionPresentation: Identifiable {
+        let id = UUID()
+        let result: SignalInspector.Result
+    }
     /// Points scrolled back from the live edge; 0 means live. While
     /// scrolled back, the offset is bumped by each frame's row delta so
     /// the view holds still in absolute time — the image itself is
@@ -127,6 +144,29 @@ struct WaterfallPane: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                }
+
+                // Inspect mode: outline the decode box the cursor is over
+                // (the devtools element-highlight) with a callsign chip —
+                // you know what a click would select before clicking
+                if inspecting || optionHeld, let hoverX, let hoverY, let frame = processor.frame,
+                   case .hit(let hovered)? = hitTest(at: CGPoint(x: hoverX, y: hoverY),
+                                                     size: geo.size, frame: frame),
+                   let box = boxRect(for: hovered.message, frame: frame, size: geo.size) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .stroke(.primary.opacity(0.7), lineWidth: 1.5)
+                        .frame(width: box.width, height: box.height)
+                        .offset(x: box.minX, y: box.minY)
+                        .allowsHitTesting(false)
+                    Text("\(hovered.message.callsign ?? "?") · \(Int(hovered.message.snr)) dB")
+                        .font(.caption2.monospacedDigit())
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(.white)
+                        .position(x: min(max(box.midX, 40), geo.size.width - 40),
+                                  y: max(box.minY - 10, 8))
+                        .allowsHitTesting(false)
                 }
 
                 // TX offset marker
@@ -232,9 +272,16 @@ struct WaterfallPane: View {
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let point): hoverX = point.x
-                case .ended: hoverX = nil
+                case .active(let point):
+                    hoverX = point.x
+                    hoverY = point.y
+                case .ended:
+                    hoverX = nil
+                    hoverY = nil
                 }
+            }
+            .onModifierKeysChanged(mask: .option) { _, new in
+                optionHeld = new.contains(.option)
             }
             .gesture(
                 SpatialTapGesture(count: 2)
@@ -242,6 +289,27 @@ struct WaterfallPane: View {
                         setOffset(atX: value.location.x, width: geo.size.width)
                     }
             )
+            .gesture(
+                SpatialTapGesture().modifiers(.option)
+                    .onEnded { value in
+                        inspect(at: value.location, size: geo.size)
+                    }
+            )
+            .gesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        guard inspecting else { return } // single click stays inert otherwise
+                        inspect(at: value.location, size: geo.size)
+                    }
+            )
+            .popover(item: $inspection,
+                     attachmentAnchor: .rect(.rect(inspectionAnchor))) { presentation in
+                SignalInspectorCard(
+                    result: presentation.result,
+                    station: inspectedStation(for: presentation.result),
+                    myCall: myCall
+                )
+            }
             .contextMenu {
                 if txLegal, let hoverX {
                     let freq = WaterfallProcessor.frequency(forX: hoverX, width: geo.size.width)
@@ -266,6 +334,20 @@ struct WaterfallPane: View {
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 0) {
                     #if os(macOS)
+                    if store != nil {
+                        Button {
+                            inspecting.toggle()
+                            if !inspecting { inspection = nil }
+                        } label: {
+                            Image(systemName: "dot.scope")
+                                .foregroundStyle(inspecting ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                .frame(width: 26, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Inspect a signal: arm, then click a trace to identify it. ⌥-click inspects any time.")
+                    }
+
                     if txLegal, store != nil {
                         Button {
                             pickBestOffset()
@@ -352,6 +434,84 @@ struct WaterfallPane: View {
         txOffsetHz = WaterfallProcessor.frequency(forX: x, width: width).rounded()
     }
 
+    // MARK: - Signal inspector
+
+    private var myCall: String {
+        (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
+    }
+
+    private var transmissionSeconds: Double {
+        DigiMode.current == .wspr ? 110.6 : 12.64
+    }
+
+    /// View point → (frequency, row date) → SignalInspector. nil when the
+    /// click lands outside the painted history.
+    private func hitTest(at point: CGPoint, size: CGSize, frame: WaterfallProcessor.Frame) -> SignalInspector.Result? {
+        let imageHeight = CGFloat(frame.image.height)
+        let offset = min(scrollback, max(0, imageHeight - size.height))
+        let rowIndex = Int((imageHeight - 1 - (point.y + offset)).rounded())
+        guard frame.rowDates.indices.contains(rowIndex) else { return nil }
+        return SignalInspector.inspect(
+            frequencyHz: WaterfallProcessor.frequency(forX: point.x, width: size.width),
+            time: frame.rowDates[rowIndex],
+            messages: recentMessages(in: frame),
+            slotSeconds: DigiMode.current.slotSeconds,
+            transmissionSeconds: transmissionSeconds
+        )
+    }
+
+    /// The highlight overlay's projection, reused for hover outline and
+    /// popover anchoring — same padding as the selection boxes so the
+    /// hover and selected outlines land identically.
+    private func boxRect(for message: DecodedMessage, frame: WaterfallProcessor.Frame, size: CGSize) -> CGRect? {
+        let imageHeight = CGFloat(frame.image.height)
+        let offset = min(scrollback, max(0, imageHeight - size.height))
+        let start = message.slotStart.addingTimeInterval(TimeInterval(message.timeOffset))
+        let end = start.addingTimeInterval(transmissionSeconds)
+        guard let first = frame.rowDates.firstIndex(where: { $0 >= start }),
+              frame.rowDates[first] <= end else { return nil }
+        let last = frame.rowDates.lastIndex(where: { $0 <= end }) ?? first
+        let padHz = 7.0
+        let padRows = 2
+        let lowX = WaterfallProcessor.x(
+            forFrequency: Double(message.audioFrequency) - padHz, width: size.width)
+        let highX = WaterfallProcessor.x(
+            forFrequency: Double(message.audioFrequency) + 50 + padHz, width: size.width)
+        return CGRect(x: lowX,
+                      y: imageHeight - 1 - CGFloat(last + padRows) - offset,
+                      width: max(4, highX - lowX),
+                      height: CGFloat(last - first) + 1 + CGFloat(padRows * 2))
+    }
+
+    /// Only decodes the visible frame can contain — store history runs
+    /// much deeper than the waterfall's ~6 minutes.
+    private func recentMessages(in frame: WaterfallProcessor.Frame) -> [DecodedMessage] {
+        guard let store, let oldest = frame.rowDates.first else { return [] }
+        let cutoff = oldest.addingTimeInterval(-DigiMode.current.slotSeconds)
+        return Array(store.messages.prefix { $0.slotStart >= cutoff })
+    }
+
+    private func inspect(at point: CGPoint, size: CGSize) {
+        guard let frame = processor.frame,
+              let result = hitTest(at: point, size: size, frame: frame) else { return }
+        if case .hit(let hit) = result {
+            inspectionAnchor = boxRect(for: hit.message, frame: frame, size: size)
+                ?? CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)
+            if hit.message.callsign != nil, hit.message.callsign?.uppercased() != myCall {
+                onSelectMessage?(hit.message.id)
+            }
+        } else {
+            inspectionAnchor = CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)
+        }
+        inspection = InspectionPresentation(result: result)
+        inspecting = false // one-shot, like the browser's element picker
+    }
+
+    private func inspectedStation(for result: SignalInspector.Result) -> Station? {
+        guard case .hit(let hit) = result, let call = hit.message.callsign else { return nil }
+        return store?.stations[call]
+    }
+
     #if os(macOS)
     /// The wand: score the passband from recent decodes (same-parity
     /// stations are the dangerous ones — they collide with us at the
@@ -386,6 +546,108 @@ struct WaterfallPane: View {
         }
     }
     #endif
+}
+
+/// The inspector popover: THAT transmission's data (the station card
+/// covers the station). Ephemeral — dismisses on click-away.
+private struct SignalInspectorCard: View {
+    let result: SignalInspector.Result
+    let station: Station?
+    let myCall: String
+
+    private static let slotTime: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch result {
+            case .hit(let hit): hitBody(hit)
+            case .miss(let miss): missBody(miss)
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 220, maxWidth: 300, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func hitBody(_ hit: SignalInspector.Hit) -> some View {
+        let message = hit.message
+        Text(message.text)
+            .font(.system(.body, design: .monospaced).weight(.semibold))
+        if message.callsign?.uppercased() == myCall {
+            Label("Your own transmission", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let call = message.callsign {
+            HStack(spacing: 4) {
+                if let country = message.country {
+                    Text(country.flag)
+                    Text("\(call) · \(country.name)")
+                } else {
+                    Text(call)
+                }
+                if let km = message.distanceKm {
+                    Text("· \(Int(km * 0.621371)) mi")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Divider()
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
+            GridRow {
+                Text("\(Self.slotTime.string(from: message.slotStart)) slot")
+                Text(String(format: "DT %.1f s", message.timeOffset))
+            }
+            GridRow {
+                Text("\(Int(message.audioFrequency)) Hz")
+                Text(String(format: "%+.0f dB", message.snr))
+            }
+            if let station {
+                GridRow {
+                    Text("Heard \(station.heardCount)×")
+                    Text(String(format: "last %+.0f dB", station.lastSNR))
+                }
+            }
+        }
+        .font(.caption.monospacedDigit())
+        HStack {
+            if let call = message.callsign, call.uppercased() != myCall,
+               let url = URL(string: "https://www.qrz.com/db/\(call)") {
+                Link("QRZ", destination: url)
+                    .font(.caption)
+            }
+            if hit.alternates > 0 {
+                Spacer()
+                Text("+\(hit.alternates) more signal\(hit.alternates == 1 ? "" : "s") here")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func missBody(_ miss: SignalInspector.Miss) -> some View {
+        Text("No decode here")
+            .font(.body.weight(.semibold))
+        Text("\(Int(miss.frequencyHz)) Hz · \(Self.slotTime.string(from: miss.time))")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        Divider()
+        if let nearest = miss.nearestInSlot, let away = miss.nearestHzAway,
+           let call = nearest.callsign {
+            let direction = Double(nearest.audioFrequency) < miss.frequencyHz ? "below" : "above"
+            Text("Nearest this slot: \(call), \(Int(away)) Hz \(direction)")
+                .font(.caption)
+        } else {
+            Text("No decodes in this slot — off-cadence, non-FT8, or below the decode floor")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 }
 
 #if os(macOS)

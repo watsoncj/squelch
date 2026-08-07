@@ -125,7 +125,8 @@ struct ContentView: View {
                     // Waterfall floats over the map like the other panels
                     if showWaterfall {
                         WaterfallPane(processor: actions.waterfall, transmit: transmit, controller: controller,
-                                      highlightMessages: waterfallHighlights, store: store, sequencer: sequencer)
+                                      highlightMessages: waterfallHighlights, store: store, sequencer: sequencer,
+                                      onSelectMessage: { actions.focusedMessageID = $0 })
                             .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .padding(.leading, max(10, panelObscuredWidth + 10))
