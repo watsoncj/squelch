@@ -246,6 +246,12 @@ struct QSOLogView: View {
             }
             .width(min: 74, ideal: 84)
 
+            TableColumn("Power") { record in
+                Text(record.txPowerWatts.map { "\($0) W" } ?? "—")
+                    .monospacedDigit()
+            }
+            .width(min: 48, ideal: 56)
+
             TableColumn("Band", value: \.dialFrequencyMHz) { record in
                 Text("\(bandName(forMHz: record.dialFrequencyMHz)) · \(record.mode)")
             }
@@ -388,6 +394,7 @@ private struct QSOFormSheet: View {
     @State private var frequencyMHz: Double
     @State private var reportSent: String
     @State private var reportReceived: String
+    @State private var powerWatts: String
     @State private var name: String
     @State private var notes: String
     @State private var contest: String
@@ -419,6 +426,7 @@ private struct QSOFormSheet: View {
         _frequencyMHz = State(initialValue: existing?.dialFrequencyMHz ?? 0)
         _reportSent = State(initialValue: existing?.reportSent ?? "")
         _reportReceived = State(initialValue: existing?.reportReceived ?? "")
+        _powerWatts = State(initialValue: existing?.txPowerWatts.map(String.init) ?? "")
         _name = State(initialValue: existing?.name ?? "")
         _notes = State(initialValue: existing?.notes ?? "")
         _contest = State(initialValue: existing?.contest ?? "")
@@ -474,6 +482,7 @@ private struct QSOFormSheet: View {
                 TextField("Frequency (MHz)", value: $frequencyMHz, format: .number.precision(.fractionLength(3)))
                 TextField("Report sent", text: $reportSent, prompt: Text(reportHint))
                 TextField("Report received", text: $reportReceived, prompt: Text(reportHint))
+                TextField("Power (optional, W)", text: $powerWatts, prompt: Text("e.g. 10"))
                 HStack(spacing: 4) {
                     TextField("Contest (optional)", text: $contest)
                         .help("Tag contest QSOs so the Cabrillo export can bundle just this contest")
@@ -622,7 +631,8 @@ private struct QSOFormSheet: View {
             contest: {
                 let trimmed = contest.trimmingCharacters(in: .whitespaces)
                 return trimmed.isEmpty ? nil : trimmed
-            }()
+            }(),
+            txPowerWatts: Int(powerWatts.trimmingCharacters(in: .whitespaces))
         )
     }
 }

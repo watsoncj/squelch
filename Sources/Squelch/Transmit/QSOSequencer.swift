@@ -17,6 +17,7 @@ struct QSORecord: Identifiable, Codable {
     var state: String? = nil   // 2-letter US/CA region code from license lookup
     var country: String? = nil // license-country name from lookup
     var contest: String? = nil // contest name, e.g. "ARRL-VHF" — groups Cabrillo exports
+    var txPowerWatts: Int? = nil // radio's power setting (CAT) when the QSO completed
 }
 
 /// FT8 auto-sequence state machine. Pure logic, no I/O: the app calls

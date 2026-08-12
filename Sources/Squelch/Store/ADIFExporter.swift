@@ -33,6 +33,7 @@ enum ADIFExporter {
         s += field("FREQ", record.dialFrequencyMHz > 0 ? mhzText(record.dialFrequencyMHz) : nil)
         s += field("RST_SENT", record.reportSent)
         s += field("RST_RCVD", record.reportReceived)
+        s += field("TX_PWR", record.txPowerWatts.map(String.init))
         s += field("NAME", record.name)
         s += field("COMMENT", record.notes.map {
             $0.components(separatedBy: .newlines)

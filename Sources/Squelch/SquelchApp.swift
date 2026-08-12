@@ -60,12 +60,17 @@ final class AppModel: ObservableObject {
     let demoMode = CommandLine.arguments.contains("--demo")
 
     init() {
-        sequencer.onQSOComplete = { [qsoLog, store] record in
+        sequencer.onQSOComplete = { [qsoLog, store, cat] record in
             var record = record
             // The exchange itself often never carries the grid (answerer
             // side, mid-exchange entries) — backfill from the station cache
             if record.partnerGrid == nil, let grid = store.stations[record.partner]?.grid {
                 record.partnerGrid = grid.uppercased()
+            }
+            // Radio's power setting at completion — the log's TX-health
+            // trail (the August asymmetry hunt earned this field)
+            if record.txPowerWatts == nil {
+                record.txPowerWatts = cat.radioPowerWatts
             }
             qsoLog.append(record)
             // Enrich with license data (name, state, precise grid) — one
