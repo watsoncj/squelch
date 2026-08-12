@@ -64,6 +64,16 @@ struct WaterfallPane: View {
 
     private var paused: Bool { scrollback > 0 }
 
+    /// Control-cluster styling follows the appearance, like the palettes:
+    /// dark glass + white glyphs over the dark waterfall, light glass +
+    /// ink glyphs over the light one.
+    private var controlGlyph: AnyShapeStyle {
+        AnyShapeStyle(colorScheme == .dark ? Color.white.opacity(0.9) : Color.black.opacity(0.75))
+    }
+    private var controlChip: AnyShapeStyle {
+        AnyShapeStyle(colorScheme == .dark ? Color.black.opacity(0.55) : Color.white.opacity(0.7))
+    }
+
     /// No TX marker (or offset setting) on frequencies we can't transmit on.
     /// iPad is receive-only: no marker, no offset control, ever.
     private var txLegal: Bool {
@@ -340,7 +350,7 @@ struct WaterfallPane: View {
                             if !inspecting { inspection = nil }
                         } label: {
                             Image(systemName: "dot.scope")
-                                .foregroundStyle(inspecting ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                                .foregroundStyle(inspecting ? AnyShapeStyle(.tint) : controlGlyph)
                                 .frame(width: 26, height: 22)
                                 .contentShape(Rectangle())
                         }
@@ -353,7 +363,7 @@ struct WaterfallPane: View {
                             pickBestOffset()
                         } label: {
                             Image(systemName: "wand.and.stars")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(controlGlyph)
                                 .frame(width: 26, height: 22)
                                 .contentShape(Rectangle())
                         }
@@ -368,7 +378,7 @@ struct WaterfallPane: View {
                         Image(systemName: maximized
                               ? "arrow.down.right.and.arrow.up.left"
                               : "arrow.up.left.and.arrow.down.right")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(controlGlyph)
                             .frame(width: 26, height: 22)
                             .contentShape(Rectangle())
                     }
@@ -381,13 +391,14 @@ struct WaterfallPane: View {
                         showWaterfall = false
                     } label: {
                         Image(systemName: "rectangle.bottomthird.inset.filled")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(controlGlyph)
                             .frame(width: 26, height: 22)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.borderless)
                     .help("Hide the waterfall")
                 }
+                .background(controlChip, in: RoundedRectangle(cornerRadius: 7))
                 .padding(4)
             }
             #if os(macOS)
