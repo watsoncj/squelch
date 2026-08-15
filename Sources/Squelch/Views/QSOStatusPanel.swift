@@ -4,7 +4,8 @@ import AppKit
 /// The single TX/session status surface — a compact chip that lives in the
 /// toolbar, left of the frequency selector. Priority: transmitting (red,
 /// Halt) → armed auto-answer (orange, Cancel) → active sequencer session
-/// (blue/green, Stop) → armed WSPR beacon → TX error (dismissable).
+/// (blue/green, Stop) → armed WSPR beacon → TX error (dismissable) →
+/// TX notice (dismissable, informational).
 struct QSOStatusPanel: View {
     @ObservedObject var sequencer: QSOSequencer
     @ObservedObject var transmit: TransmitController
@@ -31,6 +32,8 @@ struct QSOStatusPanel: View {
             beaconChip
         } else if let error = transmit.txError {
             errorChip(error)
+        } else if let notice = transmit.txNotice {
+            noticeChip(notice)
         } else if controller.micDenied {
             micDeniedChip
         } else if let error = controller.startError {
@@ -305,6 +308,27 @@ struct QSOStatusPanel: View {
                 .help(error)
             Button {
                 transmit.txError = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    /// Informational, non-blocking — TX went ahead (e.g. the output device
+    /// was healed after a USB port change).
+    private func noticeChip(_ notice: String) -> some View {
+        chip(tint: .blue) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.blue)
+            Text(notice)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 280)
+                .help(notice)
+            Button {
+                transmit.txNotice = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
             }

@@ -94,8 +94,9 @@ final class AudioOutput {
 
         var targetDevice: AudioDeviceID = 0
         if let deviceUID, !deviceUID.isEmpty {
-            guard let device = AudioDevices.outputDevices().first(where: { $0.uid == deviceUID }) else {
-                throw AudioCaptureError.outputDeviceUnavailable
+            let outputs = AudioDevices.outputDevices()
+            guard let device = outputs.first(where: { $0.uid == deviceUID }) else {
+                throw AudioCaptureError.outputDeviceUnavailable(wantedUID: deviceUID, presentNames: outputs.map(\.name))
             }
             targetDevice = device.id
         }

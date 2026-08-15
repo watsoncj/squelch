@@ -149,6 +149,11 @@ struct SettingsView: View {
                     }
                 }
                 .help("Must be the Digirig's output — TX audio on your Mac speakers won't key anything but your ego")
+                if txOutputStale {
+                    Label("The saved TX output device wasn't found — it may be unplugged or on a different USB port. Pick it again above.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
 
                 Picker("PTT serial port", selection: $pttPortPath) {
                     Text("None (TX disabled)").tag("")
@@ -292,10 +297,24 @@ struct SettingsView: View {
             if catPortPath.isEmpty, let guess = CATController.likelyCATPort(in: serialPorts), guess != pttPortPath {
                 catPortPath = guess
             }
-            if audioOutputUID.isEmpty, let digirig = AudioDevices.likelyDigirig(in: outputDevices) {
-                audioOutputUID = digirig.uid
+            // Auto-select when unset, and re-select when the stored UID no
+            // longer matches anything (USB port moves change device UIDs)
+            if audioOutputUID.isEmpty || txOutputStale,
+               let resolved = AudioDevices.resolveTXOutput(
+                   storedOutputUID: audioOutputUID,
+                   storedInputUID: audioDeviceUID,
+                   outputs: outputDevices,
+                   inputs: devices
+               ) {
+                audioOutputUID = resolved.device.uid
             }
         }
+    }
+
+    /// A saved TX output UID that matches no current output device — it
+    /// would render as an empty picker with no explanation otherwise.
+    private var txOutputStale: Bool {
+        !audioOutputUID.isEmpty && !outputDevices.contains { $0.uid == audioOutputUID }
     }
 
     private func refreshTX() {

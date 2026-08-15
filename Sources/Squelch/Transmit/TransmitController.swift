@@ -7,6 +7,9 @@ final class TransmitController: ObservableObject {
     @Published private(set) var isTuning = false
     @Published private(set) var currentTXText = ""
     @Published var txError: String?
+    /// Non-blocking heads-up (e.g. the TX output device was re-selected
+    /// after a USB port change) — informational, TX proceeded.
+    @Published var txNotice: String?
 
     private let audioOut = AudioOutput()
     private let ptt = SerialPTT()
@@ -74,7 +77,7 @@ final class TransmitController: ObservableObject {
         guard keyPTT() else { return false }
 
         do {
-            try audioOut.play(samples: samples, deviceUID: outputDeviceUID, loop: false) { [weak self] in
+            try audioOut.play(samples: samples, deviceUID: resolveOutputDeviceUID(), loop: false) { [weak self] in
                 self?.endTransmission()
             }
         } catch {
@@ -103,7 +106,7 @@ final class TransmitController: ObservableObject {
         let oneSecond = (0..<Int(rate)).map { Float(sin(omega * Double($0))) }
         guard keyPTT() else { return }
         do {
-            try audioOut.play(samples: oneSecond, deviceUID: outputDeviceUID, loop: true)
+            try audioOut.play(samples: oneSecond, deviceUID: resolveOutputDeviceUID(), loop: true)
         } catch {
             unkeyPTT()
             txError = error.localizedDescription
@@ -128,7 +131,7 @@ final class TransmitController: ObservableObject {
     /// Best-effort: spin up the silent output engine ahead of any TX so its
     /// device reconfiguration doesn't disrupt receive mid-QSO. Never keys.
     func warmUp() {
-        try? audioOut.warmUp(deviceUID: outputDeviceUID)
+        try? audioOut.warmUp(deviceUID: resolveOutputDeviceUID())
     }
 
     // MARK: - Internals
@@ -216,9 +219,29 @@ final class TransmitController: ObservableObject {
     /// Explicit TX output selection, falling back to the same device as the
     /// RX input (the Digirig carries both sides) — never the system default,
     /// so TX audio can't end up on the Mac speakers.
-    private var outputDeviceUID: String {
-        let explicit = UserDefaults.standard.string(forKey: SettingsKeys.audioOutputUID) ?? ""
-        if !explicit.isEmpty { return explicit }
-        return UserDefaults.standard.string(forKey: SettingsKeys.audioDeviceUID) ?? ""
+    ///
+    /// Stale UIDs are healed here rather than left to fail forever: a USB
+    /// port move changes the UID, and split-duplex codecs (FT-991) give the
+    /// RX input a UID that never appears among outputs. A recovered device
+    /// is written back to Settings and announced via `txNotice`; if nothing
+    /// plausible is connected, the stored UID passes through unchanged so
+    /// AudioOutput throws the usual "device not found" error.
+    private func resolveOutputDeviceUID() -> String {
+        let defaults = UserDefaults.standard
+        let explicit = defaults.string(forKey: SettingsKeys.audioOutputUID) ?? ""
+        let input = defaults.string(forKey: SettingsKeys.audioDeviceUID) ?? ""
+        guard let resolution = AudioDevices.resolveTXOutput(
+            storedOutputUID: explicit,
+            storedInputUID: input,
+            outputs: AudioDevices.outputDevices(),
+            inputs: AudioDevices.inputDevices()
+        ) else {
+            return explicit.isEmpty ? input : explicit
+        }
+        if resolution.healed {
+            defaults.set(resolution.device.uid, forKey: SettingsKeys.audioOutputUID)
+            txNotice = "TX output re-selected: \(resolution.device.name)"
+        }
+        return resolution.device.uid
     }
 }

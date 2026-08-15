@@ -354,6 +354,7 @@ struct ContentView: View {
             || sequencer.mode != .idle
             || actions.wsprBeaconEnabled
             || transmit.txError != nil
+            || transmit.txNotice != nil
             || controller.micDenied
             || controller.startError != nil
             || controller.isRunning
