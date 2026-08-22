@@ -22,7 +22,10 @@ open Squelch.app
 ```
 
 For development: `swift build`, `swift test`, or open `Package.swift` in
-Xcode. `Scripts/make_release.sh` is the sign/notarize/staple pipeline.
+Xcode. A plain `swift test` skips the full-slot WSPR decode tests (minutes
+each in debug); run everything with `SQUELCH_SLOW=1 swift test -c release`
+before shipping decoder changes. `Scripts/make_release.sh` is the
+sign/notarize/staple pipeline.
 
 ## Supported hardware
 

@@ -5,6 +5,10 @@ import XCTest
 /// slot offset, band noise, soundcard clock skew, and pileups. A decoder
 /// that only passes clean loopback can still be deaf on a real antenna.
 final class WSPRRealismTests: XCTestCase {
+    override func setUpWithError() throws {
+        try skipUnlessSlowTests()
+    }
+
     private let sampleRate = 12_000
     private let slotSamples = 120 * 12_000
 

@@ -4,6 +4,7 @@ import XCTest
 final class WSPRTests: XCTestCase {
     /// Full round trip through the Swift wrappers and the vendored decoder.
     func testEncodeDecodeLoopback() throws {
+        try skipUnlessSlowTests()
         var audio = try XCTUnwrap(
             WSPREncoder.encode(call: "W0CJW", grid4: "DM79", dbm: 37, frequencyHz: 1507.3),
             "encode failed"
@@ -24,6 +25,7 @@ final class WSPRTests: XCTestCase {
     }
 
     func testShortCallAndDifferentGrid() throws {
+        try skipUnlessSlowTests()
         var audio = try XCTUnwrap(
             WSPREncoder.encode(call: "K1AB", grid4: "FN42", dbm: 30, frequencyHz: 1450)
         )
@@ -38,6 +40,7 @@ final class WSPRTests: XCTestCase {
     /// buffers) overflowed the 512 KB dispatch-queue stack in live use —
     /// the CLI harness passed only because main threads get 8 MB.
     func testDecodeOnDispatchQueueStack() throws {
+        try skipUnlessSlowTests()
         var audio = try XCTUnwrap(
             WSPREncoder.encode(call: "W0CJW", grid4: "DM79", dbm: 37, frequencyHz: 1500)
         )
@@ -136,6 +139,7 @@ final class WSPRCodecTests: XCTestCase {
     /// must decode in the independently-implemented (vendored) decoder.
     /// Any packing/polynomial/interleave/sync mistake fails this.
     func testCleanRoomEncoderAgainstOracle() throws {
+        try skipUnlessSlowTests()
         var audio = try XCTUnwrap(
             WSPRCodec.audio(call: "W0CJW", grid: "DM79", dBm: 37, offsetHz: 1507.3)
         )
@@ -150,6 +154,10 @@ final class WSPRCodecTests: XCTestCase {
 }
 
 final class WSPRCleanRoomDecoderTests: XCTestCase {
+    override func setUpWithError() throws {
+        try skipUnlessSlowTests()
+    }
+
     private func slotAudio(call: String, grid: String, dBm: Int, offsetHz: Double,
                            noiseRMS: Float = 0) -> [Float] {
         var audio = WSPRCodec.audio(call: call, grid: grid, dBm: dBm, offsetHz: offsetHz)!
