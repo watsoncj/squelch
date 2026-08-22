@@ -116,6 +116,16 @@ final class LicenseLegalityTests: XCTestCase {
         XCTAssertFalse(TransmitController.isTXLegalMHz(14.000, license: .general)) // Extra CW edge
     }
 
+    func testThirtyMeterDataOnlyBand() {
+        // 30 m is General/Extra only; the whole band is a data segment
+        XCTAssertTrue(TransmitController.isTXLegalMHz(10.136, license: .general))   // FT8
+        XCTAssertTrue(TransmitController.isTXLegalMHz(10.140, license: .general))   // FT4
+        XCTAssertTrue(TransmitController.isTXLegalMHz(10.1387, license: .general))  // WSPR
+        XCTAssertTrue(TransmitController.isTXLegalMHz(10.136, license: .extra))
+        XCTAssertFalse(TransmitController.isTXLegalMHz(10.136, license: .technician))
+        XCTAssertFalse(TransmitController.isTXLegalMHz(10.151, license: .general))  // above band edge
+    }
+
     func testExtraBandEdges() {
         XCTAssertTrue(TransmitController.isTXLegalMHz(14.000, license: .extra))
         XCTAssertTrue(TransmitController.isTXLegalMHz(7.000, license: .extra))
