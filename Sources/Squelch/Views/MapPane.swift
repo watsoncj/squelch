@@ -138,11 +138,22 @@ struct MapPane: View {
     @State private var camera: MapCameraPosition = .automatic
     @State private var didSetLaunchCamera = false
     /// Snapshot of the rendered squares. Rebuilt only when decodes arrive or
-    /// on the aging timer — NEVER derived live in the map content. Rebuilding
-    /// MapKit overlays on every view update leaks GPU buffers in VectorKit
-    /// until Metal allocation aborts (seen after an overnight session).
+    /// on the aging timer. These are drawn by `CellCanvas`, NOT as MapKit
+    /// content: every MapPolygon color change makes VectorKit re-encode the
+    /// mesh and queue Metal buffers for destruction, and on a busy band
+    /// (cells recolor every 15 s slot) the deferred-destruction backlog
+    /// grows until its queue pegs a core and the app beach-balls (first
+    /// seen overnight; again after 2¼ h of 12 decodes/slot, Aug 2026).
     @State private var cells: [GridCell] = []
     @State private var reportCells: [ReportCell] = []
+    /// Bumped by the continuous camera callback purely to invalidate
+    /// `CellCanvas` while panning/zooming — the canvas projects through
+    /// MapProxy, so it must redraw in lockstep with the camera.
+    /// Held via @State (NOT @StateObject) on purpose: MapPane must not
+    /// observe it, or every camera frame would re-diff the whole map
+    /// content — offline mode's 127 coastline polygons made that visible
+    /// as pan jank. Only CellCanvas subscribes.
+    @State private var cameraPulse = CameraPulse()
     @State private var mapWidth: CGFloat = 0
     /// Latest settled viewport, for the zoom buttons (updated on gesture
     /// end only — per-frame updates would re-diff map content while panning)
@@ -153,6 +164,18 @@ struct MapPane: View {
     var body: some View {
         MapReader { proxy in
             mapContent
+                .overlay {
+                    if showGridCells {
+                        CellCanvas(
+                            cells: cells,
+                            reportCells: reportCells,
+                            proxy: proxy,
+                            pulse: cameraPulse,
+                            wrapWorld: (visibleRegion?.span.longitudeDelta ?? 0) > 180
+                        )
+                        .allowsHitTesting(false)
+                    }
+                }
                 .onTapGesture { point in
                     // Click a lit grid square → open the detail card for its
                     // most recently heard station
@@ -371,9 +394,9 @@ struct MapPane: View {
 
     /// Purple cells for stations that heard our beacon, same recency
     /// window as the heard-station cells (map = current propagation).
-    private struct ReportCell: Identifiable, Equatable {
+    fileprivate struct ReportCell: Identifiable, Equatable {
         let id: String // the 4-char grid
-        let corners: [CLLocationCoordinate2D]
+        let center: CLLocationCoordinate2D
 
         static func == (lhs: ReportCell, rhs: ReportCell) -> Bool {
             lhs.id == rhs.id
@@ -389,7 +412,7 @@ struct MapPane: View {
         }
         return grids.compactMap { grid in
             guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
-            return ReportCell(id: grid, corners: Self.cellPerimeter(center: center))
+            return ReportCell(id: grid, center: center)
         }
         .sorted { $0.id < $1.id }
     }
@@ -429,21 +452,9 @@ struct MapPane: View {
                 }
             }
 
-            // Heard stations light up their Maidenhead grid squares
-            if showGridCells {
-                ForEach(cells) { cell in
-                    MapPolygon(coordinates: cell.corners)
-                        .foregroundStyle(cell.color.opacity(0.30))
-                        .stroke(cell.color.opacity(0.8), lineWidth: 1)
-                }
-                // Beacon coverage on top: purple = "they heard US", never
-                // confusable with the red→gray heard-station aging ramp
-                ForEach(reportCells) { cell in
-                    MapPolygon(coordinates: cell.corners)
-                        .foregroundStyle(.purple.opacity(0.22))
-                        .stroke(.purple.opacity(0.85), lineWidth: 1.5)
-                }
-            }
+            // Heard-station / beacon grid squares are NOT map content —
+            // see CellCanvas. Only the rarely-changing selection pieces
+            // below stay in MapKit (they churn once per click, harmless).
 
             // Selected log row: highlight the involved stations' GRID
             // SQUARES (a point marker at the grid center reads as a precise
@@ -476,6 +487,12 @@ struct MapPane: View {
         .mapControls { } // defaults off — the side stack provides them
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
+        }
+        // Separate from the .onEnd handler above: this one only pokes the
+        // cell canvas (via the pulse object, so MapPane itself does not
+        // re-render), while visibleRegion stays gesture-end only
+        .onMapCameraChange(frequency: .continuous) { [pulse = cameraPulse] _ in
+            pulse.stamp &+= 1
         }
         .onChange(of: selectedMessage?.id) { _, _ in
             focusOnSelection()
@@ -602,9 +619,8 @@ struct MapPane: View {
     /// MapKit to re-encode ~400 polygons each slot (main-thread stall) and
     /// steadily leak VectorKit GPU buffers. The hover roster is computed
     /// live from the station cache instead.
-    private struct GridCell: Identifiable, Equatable {
+    fileprivate struct GridCell: Identifiable, Equatable {
         let id: String // the 4-char grid
-        let corners: [CLLocationCoordinate2D]
         let center: CLLocationCoordinate2D
         let color: Color
 
@@ -626,11 +642,9 @@ struct MapPane: View {
         // is nondeterministic, which would defeat the change check)
         return byGrid.compactMap { grid, stations in
             guard let center = Maidenhead.coordinate(forGrid: grid) else { return nil }
-            let corners = Self.cellPerimeter(center: center)
             let newest = stations.map(\.lastHeard).max() ?? .distantPast
             return GridCell(
                 id: grid,
-                corners: corners,
                 center: center,
                 color: Self.recencyColor(for: newest)
             )
@@ -659,6 +673,92 @@ struct MapPane: View {
         Date().timeIntervalSince(lastHeard) < recencyWindowSeconds
     }
 
+}
+
+/// Heard-station and beacon grid squares as a plain drawing pass above
+/// the map, projected through MapProxy. Deliberately NOT MapKit content:
+/// recoloring a MapPolygon re-encodes a VectorKit mesh and queues Metal
+/// buffers for destruction, and per-slot recolors on a busy band grow
+/// that backlog until the app beach-balls. A Canvas redraw owns no GPU
+/// resources, so there is nothing to leak regardless of churn rate.
+/// Known trade-off: these fills paint above MapKit's place labels (real
+/// overlays draw below them); the 30% opacity keeps labels readable.
+/// Camera heartbeat for CellCanvas. A reference type so per-frame bumps
+/// invalidate ONLY the canvas (which observes it), never the MapPane
+/// body that merely stores it.
+private final class CameraPulse: ObservableObject {
+    @Published var stamp = 0
+}
+
+private struct CellCanvas: View {
+    let cells: [MapPane.GridCell]
+    let reportCells: [MapPane.ReportCell]
+    let proxy: MapProxy
+    /// Beats every frame of a pan/zoom (and nothing else) — its only
+    /// job is making SwiftUI re-run the canvas against the new camera.
+    @ObservedObject var pulse: CameraPulse
+    /// Zoomed out past a hemisphere the map shows wrapped world copies;
+    /// draw each cell at longitude ±360° too so the copies light up.
+    let wrapWorld: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            let bounds = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -40)
+            let offsets: [Double] = wrapWorld ? [0, -360, 360] : [0]
+            for cell in cells {
+                for offset in offsets {
+                    guard let path = quad(center: cell.center, lonOffset: offset, within: bounds)
+                    else { continue }
+                    context.fill(path, with: .color(cell.color.opacity(0.30)))
+                    context.stroke(path, with: .color(cell.color.opacity(0.8)), lineWidth: 1)
+                }
+            }
+            // Beacon coverage on top: purple = "they heard US", never
+            // confusable with the red→gray heard-station aging ramp
+            for cell in reportCells {
+                for offset in offsets {
+                    guard let path = quad(center: cell.center, lonOffset: offset, within: bounds)
+                    else { continue }
+                    context.fill(path, with: .color(.purple.opacity(0.22)))
+                    context.stroke(path, with: .color(.purple.opacity(0.85)), lineWidth: 1.5)
+                }
+            }
+        }
+    }
+
+    /// The cell's 2°×1° footprint as a screen-space quad, or nil when it
+    /// doesn't project or lies wholly outside the (padded) canvas.
+    private func quad(center: CLLocationCoordinate2D, lonOffset: Double, within bounds: CGRect) -> Path? {
+        let west = center.longitude - 1 + lonOffset
+        let east = center.longitude + 1 + lonOffset
+        let south = center.latitude - 0.5
+        let north = center.latitude + 0.5
+        let corners = [
+            CLLocationCoordinate2D(latitude: north, longitude: west),
+            CLLocationCoordinate2D(latitude: north, longitude: east),
+            CLLocationCoordinate2D(latitude: south, longitude: east),
+            CLLocationCoordinate2D(latitude: south, longitude: west),
+        ]
+        var points: [CGPoint] = []
+        points.reserveCapacity(4)
+        for corner in corners {
+            guard let point = proxy.convert(corner, to: .local) else { return nil }
+            points.append(point)
+        }
+        var minX = points[0].x, maxX = points[0].x
+        var minY = points[0].y, maxY = points[0].y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x); maxX = max(maxX, point.x)
+            minY = min(minY, point.y); maxY = max(maxY, point.y)
+        }
+        guard bounds.intersects(CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY))
+        else { return nil }
+        var path = Path()
+        path.move(to: points[0])
+        for point in points.dropFirst() { path.addLine(to: point) }
+        path.closeSubpath()
+        return path
+    }
 }
 
 /// Apple Maps-style "Map Modes" flyout: one tile per style.
