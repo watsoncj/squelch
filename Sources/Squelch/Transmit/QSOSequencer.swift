@@ -26,6 +26,8 @@ struct QSORecord: Identifiable, Codable {
 ///
 /// Caller side (we CQ'd):  CQ → [they: MYCALL X GRID] → X MYCALL ±NN
 ///                         → [they: MYCALL X R±NN] → X MYCALL RR73 ✓
+///                         (they may skip R±NN and sign off outright —
+///                          that closes it too: ✓ then X MYCALL 73)
 /// Answerer side:          X MYCALL GRID → [they: MYCALL X ±NN]
 ///                         → X MYCALL R±NN → [they: RR73] ✓ → X MYCALL 73
 final class QSOSequencer: ObservableObject {
@@ -349,6 +351,9 @@ final class QSOSequencer: ObservableObject {
             courtesyTX = nil // live exchange outranks a queued re-ack
             partner = from
             partnerGrid = FT8MessageParser.isGrid(payload) ? payload : nil
+            // A bare-report answer already carries their report — keep it, to
+            // log and to arm the late-signoff stash if the exchange stalls
+            reportReceived = Self.isReport(payload) ? payload : nil
             reportSent = Self.formatReport(snr)
             qsoStart = Date()
             mode = .qsoAsCaller
@@ -367,6 +372,12 @@ final class QSOSequencer: ObservableObject {
                 awaiting = .none
                 finalMessagesLeft = 0 // one RR73; re-sent only if they repeat R±NN
                 markResponded("RR73 to \(from)")
+            } else if Self.isSignoff(payload) {
+                // They skipped R±NN and closed out — runners do this when a
+                // bare report answered our CQ. Both reports crossed, so the
+                // contact is good: log it and return the courtesy 73.
+                completeQSO()
+                windDown(finalTo: from)
             } else if FT8MessageParser.isGrid(payload) || Self.isReport(payload) {
                 // They repeated their answer — resend our report
                 markResponded("Repeating report to \(from)")

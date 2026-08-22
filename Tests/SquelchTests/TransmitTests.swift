@@ -182,6 +182,84 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
     }
 
+    /// A runner answers our CQ with a bare report, then closes with RR73
+    /// instead of R±NN — legal, and how NR1W worked us on 2026-08-21.
+    /// Both reports crossed, so it must log and earn a courtesy 73.
+    func testCallerSideBareReportAnswerClosedWithRR73() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+
+        seq.startCQ(parity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+
+        // NR1W answers with a report, not a grid — their report is ours to keep
+        seq.ingest(decodes: [.init(text: "W0CJW NR1W -14", snr: -15.5)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "NR1W W0CJW -16")
+
+        // They skip R±NN and sign off outright
+        seq.ingest(decodes: [.init(text: "W0CJW NR1W RR73", snr: -15)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "NR1W W0CJW 73",
+                       "RR73 closes the exchange — 73, not another report")
+
+        XCTAssertEqual(completed?.partner, "NR1W")
+        XCTAssertEqual(completed?.reportSent, "-16")
+        XCTAssertEqual(completed?.reportReceived, "-14",
+                       "their bare-report answer carried the report we log")
+
+        // 73 sent once, then back to CQ
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+    }
+
+    /// RRR and a bare 73 close the caller side just as RR73 does.
+    func testCallerSideAcceptsRRRAndBare73() {
+        for signoff in ["RRR", "73"] {
+            let seq = makeSequencer()
+            var completed: QSORecord?
+            seq.onQSOComplete = { completed = $0 }
+
+            seq.startCQ(parity: 0)
+            _ = seq.transmission(forSlotParity: 0)
+            seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+            XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+
+            seq.ingest(decodes: [.init(text: "W0CJW K1ABC \(signoff)", snr: -7)], slotParity: 1)
+            XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW 73",
+                           "\(signoff) must close the exchange")
+            XCTAssertEqual(completed?.partner, "K1ABC", "\(signoff) must log the QSO")
+            XCTAssertNil(completed?.reportReceived,
+                         "a grid answer carries no report — none to log")
+        }
+    }
+
+    /// The stall path: a bare-report answer that goes quiet must still stash
+    /// the exchange, so a straggling RR73 minutes later completes and logs it.
+    func testBareReportAnswerStashedForLateSignoff() {
+        let seq = makeSequencer()
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.maxRetries = 1
+        seq.maxBusyPasses = 0
+
+        seq.startCQ(parity: 1)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW NR1W -14", snr: -15.5)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "NR1W W0CJW -16")
+
+        // They go silent; retries run out and we give up
+        for _ in 0..<3 {
+            seq.ingest(decodes: [], slotParity: 0)
+            _ = seq.transmission(forSlotParity: 1)
+        }
+        XCTAssertNil(completed, "nothing logged yet — they never came back")
+
+        // Their RR73 finally straggles in
+        seq.ingest(decodes: [.init(text: "W0CJW NR1W RR73", snr: -15)], slotParity: 0)
+        XCTAssertEqual(completed?.partner, "NR1W")
+        XCTAssertEqual(completed?.reportReceived, "-14")
+    }
+
     func testAnswererSideFullQSO() {
         let seq = makeSequencer()
         var completed: QSORecord?
