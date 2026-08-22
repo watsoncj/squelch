@@ -487,6 +487,15 @@ struct MapPane: View {
         .mapControls { } // defaults off — the side stack provides them
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
+            // The .continuous stream can stop a hair before a long
+            // programmatic flight settles (the easing tail's tiny deltas
+            // stop emitting events), leaving the cell canvas painted for a
+            // camera ~1° short of final — and nothing else ever repaints
+            // it: body re-evals skip the canvas because its inputs compare
+            // equal. Seen in the field as grid highlights sitting half a
+            // cell off (or missing entirely) until the next manual pan.
+            // One end-of-move bump repaints at the exact settled camera.
+            cameraPulse.stamp &+= 1
         }
         // Separate from the .onEnd handler above: this one only pokes the
         // cell canvas (via the pulse object, so MapPane itself does not
