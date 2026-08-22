@@ -60,12 +60,26 @@ final class AppModel: ObservableObject {
     let demoMode = CommandLine.arguments.contains("--demo")
 
     init() {
+        // Contest time pressure zeroes the sequencer's busy-pass patience;
+        // read live so flipping the selector mid-session takes effect
+        sequencer.isContestActive = {
+            let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
+            return !contest.trimmingCharacters(in: .whitespaces).isEmpty
+        }
         sequencer.onQSOComplete = { [qsoLog, store, cat] record in
             var record = record
             // The exchange itself often never carries the grid (answerer
             // side, mid-exchange entries) — backfill from the station cache
             if record.partnerGrid == nil, let grid = store.stations[record.partner]?.grid {
                 record.partnerGrid = grid.uppercased()
+            }
+            // Active contest (QSO log window's selector) stamps every
+            // auto-logged QSO so the per-contest Cabrillo export just works
+            if record.contest == nil,
+               let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest)?
+                   .trimmingCharacters(in: .whitespaces),
+               !contest.isEmpty {
+                record.contest = contest
             }
             // Radio's power setting at completion — the log's TX-health
             // trail (the August asymmetry hunt earned this field)

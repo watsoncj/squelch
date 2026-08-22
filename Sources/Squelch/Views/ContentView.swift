@@ -22,6 +22,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
     @AppStorage(SettingsKeys.showSidebar) private var showSidebar = true
     @AppStorage(SettingsKeys.huntEnabled) private var huntEnabled = false
+    @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
     @State private var sidebarDragStartWidth: Double?
     @State private var selectedStationCall: String?
     @State private var showCheatsheet = false
@@ -32,6 +33,11 @@ struct ContentView: View {
     @State private var isFullScreen = false
     @State private var beaconReportsDismissed = false
     @Environment(\.openWindow) private var openWindow
+
+    private var qsoLogButtonTitle: String {
+        let base = qsoLog.records.isEmpty ? "QSO Log" : "\(qsoLog.records.count) QSOs"
+        return activeContest.isEmpty ? base : "\(base) · \(activeContest)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -442,12 +448,15 @@ struct ContentView: View {
                 Button {
                     openWindow(id: "qso-log")
                 } label: {
-                    Label(qsoLog.records.isEmpty ? "QSO Log" : "\(qsoLog.records.count) QSOs",
-                          systemImage: "checkmark.seal")
+                    // The contest name rides along as a standing reminder that
+                    // contest tagging is on — easy to forget come Tuesday
+                    Label(qsoLogButtonTitle, systemImage: "checkmark.seal")
                         .monospacedDigit()
                         .labelStyle(.titleAndIcon) // toolbar default hides the count
                 }
-                .help("Completed contacts (⌘L) — add off-app QSOs from there")
+                .help(activeContest.isEmpty
+                      ? "Completed contacts (⌘L) — add off-app QSOs from there"
+                      : "Completed contacts (⌘L) — new QSOs are being tagged \(activeContest)")
 
                 Button {
                     toggleRunning()

@@ -38,8 +38,11 @@ struct QSOLogView: View {
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+    @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
+    @State private var showingNewContest = false
+    @State private var newContestName = ""
     @State private var exportDocument: LogExportDocument?
     @StateObject private var backfiller = QSOBackfiller()
     @State private var editingRecord: QSORecord?
@@ -111,6 +114,14 @@ struct QSOLogView: View {
         Dictionary(grouping: qsoLog.records.compactMap(\.contest), by: { $0 })
             .map { (name: $0.key, count: $0.value.count) }
             .sorted { $0.name < $1.name }
+    }
+
+    /// Selector choices: contests already in the log, plus the active one
+    /// (it may be freshly named with no QSOs logged to it yet).
+    private var contestOptions: [String] {
+        var names = Set(loggedContests.map(\.name))
+        if !activeContest.isEmpty { names.insert(activeContest) }
+        return names.sorted()
     }
 
     // Documents are generated on demand — not per render
@@ -296,6 +307,29 @@ struct QSOLogView: View {
         }
         .toolbar {
             ToolbarItem {
+                Menu {
+                    Picker("Log new QSOs to", selection: $activeContest) {
+                        Text("Off").tag("")
+                        ForEach(contestOptions, id: \.self) { name in
+                            Text(name).tag(name)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    Divider()
+                    Button("New Contest…") {
+                        newContestName = ""
+                        showingNewContest = true
+                    }
+                } label: {
+                    Label(activeContest.isEmpty ? "Contest" : activeContest,
+                          systemImage: activeContest.isEmpty ? "tag" : "tag.fill")
+                        .labelStyle(.titleAndIcon) // the active name should be visible, not hidden behind the icon
+                }
+                .help(activeContest.isEmpty
+                      ? "Pick a contest to tag every new QSO with it — on-air and manual alike"
+                      : "New QSOs are being tagged \(activeContest) — set to Off when the contest ends")
+            }
+            ToolbarItem {
                 if let progress = backfiller.progress {
                     Button {
                         backfiller.cancel()
@@ -359,9 +393,19 @@ struct QSOLogView: View {
             defaultFilename: exportDocument?.defaultFilename ?? "squelch-log.adi"
         ) { _ in exportDocument = nil }
         .sheet(isPresented: $showingAdd) {
-            QSOFormSheet(existing: nil, allRecords: qsoLog.records) { record in
+            QSOFormSheet(existing: nil, allRecords: qsoLog.records, defaultContest: activeContest) { record in
                 qsoLog.append(record)
             }
+        }
+        .alert("New Contest", isPresented: $showingNewContest) {
+            TextField("Name", text: $newContestName, prompt: Text("e.g. WW-DIGI"))
+            Button("Start Logging") {
+                let name = newContestName.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { activeContest = name }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every QSO you log is tagged with this name until you set the selector back to Off. Use the contest's Cabrillo name so the export header is right.")
         }
         .sheet(item: $editingRecord) { record in
             QSOFormSheet(existing: record, allRecords: qsoLog.records) { updated in
@@ -415,7 +459,8 @@ private struct QSOFormSheet: View {
         Self.standardModes.contains(mode) ? Self.standardModes : Self.standardModes + [mode]
     }
 
-    init(existing: QSORecord?, allRecords: [QSORecord], onSave: @escaping (QSORecord) -> Void) {
+    init(existing: QSORecord?, allRecords: [QSORecord], defaultContest: String = "",
+         onSave: @escaping (QSORecord) -> Void) {
         self.existing = existing
         self.allRecords = allRecords
         self.onSave = onSave
@@ -429,7 +474,7 @@ private struct QSOFormSheet: View {
         _powerWatts = State(initialValue: existing?.txPowerWatts.map(String.init) ?? "")
         _name = State(initialValue: existing?.name ?? "")
         _notes = State(initialValue: existing?.notes ?? "")
-        _contest = State(initialValue: existing?.contest ?? "")
+        _contest = State(initialValue: existing?.contest ?? defaultContest)
         _state = State(initialValue: existing?.state ?? "")
         _country = State(initialValue: existing?.country ?? "")
     }

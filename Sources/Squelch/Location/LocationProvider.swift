@@ -110,4 +110,5 @@ enum SettingsKeys {
     static let wsprDutyPct = "wsprDutyPct"
     static let wsprUpload = "wsprUpload"
     static let autoUpdateCheck = "autoUpdateCheck"
+    static let activeContest = "activeContest"
 }
