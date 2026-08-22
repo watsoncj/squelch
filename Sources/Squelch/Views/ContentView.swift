@@ -17,6 +17,7 @@ struct ContentView: View {
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.digiMode) private var digiMode = DigiMode.ft8.rawValue
     @AppStorage(SettingsKeys.showWaterfall) private var showWaterfall = false
+    @AppStorage(SettingsKeys.waterfallHeight) private var waterfallHeight = 110.0
     @AppStorage(SettingsKeys.waterfallMaximized) private var waterfallMaximized = false
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
     @AppStorage(SettingsKeys.sidebarWidth) private var sidebarWidth = 360.0
@@ -50,7 +51,8 @@ struct ContentView: View {
                         selectedStationCall = call
                         showSidebar = true // detail docks in the sidebar now
                     },
-                    leadingObscuredWidth: panelObscuredWidth)
+                    leadingObscuredWidth: panelObscuredWidth,
+                    bottomObscuredHeight: waterfallObscuredHeight)
                 .ignoresSafeArea(edges: .top) // bleed under the transparent toolbar
                 .overlay(alignment: .top) {
                     // The hidden-titlebar drag region sits over the map, and
@@ -236,6 +238,14 @@ struct ContentView: View {
     /// Points of the map covered by the left-side floating panel.
     private var panelObscuredWidth: CGFloat {
         showSidebar ? sidebarWidth : 0
+    }
+
+    /// Points of the map covered by the floating waterfall at the bottom.
+    /// Maximized covers everything — no visible strip to center in, and
+    /// the moment it un-maximizes the regular height applies again.
+    private var waterfallObscuredHeight: CGFloat {
+        guard showWaterfall, !waterfallMaximized else { return 0 }
+        return waterfallHeight + 10 // pane + its bottom padding
     }
 
     /// Apple Maps sidebar: flush to the window's top-left, traffic lights

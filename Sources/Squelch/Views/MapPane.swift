@@ -129,6 +129,10 @@ struct MapPane: View {
     /// Points of the map covered by the floating panels on the left —
     /// focus/fit regions shift so targets center in the visible strip.
     var leadingObscuredWidth: CGFloat = 0
+    /// Points covered by the floating waterfall along the bottom edge —
+    /// same treatment vertically, so a focused grid doesn't land half
+    /// behind the waterfall.
+    var bottomObscuredHeight: CGFloat = 0
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.mapStyle) private var mapStyleRaw = MapStyleChoice.standard.rawValue
     @AppStorage(SettingsKeys.showGridCells) private var showGridCells = true
@@ -155,6 +159,7 @@ struct MapPane: View {
     /// as pan jank. Only CellCanvas subscribes.
     @State private var cameraPulse = CameraPulse()
     @State private var mapWidth: CGFloat = 0
+    @State private var mapHeight: CGFloat = 0
     /// Latest settled viewport, for the zoom buttons (updated on gesture
     /// end only — per-frame updates would re-diff map content while panning)
     @State private var visibleRegion: MKCoordinateRegion?
@@ -205,7 +210,10 @@ struct MapPane: View {
                 .padding(.trailing, 10)
         }
         .mapScope(mapScope)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { mapWidth = $0 }
+        .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+            mapWidth = size.width
+            mapHeight = size.height
+        }
         .onAppear {
             if !didSetLaunchCamera {
                 didSetLaunchCamera = true
@@ -332,17 +340,42 @@ struct MapPane: View {
     }
 
     /// Recenter `region` so its target sits in the middle of the un-obscured
-    /// strip, widening the span when fitting so nothing hides behind panels.
+    /// area, widening the span when fitting so nothing hides behind panels.
     private func adjustedForObscuredEdge(_ region: MKCoordinateRegion, fitAll: Bool) -> MKCoordinateRegion {
-        guard mapWidth > 0, leadingObscuredWidth > 0, leadingObscuredWidth < mapWidth else { return region }
+        Self.regionAdjustedForObscuredEdges(
+            region,
+            fitAll: fitAll,
+            leadingFraction: mapWidth > 0 && leadingObscuredWidth < mapWidth
+                ? leadingObscuredWidth / mapWidth : 0,
+            bottomFraction: mapHeight > 0 && bottomObscuredHeight < mapHeight
+                ? bottomObscuredHeight / mapHeight : 0
+        )
+    }
+
+    /// Pure recentering math: the sidebar covers a `leadingFraction` strip
+    /// on the west edge and the waterfall a `bottomFraction` strip on the
+    /// south edge; pull the camera center toward each covered edge by half
+    /// the covered span so the target lands mid-strip in the visible area.
+    static func regionAdjustedForObscuredEdges(
+        _ region: MKCoordinateRegion,
+        fitAll: Bool,
+        leadingFraction: Double,
+        bottomFraction: Double
+    ) -> MKCoordinateRegion {
         var region = region
-        let fraction = leadingObscuredWidth / mapWidth
-        if fitAll {
-            region.span.longitudeDelta = min(region.span.longitudeDelta / (1 - fraction), 360)
+        if leadingFraction > 0 {
+            if fitAll {
+                region.span.longitudeDelta = min(region.span.longitudeDelta / (1 - leadingFraction), 360)
+            }
+            region.center.longitude -= region.span.longitudeDelta * leadingFraction / 2
         }
-        // Panels cover the west side: pull the camera center west so the
-        // target lands mid-strip on the visible east side
-        region.center.longitude -= region.span.longitudeDelta * fraction / 2
+        if bottomFraction > 0 {
+            if fitAll {
+                region.span.latitudeDelta = min(region.span.latitudeDelta / (1 - bottomFraction), 180)
+            }
+            region.center.latitude = max(-90, min(90,
+                region.center.latitude - region.span.latitudeDelta * bottomFraction / 2))
+        }
         return region
     }
 
