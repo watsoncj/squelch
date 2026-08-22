@@ -73,7 +73,7 @@ struct QSOLogView: View {
     private func locationText(for record: QSORecord) -> String? {
         let storedCountry = record.country.map { $0 == "United States" ? "USA" : $0 }
         if let state = record.state {
-            return "\(state), \(storedCountry ?? "USA")"
+            return "\(Self.displayRegion(state)), \(storedCountry ?? "USA")"
         }
         if let storedCountry {
             return storedCountry
@@ -87,14 +87,23 @@ struct QSOLogView: View {
         return country.name
     }
 
+    /// Short region codes ("CO") show as stored; longer all-caps names
+    /// read better capitalized ("ANTIOQUIA" → "Antioquia" — older saves
+    /// uppercased every state, whatever its length).
+    static func displayRegion(_ state: String) -> String {
+        guard state.count > 3, state == state.uppercased() else { return state }
+        return state.capitalized
+    }
+
     private var subtitle: String {
         let records = qsoLog.records
         var parts = ["\(records.count) QSO\(records.count == 1 ? "" : "s")"]
         let states = Set(records.compactMap { record -> String? in
             if let state = record.state {
                 // Provinces and other countries' subdivisions aren't WAS states
+                // ("United States" is HamDB's spelling, "USA" the prefix table's)
                 let country = record.country
-                return (country == nil || country == "United States") ? state : nil
+                return (country == nil || country == "United States" || country == "USA") ? state : nil
             }
             guard FT8MessageParser.isUSCallsign(record.partner),
                   let grid = record.partnerGrid else { return nil }
@@ -635,6 +644,15 @@ private struct QSOFormSheet: View {
     }
 
     private func applyLookup() {
+        // HamDB covers only US/Canada; for DX calls the prefix table still
+        // knows the country — fill it so it isn't hand-typed (and
+        // hand-typo'd: "Columbia" for an HK, Aug 2026)
+        if case .missing = directory.lookups[normalizedCall],
+           let prefixCountry = CallsignCountry.lookup(normalizedCall)?.name,
+           country.isEmpty || country == lastAutoFilledCountry {
+            country = prefixCountry
+            lastAutoFilledCountry = prefixCountry
+        }
         guard case .found(let entry) = directory.lookups[normalizedCall] else { return }
         if let g = entry.grid, grid.isEmpty || grid == lastAutoFilledGrid {
             grid = g
@@ -657,7 +675,10 @@ private struct QSOFormSheet: View {
     private var builtRecord: QSORecord {
         let call = normalizedCall
         let duration = existing.map { $0.end.timeIntervalSince($0.start) } ?? 0
-        let state = state.trimmingCharacters(in: .whitespaces).uppercased()
+        // 2–3 letter region codes normalize to caps ("co" → "CO"); longer
+        // names ("Antioquia") keep their typed capitalization
+        let stateTrimmed = state.trimmingCharacters(in: .whitespaces)
+        let state = stateTrimmed.count <= 3 ? stateTrimmed.uppercased() : stateTrimmed
         let country = country.trimmingCharacters(in: .whitespaces)
         return QSORecord(
             id: existing?.id ?? UUID(),
