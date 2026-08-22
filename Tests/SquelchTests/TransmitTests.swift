@@ -364,6 +364,35 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(completed?.reportReceived, "-10")
     }
 
+    /// Contest mode: a busy runner gets no extra patience — retries burn
+    /// even while they're audibly working others, and we move on.
+    func testContestModeSkipsBusyPatience() {
+        let seq = makeSequencer()
+        seq.isContestActive = { true }
+        seq.maxRetries = 2
+        seq.replyTo(call: "P40AA", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA -10", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW R-07")
+
+        // They service other callers — proof of life, but the contest
+        // budget is zero, so each pass burns a retry
+        seq.ingest(decodes: [.init(text: "KJ5EQM P40AA +02", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW R-07")
+        seq.ingest(decodes: [.init(text: "W4HV P40AA +01", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "P40AA W0CJW R-07")
+        seq.ingest(decodes: [.init(text: "CQ P40AA FK52", snr: -8)], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1), "retries exhausted — move on")
+        XCTAssertEqual(seq.mode, .idle)
+
+        // Both reports made it across, so their straggling RR73 still logs
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.ingest(decodes: [.init(text: "W0CJW P40AA RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(completed?.partner, "P40AA")
+        XCTAssertEqual(completed?.reportReceived, "-10")
+    }
+
     func testSilentPartnerStillTimesOut() {
         let seq = makeSequencer()
         seq.maxRetries = 1
@@ -719,6 +748,95 @@ final class QSOSequencerTests: XCTestCase {
         // Old partner's stray 73 must not confuse the new session
         seq.ingest(decodes: [.init(text: "W0CJW N5CAR 73", snr: -8)], slotParity: 0)
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+    }
+
+    // MARK: - Pileup caller queue
+
+    /// Two stations answer one CQ: the second waits in line and gets a
+    /// report immediately after the first QSO — no CQ cycle in between.
+    func testPileupCallerAnsweredAfterQSO() {
+        let seq = makeSequencer()
+        var completed: [QSORecord] = []
+        seq.onQSOComplete = { completed.append($0) }
+
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+
+        // K1ABC and N2XYZ answer in the same slot — K1ABC decoded first
+        seq.ingest(decodes: [
+            .init(text: "W0CJW K1ABC EN52", snr: -7),
+            .init(text: "W0CJW N2XYZ FN31", snr: -3),
+        ], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+
+        // N2XYZ keeps calling while K1ABC's exchange finishes
+        seq.ingest(decodes: [
+            .init(text: "W0CJW K1ABC R-12", snr: -8),
+            .init(text: "W0CJW N2XYZ FN31", snr: -4),
+        ], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
+
+        // K1ABC done → straight to N2XYZ with a report (latest SNR), not CQ
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "N2XYZ W0CJW -04")
+
+        seq.ingest(decodes: [.init(text: "W0CJW N2XYZ R-15", snr: -5)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "N2XYZ W0CJW RR73")
+        XCTAssertEqual(completed.map(\.partner), ["K1ABC", "N2XYZ"])
+        XCTAssertEqual(completed.last?.partnerGrid, "FN31")
+
+        // Line empty → back to CQ
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+    }
+
+    /// A queued caller gets a shorter retry leash than a live one — if
+    /// they've moved on, the next CQ shouldn't wait for a full retry run.
+    func testQueuedCallerShortRetryLeash() {
+        let seq = makeSequencer()
+        seq.queuedCallerRetries = 1
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+
+        seq.ingest(decodes: [
+            .init(text: "W0CJW K1ABC EN52", snr: -7),
+            .init(text: "W0CJW N2XYZ FN31", snr: -3),
+        ], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0) // report to K1ABC
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -8)], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0) // RR73 to K1ABC
+
+        // N2XYZ went quiet: initial report + one retry, then CQ resumes
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "N2XYZ W0CJW -03")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "N2XYZ W0CJW -03")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+    }
+
+    /// A caller last heard beyond the freshness window is not chased.
+    func testStaleQueuedCallerNotAnswered() {
+        let seq = makeSequencer()
+        var clock = Date()
+        seq.now = { clock }
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+
+        seq.ingest(decodes: [
+            .init(text: "W0CJW K1ABC EN52", snr: -7),
+            .init(text: "W0CJW N2XYZ FN31", snr: -3),
+        ], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0) // report to K1ABC
+
+        // K1ABC takes a long time to roger; N2XYZ never calls again
+        clock = clock.addingTimeInterval(60)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -8)], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0) // RR73 to K1ABC
+
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79",
+                       "a caller silent for 60 s has moved on — CQ, don't chase")
     }
 
     // MARK: - Auto-answer entry points

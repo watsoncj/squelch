@@ -66,6 +66,19 @@ final class QSOSequencer: ObservableObject {
     /// How long after giving up a straggling RR73/73 still completes
     /// (and logs) the exchange.
     var lateSignoffGrace: TimeInterval = 300
+    /// Pileup overflow callers are only answered if heard again this
+    /// recently — three slots of silence means they've likely moved on.
+    var queuedCallerMaxAge: TimeInterval = 45
+    /// Retry budget when answering a queued caller — deliberately smaller
+    /// than `maxRetries`: they answered a while ago and may have lost
+    /// interest, and the rest of the line shouldn't wait to find out.
+    var queuedCallerRetries = 1
+    /// Whether a contest is running — injectable; the app wires this to
+    /// the active-contest setting. Under contest time pressure the busy
+    /// patience is zeroed: slots spent waiting in a runner's line are
+    /// slots not spent making QSOs, and a bailed exchange still logs via
+    /// `abandoned` if their signoff straggles in.
+    var isContestActive: () -> Bool = { false }
     /// Clock, injectable for tests.
     var now: () -> Date = { Date() }
     var onQSOComplete: ((QSORecord) -> Void)?
@@ -92,6 +105,8 @@ final class QSOSequencer: ObservableObject {
     /// proof of life that pauses the retry countdown.
     private var partnerBusyWith: String?
     private var busyPassesLeft = 0
+    /// Busy patience granted at each engagement — none during a contest.
+    private var busyPassBudget: Int { isContestActive() ? 0 : maxBusyPasses }
 
     /// Exchanges given up on with both reports already exchanged, kept so
     /// a straggling signoff still completes and logs the contact — pileup
@@ -105,6 +120,18 @@ final class QSOSequencer: ObservableObject {
         let abandonedAt: Date
     }
     private var abandoned: [String: AbandonedExchange] = [:]
+
+    /// Pileup overflow: stations that answered our CQ while we were
+    /// mid-exchange with someone else. The freshest one is answered
+    /// directly after the current QSO — a runner shouldn't make the
+    /// line sit through another CQ. Keyed by call, refreshed each time
+    /// they're heard again, pruned by `queuedCallerMaxAge`.
+    private struct QueuedCaller {
+        let grid: String?
+        let snr: Float
+        let heardAt: Date
+    }
+    private var queuedCallers: [String: QueuedCaller] = [:]
 
     /// The mirror of `abandoned`: QSOs we completed and LOGGED whose
     /// partner may have lost our final. A repeated roger from them within
@@ -133,13 +160,14 @@ final class QSOSequencer: ObservableObject {
         mode = .qsoAsAnswerer
         partner = call
         abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
+        queuedCallers[call] = nil // ditto: they're no longer waiting in line
         partnerGrid = grid // from their CQ — they won't send it again
         txParity = 1 - cqParity
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
         awaiting = .report
         retriesLeft = maxRetries
-        busyPassesLeft = maxBusyPasses
+        busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Answering \(call)")
@@ -152,13 +180,14 @@ final class QSOSequencer: ObservableObject {
         mode = .qsoAsCaller
         partner = call
         abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
+        queuedCallers[call] = nil // ditto: they're no longer waiting in line
         partnerGrid = grid
         txParity = 1 - theirParity
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(reportSent)"
         awaiting = .rogerReport
         retriesLeft = maxRetries
-        busyPassesLeft = maxBusyPasses
+        busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Answering \(call) with report")
@@ -172,6 +201,7 @@ final class QSOSequencer: ObservableObject {
         mode = .qsoAsAnswerer
         partner = call
         abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
+        queuedCallers[call] = nil // ditto: they're no longer waiting in line
         partnerGrid = grid
         reportReceived = report
         txParity = 1 - theirParity
@@ -179,7 +209,7 @@ final class QSOSequencer: ObservableObject {
         currentTX = "\(call) \(myCall) R\(reportSent)"
         awaiting = .rr73
         retriesLeft = maxRetries
-        busyPassesLeft = maxBusyPasses
+        busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
         describe("Roger report to \(call)")
@@ -210,6 +240,8 @@ final class QSOSequencer: ObservableObject {
         let cutoff = now().addingTimeInterval(-lateSignoffGrace)
         abandoned = abandoned.filter { $0.value.abandonedAt >= cutoff }
         recentlyCompleted = recentlyCompleted.filter { $0.value >= cutoff }
+        let queueCutoff = now().addingTimeInterval(-queuedCallerMaxAge)
+        queuedCallers = queuedCallers.filter { $0.value.heardAt >= queueCutoff }
 
         for decode in decodes {
             let tokens = decode.text.uppercased().split(separator: " ").map(String.init)
@@ -273,6 +305,16 @@ final class QSOSequencer: ObservableObject {
             guard tokens.count >= 2, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: brackets)
             let payload = tokens.count >= 3 ? tokens[2] : ""
+            // Pileup overflow while we're running: a CQ-shaped answer from
+            // someone who isn't the current partner joins the line
+            if resumeCQAfterQSO, mode == .qsoAsCaller, from != partner,
+               FT8MessageParser.isGrid(payload) || Self.isReport(payload) || payload.isEmpty {
+                queuedCallers[from] = QueuedCaller(
+                    grid: FT8MessageParser.isGrid(payload) ? payload : nil,
+                    snr: decode.snr,
+                    heardAt: now()
+                )
+            }
             handle(from: from, payload: payload, snr: decode.snr)
         }
     }
@@ -350,6 +392,7 @@ final class QSOSequencer: ObservableObject {
             guard FT8MessageParser.isGrid(payload) || Self.isReport(payload) || payload.isEmpty else { return }
             courtesyTX = nil // live exchange outranks a queued re-ack
             partner = from
+            queuedCallers[from] = nil // now the live partner, not in line
             partnerGrid = FT8MessageParser.isGrid(payload) ? payload : nil
             // A bare-report answer already carries their report — keep it, to
             // log and to arm the late-signoff stash if the exchange stalls
@@ -359,7 +402,7 @@ final class QSOSequencer: ObservableObject {
             mode = .qsoAsCaller
             awaiting = .rogerReport
             retriesLeft = maxRetries
-                busyPassesLeft = maxBusyPasses
+            busyPassesLeft = busyPassBudget
             currentTX = "\(from) \(myCall) \(reportSent)"
             markResponded("Answering \(from)\(partnerGrid.map { " (\($0))" } ?? "")")
 
@@ -390,7 +433,7 @@ final class QSOSequencer: ObservableObject {
                 currentTX = "\(from) \(myCall) R\(reportSent)"
                 awaiting = .rr73
                 retriesLeft = maxRetries
-                busyPassesLeft = maxBusyPasses
+                busyPassesLeft = busyPassBudget
                 markResponded("Roger report to \(from)")
             } else if Self.isSignoff(payload) {
                 completeQSO()
@@ -456,12 +499,30 @@ final class QSOSequencer: ObservableObject {
         recentlyCompleted[partner] = now()
     }
 
-    /// QSO (or attempt) is over: resume CQing if that's how we got here.
+    /// QSO (or attempt) is over: answer the next pileup caller if one is
+    /// still fresh, else resume CQing if that's how we got here.
     private func finishQSOSession() {
         let resume = resumeCQAfterQSO
         let parity = txParity
+        let next = resume ? popFreshestQueuedCaller() : nil
         reset()
-        if resume {
+        if let (call, info) = next {
+            // Straight to a report — they already sent their grid, and the
+            // line shouldn't sit through another CQ cycle
+            mode = .qsoAsCaller
+            partner = call
+            partnerGrid = info.grid
+            txParity = parity
+            reportSent = Self.formatReport(info.snr)
+            currentTX = "\(call) \(myCall) \(reportSent)"
+            awaiting = .rogerReport
+            // Short leash (see queuedCallerRetries): they may have moved on
+            retriesLeft = queuedCallerRetries
+            busyPassesLeft = min(queuedCallerRetries, busyPassBudget)
+            qsoStart = Date()
+            resumeCQAfterQSO = true
+            describe("Answering \(call) from the pileup")
+        } else if resume {
             mode = .cqLoop
             txParity = parity
             currentTX = cqText
@@ -471,6 +532,17 @@ final class QSOSequencer: ObservableObject {
         } else {
             describe("TX idle")
         }
+    }
+
+    /// Remove and return the most recently heard caller still inside the
+    /// freshness window; stale entries are dropped wholesale.
+    private func popFreshestQueuedCaller() -> (String, QueuedCaller)? {
+        let cutoff = now().addingTimeInterval(-queuedCallerMaxAge)
+        queuedCallers = queuedCallers.filter { $0.value.heardAt >= cutoff }
+        guard let best = queuedCallers.max(by: { $0.value.heardAt < $1.value.heardAt })
+        else { return nil }
+        queuedCallers[best.key] = nil
+        return (best.key, best.value)
     }
 
     private func reset() {
@@ -490,8 +562,8 @@ final class QSOSequencer: ObservableObject {
         partnerBusyWith = nil
         busyPassesLeft = 0
         courtesyTX = nil
-        // `abandoned` and `recentlyCompleted` deliberately survive:
-        // they outlive the QSO they came from
+        // `abandoned`, `recentlyCompleted`, and `queuedCallers` deliberately
+        // survive: they outlive the QSO they came from
     }
 
     private func markResponded(_ text: String) {
