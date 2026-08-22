@@ -340,7 +340,7 @@ struct QSOStatusPanel: View {
 
     private var title: String {
         switch sequencer.mode {
-        case .cqLoop: return "Calling CQ"
+        case .cqLoop: return "Calling \(sequencer.cqLabel)"
         case .qsoAsCaller, .qsoAsAnswerer: return "QSO with \(sequencer.currentPartner ?? "…")"
         case .idle: return ""
         }

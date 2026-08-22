@@ -5,7 +5,8 @@ final class FT8EncoderTests: XCTestCase {
     /// Full round trip through our own DSP: encode → decode.
     func testEncodeDecodeLoopback() throws {
         let decoder = try XCTUnwrap(FT8Decoder())
-        for message in ["CQ W0CJW DM79", "K1ABC W0CJW -05", "K1ABC W0CJW RR73", "W0CJW K1ABC R+03"] {
+        for message in ["CQ W0CJW DM79", "CQ POTA W0CJW DM79", "CQ DX W0CJW DM79",
+                        "K1ABC W0CJW -05", "K1ABC W0CJW RR73", "W0CJW K1ABC R+03"] {
             var samples = try XCTUnwrap(FT8Encoder.encode(message: message, frequencyHz: 1500),
                                         "encode failed for \(message)")
             XCTAssertGreaterThan(samples.count, 13 * FT8Decoder.sampleRate / 2)
@@ -19,6 +20,9 @@ final class FT8EncoderTests: XCTestCase {
 
     func testEncodeRejectsGarbage() {
         XCTAssertNil(FT8Encoder.encode(message: "THIS IS MUCH TOO LONG TO BE AN FT8 MESSAGE AT ALL", frequencyHz: 1500))
+        // Mixed letters+digits isn't a packable CQ modifier — the UI
+        // validates, but the encoder must refuse too
+        XCTAssertNil(FT8Encoder.encode(message: "CQ P0TA W0CJW DM79", frequencyHz: 1500))
     }
 
     func testFT4EncodeDecodeLoopback() throws {
@@ -322,6 +326,94 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
         XCTAssertNil(seq.transmission(forSlotParity: 0))
         XCTAssertEqual(seq.mode, .idle)
+    }
+
+    // MARK: Directed CQ and duty cycle
+
+    func testCQModifierRidesInMessage() {
+        let seq = makeSequencer()
+        seq.cqModifier = "POTA"
+        seq.startCQ(parity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ POTA W0CJW DM79")
+
+        // The exchange itself is untouched by the modifier
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+    }
+
+    func testModifierChangeAppliesMidRun() {
+        let seq = makeSequencer()
+        seq.startCQ(parity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+
+        seq.cqModifier = "DX"
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ DX W0CJW DM79")
+    }
+
+    func testDutyCycleSkipsSlotsWithoutBurningBudget() {
+        let seq = makeSequencer()
+        seq.cqSlotInterval = 3
+        seq.maxUnansweredCQ = 2
+        seq.startCQ(parity: 0)
+
+        // Calls go out on every 3rd of our slots; the listening slots in
+        // between must not count toward the unanswered-CQ give-up
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0), "listen slot")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0), "listen slot")
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+        XCTAssertEqual(seq.mode, .cqLoop, "one unanswered CALL so far, not three slots — still under budget")
+
+        // Budget counts transmissions: the next due call is the give-up
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0))
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertNil(seq.transmission(forSlotParity: 0), "2 unanswered calls — run gives up")
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    func testAnswerDuringListenSlotWorkedImmediately() {
+        let seq = makeSequencer()
+        seq.cqSlotInterval = 4
+        seq.startCQ(parity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+
+        // K1ABC answers right before a listen slot — duty gates only the
+        // CQ itself, so the report goes straight out
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+    }
+
+    func testResumedRunOpensWithImmediateCQ() {
+        let seq = makeSequencer()
+        seq.cqSlotInterval = 3
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
+
+        // QSO done — the resumed loop must not open on a listen slot
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+    }
+
+    func testCQModifierValidation() {
+        XCTAssertTrue(QSOSequencer.isValidCQModifier("DX"))
+        XCTAssertTrue(QSOSequencer.isValidCQModifier("POTA"))
+        XCTAssertTrue(QSOSequencer.isValidCQModifier("573"), "3 digits = a frequency-directed CQ")
+        XCTAssertFalse(QSOSequencer.isValidCQModifier(""))
+        XCTAssertFalse(QSOSequencer.isValidCQModifier("POTAX"), "5 letters won't pack")
+        XCTAssertFalse(QSOSequencer.isValidCQModifier("P0TA"), "mixed letters+digits won't pack")
+        XCTAssertFalse(QSOSequencer.isValidCQModifier("12"))
+        XCTAssertFalse(QSOSequencer.isValidCQModifier("1234"))
     }
 
     func testIgnoresMessagesForOthers() {

@@ -57,6 +57,14 @@ final class QSOSequencer: ObservableObject {
 
     var myCall = ""
     var myGrid4 = ""
+    /// Directed-CQ modifier riding between CQ and our call ("DX", "POTA").
+    /// The app validates with `isValidCQModifier` before setting; read
+    /// fresh at each CQ transmission, so mid-run changes take effect.
+    var cqModifier = ""
+    /// Transmit every Nth of our slots while CQing (1 = every slot).
+    /// Skipped slots are pure listen — an answer landing in one is
+    /// engaged immediately; only the CQ itself is throttled.
+    var cqSlotInterval = 1
     var maxRetries = 3
     var maxUnansweredCQ = 10
     /// Extra no-progress TX slots tolerated while the partner is heard
@@ -88,6 +96,8 @@ final class QSOSequencer: ObservableObject {
 
     private(set) var txParity = 0
     private var currentTX: String?
+    /// Our-parity slots seen this CQ loop, for the duty-cycle skip.
+    private var cqSlotCounter = 0
     private var awaiting: Awaiting = .none
     private var partner: String? {
         didSet { currentPartner = partner }
@@ -152,7 +162,13 @@ final class QSOSequencer: ObservableObject {
         currentTX = cqText
         awaiting = .answer
         resumeCQAfterQSO = true
-        describe("Calling CQ (\(parityName(parity)) slots)")
+        describe("Calling \(cqLabel) (\(parityName(parity)) slots)")
+    }
+
+    /// A CQ run is on — calling now, or mid-QSO and returning to the
+    /// loop afterward. Drives the toolbar button's lit state.
+    var cqRunActive: Bool {
+        mode == .cqLoop || (mode != .idle && resumeCQAfterQSO)
     }
 
     func replyTo(call: String, snr: Float, cqParity: Int, grid: String? = nil) {
@@ -332,6 +348,19 @@ final class QSOSequencer: ObservableObject {
 
         guard mode != .idle, parity == txParity, let tx = currentTX else { return nil }
 
+        // Duty cycle: while CQing, transmit only every Nth of our slots.
+        // The skip returns BEFORE the no-progress accounting, so listening
+        // slots never burn the unanswered-CQ budget; `handle` still
+        // engages an answer that lands in one.
+        if mode == .cqLoop {
+            let due = cqSlotCounter % max(1, cqSlotInterval) == 0
+            cqSlotCounter += 1
+            if !due {
+                describe("Listening between \(cqLabel) calls")
+                return nil
+            }
+        }
+
         if !respondedSinceLastTX {
             // No progress since our last transmission
             if mode == .cqLoop {
@@ -380,6 +409,13 @@ final class QSOSequencer: ObservableObject {
         }
         respondedSinceLastTX = false
         partnerBusyWith = nil // per-slot evidence, consumed above
+        if mode == .cqLoop {
+            // Rebuild from the live modifier — a flavor change mid-run
+            // shapes this very call, and the description tracks it
+            currentTX = cqText
+            describe("Calling \(cqLabel) (\(parityName(txParity)) slots)")
+            return cqText
+        }
         return tx
     }
 
@@ -528,7 +564,7 @@ final class QSOSequencer: ObservableObject {
             currentTX = cqText
             awaiting = .answer
             resumeCQAfterQSO = true
-            describe("Calling CQ (\(parityName(parity)) slots)")
+            describe("Calling \(cqLabel) (\(parityName(parity)) slots)")
         } else {
             describe("TX idle")
         }
@@ -562,6 +598,7 @@ final class QSOSequencer: ObservableObject {
         partnerBusyWith = nil
         busyPassesLeft = 0
         courtesyTX = nil
+        cqSlotCounter = 0 // resumed runs open with an immediate CQ
         // `abandoned`, `recentlyCompleted`, and `queuedCallers` deliberately
         // survive: they outlive the QSO they came from
     }
@@ -577,7 +614,12 @@ final class QSOSequencer: ObservableObject {
     }
 
     private var cqText: String {
-        "CQ \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
+        "\(cqLabel) \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
+    }
+
+    /// "CQ" or "CQ POTA" — the run's name in descriptions and the chip.
+    var cqLabel: String {
+        cqModifier.isEmpty ? "CQ" : "CQ \(cqModifier)"
     }
 
     private func parityName(_ parity: Int) -> String {
@@ -603,5 +645,14 @@ final class QSOSequencer: ObservableObject {
 
     static func isSignoff(_ s: String) -> Bool {
         s == "RR73" || s == "RRR" || s == "73"
+    }
+
+    /// A directed-CQ modifier the FT8 payload can carry (ft8_lib pack28's
+    /// c28 special range): 1–4 letters ("DX", "POTA") or exactly 3 digits.
+    /// Mixed letters+digits don't pack — "P0TA" would fail at encode time.
+    static func isValidCQModifier(_ s: String) -> Bool {
+        if s.count == 3, s.allSatisfy(\.isNumber) { return true }
+        return (1...4).contains(s.count)
+            && s.allSatisfy { $0.isASCII && $0.isLetter && $0.isUppercase }
     }
 }

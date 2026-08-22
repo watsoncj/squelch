@@ -155,6 +155,10 @@ final class AppModel: ObservableObject {
         let parity = Int(slotStart.timeIntervalSince1970 / period) % 2
         sequencer.myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
+        // Refreshed every slot like the call/grid, so flyout changes to
+        // the CQ flavor and duty cycle apply mid-run
+        sequencer.cqModifier = Self.activeCQModifier()
+        sequencer.cqSlotInterval = max(1, UserDefaults.standard.integer(forKey: SettingsKeys.cqSlotInterval))
 
         // Always ingest — even idle, a straggling RR73 from an abandoned
         // exchange can complete and log a QSO (ingest no-ops otherwise)
@@ -465,6 +469,8 @@ final class AppModel: ObservableObject {
         let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
         sequencer.myCall = myCall
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
+        sequencer.cqModifier = Self.activeCQModifier()
+        sequencer.cqSlotInterval = max(1, UserDefaults.standard.integer(forKey: SettingsKeys.cqSlotInterval))
         let lastParity = UserDefaults.standard.integer(forKey: SettingsKeys.lastCQParity)
         let parity = Self.quieterParity(
             messages: Array(store.messages.prefix(400)),
@@ -474,6 +480,15 @@ final class AppModel: ObservableObject {
         )
         UserDefaults.standard.set(parity, forKey: SettingsKeys.lastCQParity)
         sequencer.startCQ(parity: parity)
+    }
+
+    /// The stored CQ flavor, if it's one the FT8 payload can carry —
+    /// anything else (mid-edit custom text) falls back to plain CQ
+    /// rather than failing at encode time every slot.
+    static func activeCQModifier() -> String {
+        let raw = (UserDefaults.standard.string(forKey: SettingsKeys.cqModifier) ?? "")
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        return QSOSequencer.isValidCQModifier(raw) ? raw : ""
     }
 
     /// Slot parity with less recent traffic — where our CQ competes least.
@@ -618,6 +633,7 @@ struct SquelchApp: App {
             SettingsKeys.catBaud: 0, // auto-detect
             SettingsKeys.wsprPowerDBm: 37,
             SettingsKeys.wsprDutyPct: 20,
+            SettingsKeys.cqSlotInterval: 1,
             SettingsKeys.autoUpdateCheck: true,
         ])
     }

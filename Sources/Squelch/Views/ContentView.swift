@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var showCheatsheet = false
     @State private var showFrequencies = false
     @State private var showHunt = false
+    @State private var showCQ = false
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @State private var isFullScreen = false
@@ -481,17 +482,21 @@ struct ContentView: View {
                     .help(txDisabledReason ?? "Transmit WSPR at the configured duty cycle; spots of your signal appear on wsprnet receivers worldwide")
                 } else {
                     Button {
-                        if sequencer.mode == .idle {
-                            actions.startCQ()
-                        } else {
-                            actions.haltTX()
-                        }
+                        showCQ.toggle()
                     } label: {
-                        Label(sequencer.mode == .idle ? "Call CQ" : "Stop CQ",
-                              systemImage: sequencer.mode == .idle ? "megaphone.fill" : "megaphone")
+                        Label("Call CQ", systemImage: sequencer.cqRunActive ? "megaphone.fill" : "megaphone")
+                            .foregroundStyle(sequencer.cqRunActive ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
                     }
-                    .disabled(sequencer.mode == .idle && !txAvailable)
-                    .help(txDisabledReason ?? "Call CQ repeatedly and answer stations that come back")
+                    .help("Call CQ and answer stations that come back — pick a flavor (DX, POTA…) and how often to call")
+                    .popover(isPresented: $showCQ, arrowEdge: .bottom) {
+                        CQFlyout(
+                            sequencer: sequencer,
+                            txAvailable: txAvailable,
+                            txDisabledReason: txDisabledReason,
+                            onStart: { actions.startCQ(); showCQ = false },
+                            onStop: { actions.haltTX(); showCQ = false }
+                        )
+                    }
 
                     Button {
                         showHunt.toggle()
@@ -574,6 +579,152 @@ struct ContentView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    /// CQ caller flyout, HuntFlyout-style: start/stop the run and shape
+    /// it — a directed-CQ flavor (CQ DX, CQ POTA, custom) and a duty
+    /// cycle (call every Nth of our slots, pure listen in between). Both
+    /// are re-read each slot, so changes apply live mid-run. The preview
+    /// row shows the exact message that goes on the air.
+    private struct CQFlyout: View {
+        @ObservedObject var sequencer: QSOSequencer
+        let txAvailable: Bool
+        let txDisabledReason: String?
+        let onStart: () -> Void
+        let onStop: () -> Void
+
+        @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+        @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
+        @AppStorage(SettingsKeys.cqModifier) private var modifier = ""
+        @AppStorage(SettingsKeys.cqSlotInterval) private var interval = 1
+        @State private var customFlavor = false
+        @FocusState private var customFieldFocused: Bool
+
+        private static let presets = ["DX", "POTA", "SOTA", "TEST"]
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Call CQ")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+
+                // The exact message that goes on the air
+                Text(previewText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+
+                Divider()
+
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Flavor")
+                        Picker("", selection: flavorSelection) {
+                            Text("Plain CQ").tag("")
+                            ForEach(Self.presets, id: \.self) { Text("CQ \($0)").tag($0) }
+                            Divider()
+                            Text("Custom…").tag("custom")
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    GridRow {
+                        Text("Call every")
+                        Picker("", selection: $interval) {
+                            Text("slot").tag(1)
+                            Text("2nd slot").tag(2)
+                            Text("3rd slot").tag(3)
+                            Text("4th slot").tag(4)
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .help("How often to transmit while calling — skipped slots just listen; an answer landing in one is worked right away")
+                    }
+                }
+
+                if customFlavor {
+                    TextField("Up to 4 letters (QRP, EU…)", text: $modifier)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($customFieldFocused)
+                        .onChange(of: modifier) { _, raw in
+                            // Keep it FT8-packable as they type: A–Z/0–9, max 4
+                            let cleaned = String(raw.uppercased()
+                                .filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+                                .prefix(4))
+                            if cleaned != raw { modifier = cleaned }
+                        }
+                    if !modifier.isEmpty && !QSOSequencer.isValidCQModifier(modifier) {
+                        Text("FT8 can't carry this one — 1–4 letters (or exactly 3 digits). Calling plain CQ until it fits.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .frame(width: 220, alignment: .leading)
+                    }
+                }
+
+                Divider()
+
+                if sequencer.cqRunActive {
+                    Button {
+                        onStop()
+                    } label: {
+                        Label("Stop Calling", systemImage: "stop.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                } else {
+                    Button {
+                        onStart()
+                    } label: {
+                        Label("Start Calling", systemImage: "megaphone.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!txAvailable)
+                    if let reason = txDisabledReason {
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .frame(width: 220, alignment: .leading)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(width: 248)
+            .onAppear {
+                customFlavor = !modifier.isEmpty && !Self.presets.contains(modifier)
+            }
+        }
+
+        /// Menu selection over the stored modifier: presets map straight
+        /// through; "custom" pins the text field open (even while empty,
+        /// which would otherwise read as Plain).
+        private var flavorSelection: Binding<String> {
+            Binding(
+                get: {
+                    if customFlavor { return "custom" }
+                    return Self.presets.contains(modifier) ? modifier : ""
+                },
+                set: { choice in
+                    if choice == "custom" {
+                        customFlavor = true
+                        customFieldFocused = true
+                    } else {
+                        customFlavor = false
+                        modifier = choice
+                    }
+                }
+            )
+        }
+
+        private var previewText: String {
+            let mod = QSOSequencer.isValidCQModifier(modifier) ? modifier : ""
+            let call = myCallsign.uppercased()
+            let grid = String(myGrid.uppercased().prefix(4))
+            return ["CQ", mod, call.isEmpty ? "MYCALL" : call, grid]
+                .filter { !$0.isEmpty }.joined(separator: " ")
         }
     }
 
