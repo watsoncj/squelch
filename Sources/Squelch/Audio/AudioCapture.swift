@@ -166,6 +166,30 @@ final class AudioCapture {
             && format.channelCount == converter.inputFormat.channelCount
     }
 
+    /// The device the engine is ACTUALLY capturing from, read back from
+    /// the HAL unit — not what was requested. After a device disappears
+    /// (Digirig replug) the unit can quietly land on the system default
+    /// (built-in mic); this is how callers find out.
+    func boundInputDeviceID() -> AudioDeviceID? {
+        #if os(macOS)
+        guard let engine, let unit = engine.inputNode.audioUnit else { return nil }
+        var bound = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            unit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &bound,
+            &size
+        )
+        guard status == noErr, bound != 0 else { return nil }
+        return bound
+        #else
+        return nil
+        #endif
+    }
+
     func stop() {
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)

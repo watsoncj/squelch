@@ -852,8 +852,17 @@ struct ContentView: View {
             // Re-enumerate at start so a just-plugged Digirig is found;
             // the device itself is chosen in Settings → Audio Input
             devices = AudioDevices.inputDevices()
-            let device = devices.first { $0.uid == audioDeviceUID }
-            controller.start(device: device)
+            // Port-move healing, mirroring the TX side: the UID embeds the
+            // USB location, so a moved Digirig comes back under a new UID —
+            // match on stable identity and adopt it
+            let resolved = AudioDevices.resolveInput(storedUID: audioDeviceUID, inputs: devices)
+            if let resolved, resolved.healed {
+                audioDeviceUID = resolved.device.uid
+            }
+            // wantedUID rides along so a stored UID that matches nothing
+            // (Digirig actually unplugged) surfaces as the wrong-input chip
+            // instead of silently decoding the built-in mic
+            controller.start(device: resolved?.device, wantedUID: audioDeviceUID)
             // Pre-start the TX engine so its device reconfiguration hits
             // now, while the capture's config-change handler can absorb it
             transmit.warmUp()

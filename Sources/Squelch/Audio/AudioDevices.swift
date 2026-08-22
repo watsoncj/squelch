@@ -49,6 +49,36 @@ enum AudioDevices {
         }
     }
 
+    /// The system default input device's HAL ID — what a capture engine
+    /// falls back to when its explicit device vanishes.
+    static func defaultInputID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id) == noErr,
+              id != 0 else { return nil }
+        return id
+    }
+
+    /// RX-side sibling of `resolveTXOutput`: find the stored input device,
+    /// healing a UID invalidated by a USB port move via the stable
+    /// identity. `healed` means the caller should persist the new UID.
+    static func resolveInput(storedUID: String, inputs: [AudioDevice]) -> (device: AudioDevice, healed: Bool)? {
+        guard !storedUID.isEmpty else { return nil }
+        if let exact = inputs.first(where: { $0.uid == storedUID }) {
+            return (exact, false)
+        }
+        let norm = normalizedUID(storedUID)
+        if !norm.isEmpty, let moved = inputs.first(where: { normalizedUID($0.uid) == norm }) {
+            return (moved, true)
+        }
+        return nil
+    }
+
     /// Best guess at the Digirig's sound card: its CM108/CM119 codec shows up
     /// as a generic "USB Audio Device" / "USB PnP Sound Device".
     static func likelyDigirig(in devices: [AudioDevice]) -> AudioDevice? {

@@ -38,6 +38,8 @@ struct QSOStatusPanel: View {
             micDeniedChip
         } else if let error = controller.startError {
             startErrorChip(error)
+        } else if controller.isRunning, let mismatch = controller.inputMismatch {
+            inputMismatchChip(mismatch)
         } else if controller.isRunning, controller.inputSilent {
             silentInputChip
         } else if controller.isRunning, controller.inputClipping {
@@ -89,6 +91,21 @@ struct QSOStatusPanel: View {
             }
             .buttonStyle(.borderless)
         }
+    }
+
+    /// The capture engine quietly landed on a different input than the one
+    /// selected — classically the built-in mic after a Digirig replug (a
+    /// USB port move changes the device's UID, so neither the mid-run
+    /// rebuild nor a restart finds it). The decoder then chews room noise
+    /// with no other symptom than "no decodes".
+    private func inputMismatchChip(_ mismatch: DecodeController.InputMismatch) -> some View {
+        chip(tint: .red) {
+            Image(systemName: "mic.badge.xmark")
+                .foregroundStyle(.red)
+            Text("Hearing \(mismatch.actualName), not the radio")
+                .font(.callout)
+        }
+        .help("Decoding is running on “\(mismatch.actualName)” instead of \(mismatch.wantedName.map { "“\($0)”" } ?? "the selected input") — the selected device wasn't found (moving the Digirig to a different USB port changes its identity). Replug it or reselect it in Settings → Audio Input, then Stop and Start decoding.")
     }
 
     /// Decoding but the input has been dead quiet — indistinguishable from

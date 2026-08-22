@@ -22,6 +22,16 @@ final class DecodeController: ObservableObject {
     /// device, dead USB cable, or radio volume at zero. Without this the
     /// symptom is just "no decodes", indistinguishable from a quiet band.
     @Published var inputSilent = false
+    /// The capture engine is quietly bound to a different input than the
+    /// one selected — classically the built-in mic after a Digirig replug.
+    /// A USB port move changes the device's UID, so the mid-run rebuild
+    /// rebinds to the system default AND a plain Stop/Start falls back to
+    /// it too; the decoder then chews room noise with no other symptom.
+    struct InputMismatch: Equatable {
+        let actualName: String
+        let wantedName: String?
+    }
+    @Published var inputMismatch: InputMismatch?
     /// The input is slamming full scale — overdriven audio distorts and
     /// kills weak-signal decoding.
     @Published var inputClipping = false
@@ -65,6 +75,17 @@ final class DecodeController: ObservableObject {
         return Int(factor * slotSeconds * Double(FT8Decoder.sampleRate))
     }
 
+    /// What Start was asked to capture from, for the per-slot binding
+    /// check. `wantedInputUID` is kept even when the device wasn't found
+    /// at Start (its UID changed with a USB port move) — that absence IS
+    /// the mismatch to report.
+    private var wantedInputDevice: AudioDevice?
+    private var wantedInputUID = ""
+    /// Slots that ended with zero captured samples — a dead capture
+    /// engine (failed rebuild after the device vanished). `append` never
+    /// runs then, so the level-based silence detection is blind to it.
+    private var emptySlotStreak = 0
+
     private var lastLevelUpdate = Date.distantPast
     /// Silence detection: above this is "real audio" (Digirig band noise
     /// sits far higher; digital silence/zeros sit at -80).
@@ -93,8 +114,8 @@ final class DecodeController: ObservableObject {
     private var wakeObserver: NSObjectProtocol?
 
     #if os(macOS)
-    func start(device: AudioDevice?) {
-        startAuthorized { $0.beginCapture(device: device) }
+    func start(device: AudioDevice?, wantedUID: String = "") {
+        startAuthorized { $0.beginCapture(device: device, wantedUID: wantedUID) }
     }
     #else
     func start() {
@@ -143,6 +164,10 @@ final class DecodeController: ObservableObject {
         statusText = "Stopped"
         audioLevelDB = -80
         inputSilent = false
+        inputMismatch = nil
+        wantedInputDevice = nil
+        wantedInputUID = ""
+        emptySlotStreak = 0
         if let assertion = sleepAssertion {
             ProcessInfo.processInfo.endActivity(assertion)
             sleepAssertion = nil
@@ -150,7 +175,7 @@ final class DecodeController: ObservableObject {
     }
 
     #if os(macOS)
-    private func beginCapture(device: AudioDevice?) {
+    private func beginCapture(device: AudioDevice?, wantedUID: String) {
         mode = DigiMode.current
         decodeQueue.async { [weak self] in self?.decoder = nil } // rebuild for mode
         capture.onSamples = { [weak self] samples in
@@ -164,6 +189,8 @@ final class DecodeController: ObservableObject {
             return
         }
         deviceName = device?.name ?? "Default input"
+        wantedInputDevice = device
+        wantedInputUID = device?.uid ?? wantedUID
         finishStart()
     }
     #else
@@ -197,7 +224,12 @@ final class DecodeController: ObservableObject {
         wsprStrongUnverifiedSlots = 0
         narrowFilterSpan = nil
         recentDecodeFreqs.removeAll()
+        inputMismatch = nil
+        emptySlotStreak = 0
         lastAudibleAt = Date()
+        #if os(macOS)
+        checkInputBinding() // a stale stored UID mismatches from slot one
+        #endif
         if sleepAssertion == nil {
             sleepAssertion = ProcessInfo.processInfo.beginActivity(
                 options: .idleSystemSleepDisabled,
@@ -347,6 +379,7 @@ final class DecodeController: ObservableObject {
             results = []
         }
         let isWSPR = mode == .wspr
+        let slotWasEmpty = slotSamples.isEmpty
         DispatchQueue.main.async {
             self.lastSlotCount = results.count
             if let sync = wsprSlotSync {
@@ -355,8 +388,81 @@ final class DecodeController: ObservableObject {
             if !isWSPR {
                 self.noteDecodedFrequencies(results.map(\.freqHz))
             }
+            self.noteSlotFill(empty: slotWasEmpty)
+            #if os(macOS)
+            self.checkInputBinding()
+            #endif
             self.onSlotDecoded?(results, slotStart)
         }
+    }
+
+    /// Dead-capture detection, driven by the slot timer (which keeps
+    /// firing when the engine dies): a slot with NO samples at all means
+    /// capture stopped, so the level-based silence check — computed in
+    /// `append`, which no longer runs — can never fire. Two in a row is
+    /// decisive; a single one can happen right after Start.
+    func noteSlotFill(empty: Bool) {
+        if empty {
+            emptySlotStreak += 1
+            if emptySlotStreak >= 2, !inputSilent {
+                inputSilent = true
+            }
+        } else {
+            emptySlotStreak = 0
+        }
+    }
+
+    #if os(macOS)
+    /// Compare what the engine is actually bound to against what Start
+    /// asked for; publishes the mismatch for the warning chip. The bound
+    /// ID is resolved against the LIVE device list — after a replug the
+    /// unit's device property can keep reporting an ID that no longer
+    /// exists while the HAL actually captures from the default input.
+    private func checkInputBinding() {
+        guard isRunning else { return }
+        let attached = AudioDevices.inputDevices()
+        let mismatch = Self.inputMismatch(
+            boundID: capture.boundInputDeviceID(),
+            attachedInputs: attached,
+            defaultInput: AudioDevices.defaultInputID().flatMap { id in attached.first { $0.id == id } },
+            wantedUID: wantedInputUID,
+            wantedName: wantedInputDevice?.name,
+            audioFlowing: emptySlotStreak == 0
+        )
+        if mismatch != inputMismatch {
+            inputMismatch = mismatch
+        }
+    }
+    #endif
+
+    /// Pure decision for the wrong-input warning. Identity is the
+    /// NORMALIZED UID — a port move changes the exact UID but not the
+    /// device, so capturing from the same hardware under a new UID is
+    /// clean (the false-positive case: the stale stored UID missed, Start
+    /// fell back to the default input, and the default WAS the Digirig).
+    /// A binding that resolves to no attached device while audio still
+    /// flows means the HAL fell back to something else — almost always
+    /// the default input — and that IS a mismatch (the false-negative
+    /// case). No wanted UID (deliberately on the default input) never
+    /// warns; no audio at all is the silent chip's job, not this one's.
+    static func inputMismatch(
+        boundID: AudioDeviceID?,
+        attachedInputs: [AudioDevice],
+        defaultInput: AudioDevice?,
+        wantedUID: String,
+        wantedName: String?,
+        audioFlowing: Bool
+    ) -> InputMismatch? {
+        guard !wantedUID.isEmpty else { return nil }
+        let wantedNorm = AudioDevices.normalizedUID(wantedUID)
+        if let boundID, let bound = attachedInputs.first(where: { $0.id == boundID }) {
+            if bound.uid == wantedUID || AudioDevices.normalizedUID(bound.uid) == wantedNorm {
+                return nil
+            }
+            return InputMismatch(actualName: bound.name, wantedName: wantedName)
+        }
+        guard audioFlowing else { return nil }
+        return InputMismatch(actualName: defaultInput?.name ?? "an unknown input", wantedName: wantedName)
     }
 
     /// Feed FT8/FT4 decode audio frequencies into the narrow-filter check:
