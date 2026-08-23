@@ -16,17 +16,12 @@ enum MapStyleChoice: String, CaseIterable, Identifiable {
 
     var style: MapStyle {
         switch self {
-        // Realistic elevation unlocks the far zoom-out: flat Mercator
-        // hard-caps the camera at roughly a hemisphere, realistic pulls
-        // back to the full globe. At band-watching zooms they render
-        // identically.
-        case .standard: return .standard(elevation: .realistic)
-        case .hybrid: return .hybrid(elevation: .realistic)
-        case .satellite: return .imagery(elevation: .realistic)
+        case .standard: return .standard(elevation: .flat)
+        case .hybrid: return .hybrid(elevation: .flat)
+        case .satellite: return .imagery(elevation: .flat)
         // Imagery has no floating labels (labels draw ABOVE overlays and
         // would poke through the vector world); the opaque ocean+land
-        // polygons hide whatever imagery streams when online. Flat, so
-        // the bundled polygons never fight a 3D globe.
+        // polygons hide whatever imagery streams when online
         case .offline: return .imagery(elevation: .flat)
         }
     }
@@ -168,8 +163,6 @@ struct MapPane: View {
     /// Latest settled viewport, for the zoom buttons (updated on gesture
     /// end only — per-frame updates would re-diff map content while panning)
     @State private var visibleRegion: MKCoordinateRegion?
-    /// Settled camera, for distance-based zooming (same cadence).
-    @State private var visibleCamera: MapCamera?
 
     private static let colorAgingTick = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
@@ -324,25 +317,6 @@ struct MapPane: View {
     }
 
     private func zoom(by factor: Double) {
-        // Drive the camera DISTANCE, not a region: setting a region caps
-        // out at MapKit's region-fitting ceiling (~a hemisphere), well
-        // short of how far the camera can actually pull back — the full
-        // globe. The floor keeps zoom-in from burrowing into the ground;
-        // zoom-out lets MapKit's own ceiling clamp.
-        if let cam = visibleCamera {
-            let distance = max(cam.distance * factor, 2_000)
-            withAnimation(.easeInOut(duration: 0.3)) {
-                camera = .camera(MapCamera(
-                    centerCoordinate: cam.centerCoordinate,
-                    distance: distance,
-                    heading: cam.heading,
-                    pitch: cam.pitch
-                ))
-            }
-            return
-        }
-        // No settled camera yet (first moments after launch) — old
-        // region-based fallback
         guard let region = visibleRegion ?? camera.region else { return }
         var r = region
         r.span.latitudeDelta = min(max(r.span.latitudeDelta * factor, 0.02), 170)
@@ -546,7 +520,6 @@ struct MapPane: View {
         .mapControls { } // defaults off — the side stack provides them
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
-            visibleCamera = context.camera
             // The .continuous stream can stop a hair before a long
             // programmatic flight settles (the easing tail's tiny deltas
             // stop emitting events), leaving the cell canvas painted for a
