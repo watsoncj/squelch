@@ -52,6 +52,35 @@ final class ObscuredEdgeRegionTests: XCTestCase {
     }
 }
 
+/// The antipodal-stripe guard: far-side cells whose corners project into
+/// opposite world copies must be culled, while legitimately huge quads
+/// (camera zoomed inside the cell) must keep drawing.
+final class AntipodalQuadTests: XCTestCase {
+    // Corner order matches quad(): [NW, NE, SE, SW]
+
+    func testWrappedCornersDetected() {
+        // West corners flung to the far right, east corners to the far
+        // left — the 2026-08-23 full-width-stripe screenshot
+        let wrapped = [CGPoint(x: 1800, y: 100), CGPoint(x: -1200, y: 100),
+                       CGPoint(x: -1200, y: 140), CGPoint(x: 1800, y: 140)]
+        XCTAssertTrue(MapPane.projectedQuadWrapsWorld(wrapped))
+    }
+
+    func testNormalQuadPasses() {
+        let normal = [CGPoint(x: 100, y: 100), CGPoint(x: 160, y: 100),
+                      CGPoint(x: 160, y: 140), CGPoint(x: 100, y: 140)]
+        XCTAssertFalse(MapPane.projectedQuadWrapsWorld(normal))
+    }
+
+    func testZoomedInsideCellStillDraws() {
+        // All corners off-screen but correctly ordered — the camera is
+        // inside the cell and the fill must cover the viewport
+        let huge = [CGPoint(x: -900, y: -400), CGPoint(x: 2400, y: -400),
+                    CGPoint(x: 2400, y: 1600), CGPoint(x: -900, y: 1600)]
+        XCTAssertFalse(MapPane.projectedQuadWrapsWorld(huge))
+    }
+}
+
 final class MapCellTests: XCTestCase {
 
     func testCellPerimeterCoversTheCellWithShortSegments() {

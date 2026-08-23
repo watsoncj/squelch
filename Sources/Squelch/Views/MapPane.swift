@@ -715,6 +715,20 @@ struct MapPane: View {
         Date().timeIntervalSince(lastHeard) < recencyWindowSeconds
     }
 
+    /// A cell on the far side of the globe straddling the camera's
+    /// antipodal meridian projects its west and east corners into
+    /// OPPOSITE world copies — each corner lands in its nearest copy —
+    /// and the quad paints as a full-width stripe across the map at the
+    /// cell's latitude (seen after panning half a world away). Inverted
+    /// west→east x-order is the tell: a legitimately enormous quad
+    /// (camera zoomed inside the cell) keeps west left of east.
+    /// Trade-off: a map rotated past ~90° culls cells instead of
+    /// striping — far better, and rotation that extreme is rare.
+    /// Corners arrive [NW, NE, SE, SW], matching `quad`.
+    static func projectedQuadWrapsWorld(_ corners: [CGPoint]) -> Bool {
+        guard corners.count == 4 else { return true }
+        return corners[0].x > corners[1].x || corners[3].x > corners[2].x
+    }
 }
 
 /// Heard-station and beacon grid squares as a plain drawing pass above
@@ -787,6 +801,9 @@ private struct CellCanvas: View {
             guard let point = proxy.convert(corner, to: .local) else { return nil }
             points.append(point)
         }
+        // Far-side cells straddling the antipodal meridian wrap into a
+        // full-width stripe — cull them (see projectedQuadWrapsWorld)
+        if MapPane.projectedQuadWrapsWorld(points) { return nil }
         var minX = points[0].x, maxX = points[0].x
         var minY = points[0].y, maxY = points[0].y
         for point in points.dropFirst() {
