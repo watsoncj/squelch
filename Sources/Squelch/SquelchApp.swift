@@ -242,17 +242,24 @@ final class AppModel: ObservableObject {
         let flags = CQHunter.Flags(
             dx: UserDefaults.standard.bool(forKey: SettingsKeys.huntDX),
             newStates: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewStates),
-            newCountries: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewCountries)
+            newCountries: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewCountries),
+            ww: UserDefaults.standard.bool(forKey: SettingsKeys.huntWW)
         )
         let stateForGrid: (String) -> String? = { [stateResolver] grid in
             stateResolver.state(forGrid: grid, isUS: true)
         }
         let worked = CQHunter.workedSets(records: qsoLog.records, stateForGrid: stateForGrid)
+        let contest = (UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? "")
+            .trimmingCharacters(in: .whitespaces)
         guard let candidate = CQHunter.pick(
             decodes: results.map { ($0.text, $0.snr) },
             myCall: myCall,
             flags: flags,
-            workedCalls: qsoLog.workedCalls,
+            workedCalls: CQHunter.dupeCalls(
+                records: qsoLog.records,
+                dialMHz: dial,
+                contest: contest.isEmpty ? nil : contest
+            ),
             workedStates: worked.states,
             workedCountries: worked.countries,
             passedCalls: huntPassedCalls,

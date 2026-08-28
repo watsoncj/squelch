@@ -617,7 +617,7 @@ struct ContentView: View {
         @State private var customFlavor = false
         @FocusState private var customFieldFocused: Bool
 
-        private static let presets = ["DX", "POTA", "SOTA", "TEST"]
+        private static let presets = ["DX", "WW", "TEST", "POTA", "SOTA"]
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
@@ -754,6 +754,7 @@ struct ContentView: View {
         @AppStorage(SettingsKeys.huntDX) private var dx = false
         @AppStorage(SettingsKeys.huntNewStates) private var newStates = false
         @AppStorage(SettingsKeys.huntNewCountries) private var newCountries = false
+        @AppStorage(SettingsKeys.huntWW) private var ww = false
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
@@ -767,7 +768,7 @@ struct ContentView: View {
                 Toggle("Hunt CQs from new ones", isOn: $enabled)
                     .toggleStyle(.switch)
                     .onChange(of: enabled) { _, on in
-                        if on, !dx, !newStates, !newCountries {
+                        if on, !dx, !newStates, !newCountries, !ww {
                             dx = true
                         }
                     }
@@ -778,9 +779,11 @@ struct ContentView: View {
                         .help("US stations in states missing from your QSO log — Worked All States, on autopilot")
                     Toggle("Unseen countries", isOn: $newCountries)
                         .help("Countries missing from your QSO log, judged by callsign prefix")
+                    Toggle("CQ WW (WW Digi contest)", isOn: $ww)
+                        .help("Stations calling CQ WW — WSJT-X's WW Digi contest call. Dupes are per band and per contest, so a station worked on another band is fair game again.")
                 }
                 .disabled(!enabled)
-                Text("Either match arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. A station calling you beats a hunted CQ; worked calls are skipped and directed CQs (CQ DX, CQ EU) are respected.")
+                Text("Any match arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. A station calling you beats a hunted CQ; stations already worked on this band (in this contest, if one is active) are skipped and directed CQs (CQ DX, CQ EU) are respected.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(width: 240, alignment: .leading)

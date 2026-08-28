@@ -1,29 +1,36 @@
 import Foundation
 
 /// Scans a receive slot's CQ calls for "new ones" — DX, unworked US states,
-/// unworked countries — so hunt mode can arm a countdown-gated reply.
-/// Pure logic, no I/O: the app supplies the worked sets and a state lookup.
+/// unworked countries, contest CQs — so hunt mode can arm a countdown-
+/// gated reply. Pure logic, no I/O: the app supplies the worked sets and
+/// a state lookup.
 enum CQHunter {
     struct Flags: Equatable {
         var dx = false
         var newStates = false
         var newCountries = false
+        /// "CQ WW" — the directed CQ WSJT-X sends in WW Digi contest mode.
+        var ww = false
 
-        var any: Bool { dx || newStates || newCountries }
+        var any: Bool { dx || newStates || newCountries || ww }
     }
 
     /// Why a CQ matched, best reason wins: a country you've never worked
-    /// beats a new state beats plain DX.
+    /// beats a new state beats plain DX beats a contest CQ. (DX outranks
+    /// the contest CQ because distance is what scores in WW Digi — a DX
+    /// station calling "CQ WW" matches both and takes the DX rank.)
     enum Reason: Equatable {
         case newCountry(String)
         case newState(String)
         case dx(String)
+        case contestCQ(String)
 
         var label: String {
             switch self {
             case .newCountry(let name): return "New country: \(name)"
             case .newState(let state): return "New state: \(state)"
             case .dx(let name): return "DX: \(name)"
+            case .contestCQ(let modifier): return "Contest: CQ \(modifier)"
             }
         }
 
@@ -33,6 +40,7 @@ enum CQHunter {
             case .newCountry: return 0
             case .newState: return 1
             case .dx: return 2
+            case .contestCQ: return 3
             }
         }
     }
@@ -72,7 +80,8 @@ enum CQHunter {
             else { continue }
 
             guard let reason = matchReason(
-                call: call, grid: parsed.grid, flags: flags, myCountry: myCountry,
+                call: call, grid: parsed.grid, modifier: cqModifier(text: decode.text, sender: call),
+                flags: flags, myCountry: myCountry,
                 workedStates: workedStates, workedCountries: workedCountries,
                 stateForGrid: stateForGrid
             ) else { continue }
@@ -92,6 +101,7 @@ enum CQHunter {
     private static func matchReason(
         call: String,
         grid: String?,
+        modifier: String?,
         flags: Flags,
         myCountry: String?,
         workedStates: Set<String>,
@@ -117,7 +127,17 @@ enum CQHunter {
         if flags.dx, let myCountry, country != myCountry {
             return .dx(country ?? "unknown prefix")
         }
+        if flags.ww, modifier == "WW" {
+            return .contestCQ("WW")
+        }
         return nil
+    }
+
+    /// The directed-CQ modifier ("DX", "WW", "POTA"), or nil for a plain CQ.
+    static func cqModifier(text: String, sender: String) -> String? {
+        let tokens = text.uppercased().split(separator: " ").map(String.init)
+        guard tokens.count >= 3, tokens[0] == "CQ", tokens[1] != sender else { return nil }
+        return tokens[1]
     }
 
     /// Whether we're in the audience of a directed CQ: "CQ DX …" from our

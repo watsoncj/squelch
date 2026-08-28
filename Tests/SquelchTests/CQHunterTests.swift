@@ -146,6 +146,44 @@ final class CQHunterTests: XCTestCase {
 
     // MARK: - Worked sets
 
+    // MARK: - Contest CQ
+
+    func testWWHuntsOnlyContestDirectedCQs() {
+        let ww = CQHunter.Flags(ww: true)
+        XCTAssertNil(pick([("CQ K1ABC FN42", -5)], flags: ww), "plain CQ is not a contest CQ")
+        XCTAssertNil(pick([("CQ TEST K1ABC FN42", -5)], flags: ww), "only WW, not other contests")
+        XCTAssertNil(pick([("W0CJW K1ABC R FN42", -5)], flags: ww), "not a CQ at all")
+        let candidate = pick([("CQ WW K1ABC FN42", -5)], flags: ww)
+        XCTAssertEqual(candidate?.call, "K1ABC")
+        XCTAssertEqual(candidate?.grid, "FN42")
+        XCTAssertEqual(candidate?.reason, .contestCQ("WW"))
+        XCTAssertEqual(candidate?.reason.label, "Contest: CQ WW")
+    }
+
+    /// DX scores in WW Digi, so a DX station outranks a domestic CQ WW —
+    /// and a DX station calling CQ WW takes the DX rank.
+    func testDXOutranksContestCQ() {
+        let flags = CQHunter.Flags(dx: true, ww: true)
+        let candidate = pick([("CQ WW K1ABC FN42", -3), ("CQ JA3XYZ PM74", -15)], flags: flags)
+        XCTAssertEqual(candidate?.call, "JA3XYZ")
+        XCTAssertEqual(pick([("CQ WW JA3XYZ PM74", -15)], flags: flags)?.reason, .dx("Japan"))
+    }
+
+    func testWWRespectsWorkedAndPassed() {
+        let ww = CQHunter.Flags(ww: true)
+        XCTAssertNil(pick([("CQ WW K1ABC FN42", -5)], flags: ww, workedCalls: ["K1ABC"]))
+        XCTAssertNil(pick([("CQ WW K1ABC FN42", -5)], flags: ww, passedCalls: ["K1ABC"]))
+        XCTAssertNil(pick([("CQ WW W0CJW DM79", -5)], flags: ww), "never our own CQ")
+    }
+
+    func testCQModifierExtraction() {
+        XCTAssertEqual(CQHunter.cqModifier(text: "CQ WW K1ABC FN42", sender: "K1ABC"), "WW")
+        XCTAssertEqual(CQHunter.cqModifier(text: "CQ DX K1ABC FN42", sender: "K1ABC"), "DX")
+        XCTAssertNil(CQHunter.cqModifier(text: "CQ K1ABC FN42", sender: "K1ABC"))
+        XCTAssertNil(CQHunter.cqModifier(text: "CQ K1ABC", sender: "K1ABC"))
+        XCTAssertNil(CQHunter.cqModifier(text: "W0CJW K1ABC FN42", sender: "K1ABC"))
+    }
+
     func testWorkedSetsFromRecords() {
         func record(_ partner: String, grid: String? = nil, state: String? = nil, country: String? = nil) -> QSORecord {
             QSORecord(id: UUID(), partner: partner, partnerGrid: grid, reportSent: "-05",
