@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.catPortPath) private var catPortPath = ""
     @AppStorage(SettingsKeys.catBaud) private var catBaud = 4800
     @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
+    @AppStorage(SettingsKeys.arrlSection) private var arrlSection = ""
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
     @AppStorage(SettingsKeys.audioOutputUID) private var audioOutputUID = ""
     @AppStorage(SettingsKeys.pttPortPath) private var pttPortPath = ""
@@ -60,6 +61,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+
+                TextField("ARRL/RAC section", text: $arrlSection, prompt: Text("e.g. CO — or DX outside US/Canada"))
+                    .textCase(.uppercase)
+                    .help("Cabrillo LOCATION: line for contest entries (WW Digi, ARRL contests). US/Canadian stations give their ARRL/RAC section; everyone else DX.")
             }
 
             Section("Display") {

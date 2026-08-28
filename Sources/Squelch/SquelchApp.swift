@@ -17,6 +17,9 @@ struct PendingReply: Equatable {
     let snr: Float
     let theirParity: Int
     let fireAt: Date     // the TX slot the reply goes out in (unless canceled)
+    /// They rogered our grid with theirs ("R EN52") — the grid-only
+    /// contest exchange is complete; we owe an RR73, nothing more.
+    var rogerGrid: String? = nil
 }
 
 final class AppModel: ObservableObject {
@@ -66,6 +69,14 @@ final class AppModel: ObservableObject {
             let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
             return !contest.trimmingCharacters(in: .whitespaces).isEmpty
         }
+        // Grid-only exchange (WW Digi / VHF style) only while a contest is
+        // active — a forgotten toggle must not leak into everyday QSOs
+        sequencer.isContestExchange = {
+            let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
+            return !contest.trimmingCharacters(in: .whitespaces).isEmpty
+                && UserDefaults.standard.bool(forKey: SettingsKeys.contestExchange)
+        }
+        sequencer.modeName = { DigiMode.current == .ft4 ? "FT4" : "FT8" }
         sequencer.onQSOComplete = { [qsoLog, store, cat] record in
             var record = record
             // The exchange itself often never carries the grid (answerer
@@ -207,7 +218,8 @@ final class AppModel: ObservableObject {
             report: candidate.report,
             snr: candidate.snr,
             theirParity: theirParity,
-            fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
+            fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5),
+            rogerGrid: candidate.rogerGrid
         )
     }
 
@@ -263,7 +275,7 @@ final class AppModel: ObservableObject {
     static func callCandidate(
         in results: [FT8Result],
         myCall: String
-    ) -> (call: String, grid: String?, report: String?, snr: Float)? {
+    ) -> (call: String, grid: String?, report: String?, snr: Float, rogerGrid: String?)? {
         for result in results {
             let tokens = result.text.uppercased().split(separator: " ").map(String.init)
             // Brackets stripped: our call arrives hashed ("<W0CJW/AG> …")
@@ -272,12 +284,13 @@ final class AppModel: ObservableObject {
             guard tokens.count >= 3, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
             guard FT8MessageParser.isCallsign(from) else { continue }
-            let payload = tokens[2]
+            let payload = tokens.dropFirst(2).joined(separator: " ")
 
             let grid = FT8MessageParser.isGrid(payload) ? payload : nil
             let report = QSOSequencer.isReport(payload) ? payload : nil
-            guard grid != nil || report != nil else { continue }
-            return (from, grid, report, result.snr)
+            let rogerGrid = QSOSequencer.rogerGridValue(payload)
+            guard grid != nil || report != nil || rogerGrid != nil else { continue }
+            return (from, grid, report, result.snr, rogerGrid)
         }
         return nil
     }
@@ -299,7 +312,9 @@ final class AppModel: ObservableObject {
         case .huntedCQ:
             sequencer.replyTo(call: pending.call, snr: pending.snr, cqParity: pending.theirParity, grid: pending.grid)
         case .callingUs:
-            if let grid = pending.grid {
+            if let grid = pending.rogerGrid {
+                sequencer.engageWithRogerGrid(call: pending.call, grid: grid, snr: pending.snr, theirParity: pending.theirParity)
+            } else if let grid = pending.grid {
                 sequencer.engageAsCaller(call: pending.call, grid: grid, snr: pending.snr, theirParity: pending.theirParity)
             } else if let report = pending.report {
                 sequencer.engageAsAnswerer(call: pending.call, report: report, snr: pending.snr, theirParity: pending.theirParity)
@@ -543,6 +558,9 @@ final class AppModel: ObservableObject {
         } else if QSOSequencer.isReport(message.payloadToken) {
             // They sent us a report — we owe a roger
             sequencer.engageAsAnswerer(call: call, report: message.payloadToken, snr: message.snr, theirParity: theirParity)
+        } else if let grid = QSOSequencer.rogerGridValue(message.payloadToken) {
+            // They rogered our grid with theirs — contest exchange done, RR73 owed
+            sequencer.engageWithRogerGrid(call: call, grid: grid, snr: message.snr, theirParity: theirParity)
         } else {
             // They called us with a grid (or bare call) — we owe a report
             sequencer.engageAsCaller(call: call, grid: message.grid, snr: message.snr, theirParity: theirParity)

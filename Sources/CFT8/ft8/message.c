@@ -149,6 +149,13 @@ ftx_message_rc_t ftx_message_encode(ftx_message_t* msg, ftx_callsign_hash_interf
     parse_position = copy_token(call_de, sizeof(call_de), parse_position);
     // and the word after that may be a grid or signal report
     parse_position = copy_token(extra, sizeof(extra), parse_position);
+    // "R" followed by a grid is the roger-grid contest exchange (NA VHF /
+    // WW Digi style): fold the two tokens into one extra, "R DM79"
+    if (equals(extra, "R") && parse_position[0])
+    {
+        extra[1] = ' ';
+        parse_position = copy_token(extra + 2, sizeof(extra) - 2, parse_position);
+    }
 
     LOG(LOG_DEBUG, "ftx_message_encode: parsed '%s' '%s' '%s'; remaining chars '%s'\n", call_to, call_de, extra, parse_position);
 
@@ -1061,7 +1068,11 @@ static uint16_t packgrid(const char* grid4)
     if (equals(grid4, "73"))
         return MAXGRID4 + 4;
 
-    // TODO: Check for "R " prefix before a 4 letter grid
+    // "R " prefix before a 4 letter grid: roger + grid (contest exchange)
+    if (starts_with(grid4, "R ") && in_range(grid4[2], 'A', 'R') && in_range(grid4[3], 'A', 'R') && is_digit(grid4[4]) && is_digit(grid4[5]) && grid4[6] == '\0')
+    {
+        return packgrid(grid4 + 2) | 0x8000; // ir = 1
+    }
 
     // Check for standard 4 letter grid
     if (in_range(grid4[0], 'A', 'R') && in_range(grid4[1], 'A', 'R') && is_digit(grid4[2]) && is_digit(grid4[3]))

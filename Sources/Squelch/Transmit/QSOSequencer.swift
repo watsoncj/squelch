@@ -30,6 +30,16 @@ struct QSORecord: Identifiable, Codable {
 ///                          that closes it too: ✓ then X MYCALL 73)
 /// Answerer side:          X MYCALL GRID → [they: MYCALL X ±NN]
 ///                         → X MYCALL R±NN → [they: RR73] ✓ → X MYCALL 73
+///
+/// Grid-only contest exchange (`isContestExchange`; WW Digi / NA VHF
+/// style — no signal reports, one slot shorter):
+/// Caller side:            CQ → [they: MYCALL X GRID] → X MYCALL R MYGRID
+///                         → [they: MYCALL X RR73] ✓ → straight back to CQ
+/// Answerer side:          X MYCALL GRID → [they: MYCALL X R GRID] ✓
+///                         → X MYCALL RR73
+/// The answerer side is always accepted — a partner's "R GRID" completes
+/// the contact whether or not the option is on; the option decides what
+/// WE send when a grid comes in.
 final class QSOSequencer: ObservableObject {
     struct Decode {
         let text: String
@@ -48,6 +58,7 @@ final class QSOSequencer: ObservableObject {
         case rogerReport  // caller: R±NN
         case report       // answerer: ±NN
         case rr73         // answerer: RR73/RRR
+        case contestSignoff // caller, grid-only exchange: RR73 after our "R GRID"
         case none         // final courtesy message, nothing required back
     }
 
@@ -87,6 +98,13 @@ final class QSOSequencer: ObservableObject {
     /// slots not spent making QSOs, and a bailed exchange still logs via
     /// `abandoned` if their signoff straggles in.
     var isContestActive: () -> Bool = { false }
+    /// Whether to run the grid-only contest exchange (see the type doc) —
+    /// injectable; the app wires it to the contest-exchange option, in
+    /// effect only while a contest is active.
+    var isContestExchange: () -> Bool = { false }
+    /// Mode name stamped on logged QSOs ("FT8"/"FT4") — injectable; the
+    /// app wires it to the live digi-mode setting.
+    var modeName: () -> String = { "FT8" }
     /// Clock, injectable for tests.
     var now: () -> Date = { Date() }
     var onQSOComplete: ((QSORecord) -> Void)?
@@ -115,6 +133,10 @@ final class QSOSequencer: ObservableObject {
     /// proof of life that pauses the retry countdown.
     private var partnerBusyWith: String?
     private var busyPassesLeft = 0
+    /// Times the partner re-sent their grid after our "R GRID" — a
+    /// station not running the contest exchange keeps waiting for a
+    /// report, so after two repeats we give them one.
+    private var gridRepeats = 0
     /// Busy patience granted at each engagement — none during a contest.
     private var busyPassBudget: Int { isContestActive() ? 0 : maxBusyPasses }
 
@@ -199,14 +221,34 @@ final class QSOSequencer: ObservableObject {
         queuedCallers[call] = nil // ditto: they're no longer waiting in line
         partnerGrid = grid
         txParity = 1 - theirParity
-        reportSent = Self.formatReport(snr)
-        currentTX = "\(call) \(myCall) \(reportSent)"
-        awaiting = .rogerReport
+        armCallerReply(to: call, snr: snr)
         retriesLeft = maxRetries
         busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
-        describe("Answering \(call) with report")
+        describe(callerReplyDescription(to: call))
+    }
+
+    /// A station rogered our grid with theirs ("R EN52"): the grid-only
+    /// contest exchange is complete on their side, so the contact is
+    /// made — log it and return the RR73 they're waiting for. Entered
+    /// from idle: a late reply after we gave up, or a click on the message.
+    func engageWithRogerGrid(call: String, grid: String, snr: Float, theirParity: Int) {
+        reset()
+        mode = .qsoAsAnswerer
+        partner = call
+        abandoned[call] = nil // re-engaged: the live exchange supersedes the stash
+        queuedCallers[call] = nil // ditto: they're no longer waiting in line
+        partnerGrid = grid
+        txParity = 1 - theirParity
+        reportSent = ""
+        qsoStart = Date()
+        completeQSO()
+        currentTX = "\(call) \(myCall) RR73"
+        awaiting = .none
+        finalMessagesLeft = 0 // one RR73; re-sent only if they repeat R GRID
+        resumeCQAfterQSO = false
+        describe("RR73 to \(call) — grid exchange complete")
     }
 
     /// Engage with a station that sent us a signal report: we owe them a
@@ -265,7 +307,7 @@ final class QSOSequencer: ObservableObject {
                   tokens[0].trimmingCharacters(in: brackets) == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: brackets)
             guard from != partner else { continue }
-            let payload = tokens[2]
+            let payload = tokens.dropFirst(2).joined(separator: " ")
 
             // A straggling RR73/73 from a partner we gave up on: the
             // exchange was complete on the air the whole time — log it,
@@ -282,7 +324,7 @@ final class QSOSequencer: ObservableObject {
                     start: pending.qsoStart,
                     end: now(),
                     dialFrequencyMHz: dial,
-                    mode: "FT8"
+                    mode: modeName()
                 ))
                 if mode == .idle || mode == .cqLoop {
                     describe("Late \(payload) from \(from) — QSO logged")
@@ -297,7 +339,7 @@ final class QSOSequencer: ObservableObject {
             guard recentlyCompleted[from] != nil,
                   mode == .idle || (mode == .cqLoop && 1 - slotParity == txParity)
             else { continue }
-            if Self.rogerReportValue(payload) != nil {
+            if Self.rogerReportValue(payload) != nil || Self.rogerGridValue(payload) != nil {
                 courtesyTX = ("\(from) \(myCall) RR73", 1 - slotParity)
                 describe("\(from) missed our RR73 — re-acknowledging")
             } else if payload == "RR73" || payload == "RRR" {
@@ -320,7 +362,7 @@ final class QSOSequencer: ObservableObject {
             }
             guard tokens.count >= 2, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: brackets)
-            let payload = tokens.count >= 3 ? tokens[2] : ""
+            let payload = tokens.dropFirst(2).joined(separator: " ")
             // Pileup overflow while we're running: a CQ-shaped answer from
             // someone who isn't the current partner joins the line
             if resumeCQAfterQSO, mode == .qsoAsCaller, from != partner,
@@ -391,7 +433,7 @@ final class QSOSequencer: ObservableObject {
                     if let partner {
                         // Both reports made it across → a late signoff can
                         // still complete this; remember what we'd log
-                        if let qsoStart, reportReceived != nil {
+                        if let qsoStart, reportReceived != nil || awaiting == .contestSignoff {
                             abandoned[partner] = AbandonedExchange(
                                 partnerGrid: partnerGrid,
                                 reportSent: reportSent,
@@ -433,14 +475,50 @@ final class QSOSequencer: ObservableObject {
             // A bare-report answer already carries their report — keep it, to
             // log and to arm the late-signoff stash if the exchange stalls
             reportReceived = Self.isReport(payload) ? payload : nil
-            reportSent = Self.formatReport(snr)
             qsoStart = Date()
             mode = .qsoAsCaller
-            awaiting = .rogerReport
+            armCallerReply(to: from, snr: snr)
             retriesLeft = maxRetries
             busyPassesLeft = busyPassBudget
-            currentTX = "\(from) \(myCall) \(reportSent)"
-            markResponded("Answering \(from)\(partnerGrid.map { " (\($0))" } ?? "")")
+            markResponded(callerReplyDescription(to: from))
+
+        case (.qsoAsCaller, .contestSignoff):
+            // We sent "R MYGRID"; their RR73 closes it. No 73 back for an
+            // RR73 — the contest sequence ends there and the next slot is
+            // a CQ (RRR asks for one, so it gets one).
+            guard from == partner else { return }
+            if Self.isSignoff(payload) {
+                completeQSO()
+                if payload == "RRR" {
+                    windDown(finalTo: from)
+                } else {
+                    describe("\(payload) from \(from) — QSO logged")
+                    finishQSOSession()
+                }
+            } else if FT8MessageParser.isGrid(payload) || payload.isEmpty {
+                // They repeated their grid: our R GRID didn't land, or they
+                // aren't running the contest exchange and are waiting for
+                // a report. Repeat once, then give them the report.
+                gridRepeats += 1
+                if gridRepeats >= 2 {
+                    reportSent = Self.formatReport(snr)
+                    currentTX = "\(from) \(myCall) \(reportSent)"
+                    awaiting = .rogerReport
+                    markResponded("\(from) expects a report — sending \(reportSent)")
+                } else {
+                    markResponded("Repeating R \(myGrid4) to \(from)")
+                }
+            } else if Self.isReport(payload) {
+                // A report back means they took our message for a grid —
+                // standard sequence from here: roger their report
+                reportReceived = payload
+                reportSent = Self.formatReport(snr)
+                currentTX = "\(from) \(myCall) R\(reportSent)"
+                mode = .qsoAsAnswerer
+                awaiting = .rr73
+                retriesLeft = maxRetries
+                markResponded("Roger report to \(from)")
+            }
 
         case (.qsoAsCaller, .rogerReport):
             guard from == partner else { return }
@@ -471,6 +549,16 @@ final class QSOSequencer: ObservableObject {
                 retriesLeft = maxRetries
                 busyPassesLeft = busyPassBudget
                 markResponded("Roger report to \(from)")
+            } else if let grid = Self.rogerGridValue(payload) {
+                // Grid-only contest exchange: their "R GRID" rogers ours
+                // and completes the contact — RR73 closes it, no reports
+                partnerGrid = grid
+                reportSent = ""
+                completeQSO()
+                currentTX = "\(from) \(myCall) RR73"
+                awaiting = .none
+                finalMessagesLeft = 0 // one RR73; re-sent only if they repeat R GRID
+                markResponded("RR73 to \(from) — grid exchange complete")
             } else if Self.isSignoff(payload) {
                 completeQSO()
                 windDown(finalTo: from)
@@ -499,7 +587,9 @@ final class QSOSequencer: ObservableObject {
             // Post-73: a repeated RR73/RRR means they missed our courtesy
             // 73 — send it again. Their own 73 means everyone's done.
             guard from == partner else { return }
-            if payload == "RR73" || payload == "RRR" {
+            if Self.rogerGridValue(payload) != nil {
+                markResponded("Repeating RR73 to \(from)")
+            } else if payload == "RR73" || payload == "RRR" {
                 markResponded("Repeating 73 to \(from)")
             } else if payload == "73" {
                 finishQSOSession()
@@ -508,6 +598,31 @@ final class QSOSequencer: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Arm our reply to a station that gave us their grid (answered our
+    /// CQ, or called us): the report in a normal exchange, "R MYGRID" in
+    /// the grid-only contest exchange. A bare-report answer already told
+    /// us the partner runs the standard sequence, so it gets a report
+    /// back even mid-contest.
+    private func armCallerReply(to call: String, snr: Float) {
+        gridRepeats = 0
+        if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty {
+            reportSent = ""
+            currentTX = "\(call) \(myCall) R \(myGrid4)"
+            awaiting = .contestSignoff
+        } else {
+            reportSent = Self.formatReport(snr)
+            currentTX = "\(call) \(myCall) \(reportSent)"
+            awaiting = .rogerReport
+        }
+    }
+
+    private func callerReplyDescription(to call: String) -> String {
+        let grid = partnerGrid.map { " (\($0))" } ?? ""
+        return awaiting == .contestSignoff
+            ? "R \(myGrid4) to \(call)\(grid)"
+            : "Answering \(call)\(grid) with \(reportSent)"
     }
 
     private func windDown(finalTo call: String) {
@@ -529,7 +644,7 @@ final class QSOSequencer: ObservableObject {
             start: qsoStart,
             end: Date(),
             dialFrequencyMHz: dial,
-            mode: "FT8"
+            mode: modeName()
         )
         onQSOComplete?(record)
         recentlyCompleted[partner] = now()
@@ -549,9 +664,7 @@ final class QSOSequencer: ObservableObject {
             partner = call
             partnerGrid = info.grid
             txParity = parity
-            reportSent = Self.formatReport(info.snr)
-            currentTX = "\(call) \(myCall) \(reportSent)"
-            awaiting = .rogerReport
+            armCallerReply(to: call, snr: info.snr)
             // Short leash (see queuedCallerRetries): they may have moved on
             retriesLeft = queuedCallerRetries
             busyPassesLeft = min(queuedCallerRetries, busyPassBudget)
@@ -597,6 +710,7 @@ final class QSOSequencer: ObservableObject {
         resumeCQAfterQSO = false
         partnerBusyWith = nil
         busyPassesLeft = 0
+        gridRepeats = 0
         courtesyTX = nil
         cqSlotCounter = 0 // resumed runs open with an immediate CQ
         // `abandoned`, `recentlyCompleted`, and `queuedCallers` deliberately
@@ -645,6 +759,11 @@ final class QSOSequencer: ObservableObject {
 
     static func isSignoff(_ s: String) -> Bool {
         s == "RR73" || s == "RRR" || s == "73"
+    }
+
+    /// "R EN52" → "EN52": the roger-grid payload of a contest exchange.
+    static func rogerGridValue(_ payload: String) -> String? {
+        FT8MessageParser.rogerGridValue(payload)
     }
 
     /// A directed-CQ modifier the FT8 payload can carry (ft8_lib pack28's

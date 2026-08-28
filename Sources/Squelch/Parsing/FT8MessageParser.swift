@@ -8,6 +8,7 @@ import Foundation
 ///   "K1ABC W9XYZ EN52"         reply with grid
 ///   "K1ABC W9XYZ -12"          signal report
 ///   "K1ABC W9XYZ R-08"         roger + report
+///   "K1ABC W9XYZ R EN52"       roger + grid (contest exchange: NA VHF, WW Digi)
 ///   "K1ABC W9XYZ RR73"         (RR73 looks like a grid but is a sign-off)
 enum FT8MessageParser {
     struct Parsed {
@@ -15,6 +16,9 @@ enum FT8MessageParser {
         var addressee: String? // station being called; nil for CQ/free text
         var grid: String?
         var isCQ: Bool
+        /// The grid came as "R GRID" — a roger for our grid plus theirs,
+        /// which completes a grid-only (contest) exchange.
+        var isRogerGrid: Bool = false
     }
 
     static func parse(_ text: String) -> Parsed {
@@ -39,10 +43,22 @@ enum FT8MessageParser {
         let candidate = stripHashBrackets(tokens[1])
         let sender = isCallsign(candidate) ? candidate : nil
         var grid: String? = nil
+        var isRogerGrid = false
         if tokens.count >= 3, isGrid(tokens[2]) {
             grid = tokens[2]
+        } else if let rogered = rogerGridValue(tokens.dropFirst(2).joined(separator: " ")) {
+            grid = rogered
+            isRogerGrid = true
         }
-        return Parsed(sender: sender, addressee: addressee, grid: grid, isCQ: false)
+        return Parsed(sender: sender, addressee: addressee, grid: grid, isCQ: false, isRogerGrid: isRogerGrid)
+    }
+
+    /// The grid inside a roger-grid payload ("R EN52" → "EN52"); nil for
+    /// anything else. The payload is everything after the two calls.
+    static func rogerGridValue(_ payload: String) -> String? {
+        let parts = payload.split(separator: " ").map(String.init)
+        guard parts.count == 2, parts[0] == "R", isGrid(parts[1]) else { return nil }
+        return parts[1]
     }
 
     /// 4-character Maidenhead grid; RR73 is excluded (it's a sign-off, not a location).

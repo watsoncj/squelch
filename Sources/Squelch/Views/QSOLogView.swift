@@ -39,6 +39,8 @@ struct QSOLogView: View {
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
+    @AppStorage(SettingsKeys.contestExchange) private var contestExchange = false
+    @AppStorage(SettingsKeys.arrlSection) private var arrlSection = ""
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
     @State private var showingNewContest = false
@@ -157,7 +159,8 @@ struct QSOLogView: View {
                 records: records,
                 stationCallsign: myCallsign.uppercased(),
                 myGrid: myGrid.isEmpty ? nil : myGrid.uppercased(),
-                contest: contest
+                contest: contest,
+                location: arrlSection.trimmingCharacters(in: .whitespaces).uppercased()
             ),
             contentType: LogExportDocument.cabrilloType,
             defaultFilename: "squelch\(slug).log"
@@ -180,7 +183,7 @@ struct QSOLogView: View {
                 record.partnerGrid ?? "",
                 geo.map { unit.text(fromKm: $0.km) } ?? "",
                 geo.map { compassBearingText(degrees: $0.bearing) } ?? "",
-                "\(record.reportSent) / \(record.reportReceived ?? "—")",
+                "\(record.reportSent.isEmpty ? "—" : record.reportSent) / \(record.reportReceived ?? "—")",
                 "\(bandName(forMHz: record.dialFrequencyMHz)) · \(record.mode)",
             ].joined(separator: "\t")
         }.joined(separator: "\n")
@@ -260,7 +263,7 @@ struct QSOLogView: View {
             .width(min: 64, ideal: 82)
 
             TableColumn("Report") { record in
-                Text("\(record.reportSent) / \(record.reportReceived ?? "—")")
+                Text("\(record.reportSent.isEmpty ? "—" : record.reportSent) / \(record.reportReceived ?? "—")")
                     .monospacedDigit()
                     .help("Sent / received")
             }
@@ -329,6 +332,10 @@ struct QSOLogView: View {
                         newContestName = ""
                         showingNewContest = true
                     }
+                    Divider()
+                    Toggle("Grid-only exchange (no signal reports)", isOn: $contestExchange)
+                        .disabled(activeContest.isEmpty)
+                        .help("WW Digi / VHF-contest sequence: answer a grid with R \(myGrid.isEmpty ? "GRID" : String(myGrid.prefix(4)).uppercased()) instead of a report — one slot shorter per QSO. Only in effect while a contest is selected.")
                 } label: {
                     Label(activeContest.isEmpty ? "Contest" : activeContest,
                           systemImage: activeContest.isEmpty ? "tag" : "tag.fill")

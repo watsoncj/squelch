@@ -34,10 +34,11 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
         callsign.flatMap(CallsignCountry.lookup)
     }
 
-    /// Third token of a directed message ("EN52", "-05", "RR73", …).
+    /// Payload of a directed message — everything after the two calls
+    /// ("EN52", "-05", "RR73", or the two-token contest roger "R EN52").
     var payloadToken: String {
         let tokens = text.uppercased().split(separator: " ").map(String.init)
-        return tokens.count >= 3 ? tokens[2] : ""
+        return tokens.dropFirst(2).joined(separator: " ")
     }
 
     /// Can Reply start/continue an exchange from this message? True for any
@@ -103,6 +104,8 @@ extension DecodedMessage {
             described = "report \(payload.replacingOccurrences(of: "-", with: "−"))"
         } else if payload.range(of: #"^R[+-]\d{1,2}$"#, options: .regularExpression) != nil {
             described = "roger, report \(String(payload.dropFirst()).replacingOccurrences(of: "-", with: "−"))"
+        } else if let grid = FT8MessageParser.rogerGridValue(payload) {
+            described = "roger, grid \(grid)"
         } else if payload == "RRR" {
             described = "roger-roger"
         } else if payload == "RR73" {

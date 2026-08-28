@@ -113,4 +113,6 @@ enum SettingsKeys {
     static let wsprUpload = "wsprUpload"
     static let autoUpdateCheck = "autoUpdateCheck"
     static let activeContest = "activeContest"
+    static let contestExchange = "contestExchange"
+    static let arrlSection = "arrlSection"
 }

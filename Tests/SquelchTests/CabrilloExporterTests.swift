@@ -35,6 +35,78 @@ final class CabrilloExporterTests: XCTestCase {
         XCTAssertEqual(CabrilloExporter.freqField(0), "0")
     }
 
+    /// WW Digi's line: no reports, grids alone, trailing transmitter id.
+    func testWWDigiLineIsGridOnly() {
+        XCTAssertEqual(CabrilloExporter.exchangeStyle(for: "WW-DIGI"), .gridOnly)
+        XCTAssertEqual(CabrilloExporter.exchangeStyle(for: "ww digi"), .gridOnly)
+        XCTAssertEqual(CabrilloExporter.exchangeStyle(for: "ARRL-VHF-SEP"), .gridOnly)
+        XCTAssertEqual(CabrilloExporter.exchangeStyle(for: "ARRL-FD"), .reportAndGrid)
+        XCTAssertEqual(CabrilloExporter.exchangeStyle(for: nil), .reportAndGrid)
+
+        let line = CabrilloExporter.qsoLine(
+            for: record(grid: "en52xx"), stationCallsign: "W0CJW", myGrid4: "DM79", style: .gridOnly
+        )
+        let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+        XCTAssertEqual(fields, ["QSO:", "14074", "DG", "2025-07-19", "1840",
+                                "W0CJW", "DM79", "K1ABC", "EN52", "0"])
+    }
+
+    func testContestNameCanonicalized() {
+        XCTAssertEqual(CabrilloExporter.canonicalContest("WW Digi"), "WW-DIGI")
+        XCTAssertEqual(CabrilloExporter.canonicalContest("wwdigi"), "WW-DIGI")
+        XCTAssertEqual(CabrilloExporter.canonicalContest("WW-DIGI"), "WW-DIGI")
+        XCTAssertEqual(CabrilloExporter.canonicalContest(" ARRL-FD "), "ARRL-FD")
+        XCTAssertNil(CabrilloExporter.canonicalContest(""))
+        XCTAssertNil(CabrilloExporter.canonicalContest(nil))
+    }
+
+    /// Every header WW Digi's spec lists as required, in a full log.
+    func testWWDigiHeaders() {
+        var r = record(mhz: 14.074)
+        r.txPowerWatts = 100
+        let log = CabrilloExporter.log(
+            records: [r, record(mhz: 7.074)], stationCallsign: "W0CJW", myGrid: "DM79LB",
+            contest: "WW Digi", location: "CO"
+        )
+        for header in ["START-OF-LOG: 3.0", "CONTEST: WW-DIGI", "CALLSIGN: W0CJW",
+                       "CATEGORY-OPERATOR: SINGLE-OP", "CATEGORY-BAND: ALL", "CATEGORY-MODE: DIGI",
+                       "CATEGORY-POWER: LOW", "CATEGORY-TRANSMITTER: ONE", "CATEGORY-STATION: FIXED",
+                       "LOCATION: CO", "GRID-LOCATOR: DM79", "CREATED-BY: Squelch", "END-OF-LOG:"] {
+            XCTAssertTrue(log.contains(header + "\n"), "missing \(header)")
+        }
+        XCTAssertTrue(log.contains("QSO: 14074 DG 2025-07-19 1840 W0CJW         DM79   K1ABC         FN31   0\n"),
+                      "grid-only QSO line with txid")
+        XCTAssertFalse(log.contains(" -12 "), "no reports in a WW Digi log")
+    }
+
+    func testCategoryDerivation() {
+        XCTAssertEqual(CabrilloExporter.categoryBand([record(mhz: 14.074), record(mhz: 14.080)]), "20M")
+        XCTAssertEqual(CabrilloExporter.categoryBand([record(mhz: 14.074), record(mhz: 7.074)]), "ALL")
+        XCTAssertEqual(CabrilloExporter.categoryBand([record(mhz: 144.174)]), "2M")
+        XCTAssertEqual(CabrilloExporter.categoryBand([]), "ALL")
+
+        XCTAssertEqual(CabrilloExporter.categoryMode([record(mode: "FT8"), record(mode: "FT4")]), "DIGI")
+        XCTAssertEqual(CabrilloExporter.categoryMode([record(mode: "SSB")]), "SSB")
+        XCTAssertEqual(CabrilloExporter.categoryMode([record(mode: "CW"), record(mode: "FT8")]), "MIXED")
+        XCTAssertEqual(CabrilloExporter.categoryMode([]), "DIGI")
+
+        var qrp = record(); qrp.txPowerWatts = 5
+        var low = record(); low.txPowerWatts = 100
+        var high = record(); high.txPowerWatts = 500
+        XCTAssertEqual(CabrilloExporter.categoryPower([qrp]), "QRP")
+        XCTAssertEqual(CabrilloExporter.categoryPower([qrp, low]), "LOW")
+        XCTAssertEqual(CabrilloExporter.categoryPower([low, high]), "HIGH")
+        XCTAssertEqual(CabrilloExporter.categoryPower([record()]), "LOW")
+    }
+
+    func testLocationDefaults() {
+        XCTAssertEqual(CabrilloExporter.locationField(" co ", stationCallsign: "W0CJW"), "CO")
+        XCTAssertEqual(CabrilloExporter.locationField(nil, stationCallsign: "W0CJW"), "", "US station must fill in a section")
+        XCTAssertEqual(CabrilloExporter.locationField("", stationCallsign: "VE3ABC"), "")
+        XCTAssertEqual(CabrilloExporter.locationField(nil, stationCallsign: "G4ABC"), "DX")
+        XCTAssertEqual(CabrilloExporter.locationField(nil, stationCallsign: "JA1ABC"), "DX")
+    }
+
     func testQSOLineFieldsInOrder() {
         let line = CabrilloExporter.qsoLine(
             for: record(), stationCallsign: "W0CJW", myGrid4: "DM79"
