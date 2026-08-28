@@ -146,6 +146,21 @@ enum CQHunter {
         }
     }
 
+    /// Calls that count as already-worked for the hunt: same band and same
+    /// contest context as the current session. A 20 m contact doesn't block
+    /// hunting that station on 40 m, and during a contest only that
+    /// contest's QSOs are dupes (contests expect re-working stations).
+    static func dupeCalls(
+        records: [QSORecord],
+        dialMHz: Double,
+        contest: String?
+    ) -> Set<String> {
+        let band = bandName(forMHz: dialMHz)
+        return Set(records.lazy
+            .filter { bandName(forMHz: $0.dialFrequencyMHz) == band && $0.contest == contest }
+            .map { $0.partner.uppercased() })
+    }
+
     /// Worked states/countries from the QSO log. States count only for US
     /// contacts (mirroring the log's WAS summary); countries come from the
     /// callsign prefix so the names match the hunter's own lookups, with

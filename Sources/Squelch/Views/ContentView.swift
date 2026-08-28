@@ -314,7 +314,13 @@ struct ContentView: View {
             onReply: { message in actions.reply(to: message) },
             replyEnabled: txAvailable && sequencer.mode == .idle,
             micDenied: controller.micDenied,
-            workedCalls: qsoLog.workedCalls
+            workedCalls: qsoLog.workedCalls,
+            dupeCalls: CQHunter.dupeCalls(
+                records: qsoLog.records,
+                dialMHz: dialFrequencyMHz,
+                contest: activeContest.isEmpty ? nil : activeContest
+            ),
+            contestName: activeContest.isEmpty ? nil : activeContest
         ) {
             HStack {
                 Spacer()

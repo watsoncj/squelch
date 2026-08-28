@@ -27,6 +27,8 @@ struct StationDetailView: View {
     var replyEnabled = true
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
+    @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
+    @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.timeDisplay) private var timeDisplayRaw = TimeDisplay.local.rawValue
     @AppStorage(SettingsKeys.distanceUnit) private var distanceUnitRaw = DistanceUnit.miles.rawValue
     @State private var ageNow = Date()
@@ -51,6 +53,16 @@ struct StationDetailView: View {
 
     private var workedBefore: QSORecord? {
         qsoLog.records.first { $0.partner == callsign }
+    }
+
+    /// Worked on this band in the current contest context — the same
+    /// predicate as the feed's filled seal and the hunter's dupe filter.
+    private var isDupeHere: Bool {
+        CQHunter.dupeCalls(
+            records: qsoLog.records.filter { $0.partner == callsign },
+            dialMHz: dialFrequencyMHz,
+            contest: activeContest.isEmpty ? nil : activeContest
+        ).contains(callsign.uppercased())
     }
 
     private var placeText: String? {
@@ -201,11 +213,20 @@ struct StationDetailView: View {
     }
 
     private func workedBadge(_ record: QSORecord) -> some View {
-        Label {
-            Text("Worked \(TimeDisplay.current(timeDisplayRaw).dateFormatter.string(from: record.start)) · sent \(record.reportSent)\(record.reportReceived.map { ", got \($0)" } ?? "")")
+        let dupe = isDupeHere
+        let sent = record.reportSent.isEmpty ? "" : " · sent \(record.reportSent)"
+        var text = "Worked \(TimeDisplay.current(timeDisplayRaw).dateFormatter.string(from: record.start))\(sent)\(record.reportReceived.map { ", got \($0)" } ?? "")"
+        if !activeContest.isEmpty {
+            // During a contest the question is "dupe or not?" — say so
+            text += dupe
+                ? " · dupe in \(activeContest) on \(bandName(forMHz: dialFrequencyMHz))"
+                : " · not yet in \(activeContest) on \(bandName(forMHz: dialFrequencyMHz))"
+        }
+        return Label {
+            Text(text)
         } icon: {
-            Image(systemName: "checkmark.seal.fill")
-                .foregroundStyle(.green)
+            Image(systemName: dupe ? "checkmark.seal.fill" : "checkmark.seal")
+                .foregroundStyle(dupe ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
         }
         .font(.callout)
     }

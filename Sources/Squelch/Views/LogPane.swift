@@ -138,9 +138,16 @@ struct LogPane<Header: View>: View {
     /// guide — a fresh install otherwise fails silently (dead meter, no
     /// decodes, nothing explaining why).
     var micDenied = false
-    /// Uppercased calls already in the QSO log — rows get a worked-before
+    /// Uppercased calls anywhere in the QSO log — rows get a worked-before
     /// seal. Defaulted so callers without a log (iPad) need no change.
     var workedCalls: Set<String> = []
+    /// The subset that are dupes right now — same band, same contest
+    /// context (`CQHunter.dupeCalls`, the hunter's own predicate, so the
+    /// feed and the hunt never disagree). Filled seal; everything else in
+    /// `workedCalls` gets an outline: known station, still workable here.
+    var dupeCalls: Set<String> = []
+    /// Active contest name, for the seal's tooltip wording.
+    var contestName: String? = nil
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
@@ -177,7 +184,8 @@ struct LogPane<Header: View>: View {
                     myCall: myCallsign,
                     countryText: countryText(for: msg),
                     distanceText: msg.distanceKm.map { DistanceUnit.current(distanceUnitRaw).text(fromKm: $0) },
-                    workedBefore: msg.callsign.map { workedCalls.contains($0.uppercased()) } ?? false,
+                    worked: WorkedState.of(msg.callsign, dupes: dupeCalls, worked: workedCalls),
+                    contestName: contestName,
                     now: ageNow
                 )
                 .listRowSeparator(.hidden)
@@ -311,7 +319,8 @@ struct LogPane<Header: View>: View {
         let myCall: String
         let countryText: String?
         let distanceText: String?
-        let workedBefore: Bool
+        let worked: WorkedState
+        let contestName: String?
         let now: Date
 
         private var callColor: Color {
@@ -328,11 +337,11 @@ struct LogPane<Header: View>: View {
                     Text(message.callsign ?? "—")
                         .font(.body.monospaced().bold())
                         .foregroundStyle(callColor)
-                    if workedBefore, message.callsign != myCall {
-                        Image(systemName: "checkmark.seal.fill")
+                    if worked != .no, message.callsign != myCall {
+                        Image(systemName: worked == .dupe ? "checkmark.seal.fill" : "checkmark.seal")
                             .font(.caption2)
-                            .foregroundStyle(.green)
-                            .help("Worked before — in your QSO log")
+                            .foregroundStyle(worked == .dupe ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                            .help(worked.help(contestName: contestName))
                     }
                     if message.callsign == myCall {
                         Text("you")
@@ -394,5 +403,31 @@ struct LogPane<Header: View>: View {
             return "\(state), USA"
         }
         return country.name
+    }
+}
+
+/// A feed row's worked-before standing, from the QSO log.
+enum WorkedState: Equatable {
+    case no
+    /// In the log, but not on this band in the current contest context —
+    /// a contest wants them again, and a new band is a new contact.
+    case elsewhere
+    /// Already worked on this band in this contest context.
+    case dupe
+
+    static func of(_ call: String?, dupes: Set<String>, worked: Set<String>) -> WorkedState {
+        guard let call = call?.uppercased() else { return .no }
+        if dupes.contains(call) { return .dupe }
+        return worked.contains(call) ? .elsewhere : .no
+    }
+
+    func help(contestName: String?) -> String {
+        switch (self, contestName) {
+        case (.dupe, let contest?): return "Dupe — worked in \(contest) on this band"
+        case (.dupe, nil): return "Worked before on this band"
+        case (.elsewhere, let contest?): return "Worked before, but not yet in \(contest) on this band — still workable"
+        case (.elsewhere, nil): return "Worked before — on another band or in a contest; new here"
+        case (.no, _): return ""
+        }
     }
 }
