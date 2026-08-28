@@ -529,6 +529,17 @@ final class QSOSequencer: ObservableObject {
                 awaiting = .none
                 finalMessagesLeft = 0 // one RR73; re-sent only if they repeat R±NN
                 markResponded("RR73 to \(from)")
+            } else if let grid = Self.rogerGridValue(payload) {
+                // A WSJT-X station in WW Digi mode rogers a report with
+                // "R GRID" — its roger message carries the grid, never a
+                // report — so this is their roger: the exchange is
+                // complete, RR73 closes it (no report to log from them)
+                partnerGrid = grid
+                completeQSO()
+                currentTX = "\(from) \(myCall) RR73"
+                awaiting = .none
+                finalMessagesLeft = 0
+                markResponded("RR73 to \(from) — rogered with their grid")
             } else if Self.isSignoff(payload) {
                 // They skipped R±NN and closed out — runners do this when a
                 // bare report answered our CQ. Both reports crossed, so the
@@ -575,9 +586,10 @@ final class QSOSequencer: ObservableObject {
             }
 
         case (.qsoAsCaller, .none):
-            // Post-RR73: they repeat R±NN if they missed it, or send 73
+            // Post-RR73: they repeat R±NN (or R GRID) if they missed it,
+            // or send 73
             guard from == partner else { return }
-            if Self.rogerReportValue(payload) != nil {
+            if Self.rogerReportValue(payload) != nil || Self.rogerGridValue(payload) != nil {
                 markResponded("Repeating RR73 to \(from)")
             } else if Self.isSignoff(payload) {
                 finishQSOSession()
@@ -590,7 +602,9 @@ final class QSOSequencer: ObservableObject {
             if Self.rogerGridValue(payload) != nil {
                 markResponded("Repeating RR73 to \(from)")
             } else if payload == "RR73" || payload == "RRR" {
-                markResponded("Repeating 73 to \(from)")
+                // Re-send whichever final we're on — 73 in the standard
+                // flow, RR73 in the grid-only exchange
+                markResponded("Repeating \(currentTX?.split(separator: " ").last.map(String.init) ?? "73") to \(from)")
             } else if payload == "73" {
                 finishQSOSession()
             }

@@ -194,6 +194,68 @@ final class ContestExchangeTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "W9XYZ W0CJW R DM79")
     }
 
+    /// WSJT-X in WW Digi mode rogers a signal report with "R GRID" (its Tx3
+    /// carries the grid no matter what it received). With the option OFF
+    /// that is exactly what a contest station answering our CQ sends back
+    /// to our report — it must close the QSO, not stall it.
+    func testStandardCallerAcceptsRogerGridAsRoger() {
+        let seq = makeSequencer(contest: false)
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ JN76", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "S52XYZ W0CJW -07")
+
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ R JN76", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "S52XYZ W0CJW RR73")
+        XCTAssertEqual(completed?.partner, "S52XYZ")
+        XCTAssertEqual(completed?.partnerGrid, "JN76")
+        XCTAssertEqual(completed?.reportSent, "-07")
+        XCTAssertNil(completed?.reportReceived, "they never sent one")
+
+        // They missed the RR73 and repeat their roger → RR73 again; their
+        // 73 (WSJT-X sends one) ends it
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ R JN76", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "S52XYZ W0CJW RR73")
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ 73", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+    }
+
+    /// A bare "W0CJW K1ABC" repeat (no grid) counts as a repeat too.
+    func testBareCallRepeatCountsTowardFallback() {
+        let seq = makeSequencer(contest: true)
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC", snr: -9)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09")
+    }
+
+    /// No own grid → nothing to roger with; the report sequence is used.
+    func testContestExchangeNeedsOwnGrid() {
+        let seq = makeSequencer(contest: true)
+        seq.myGrid4 = ""
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+    }
+
+    /// The "CQ WW" directed call WSJT-X sends in WW Digi mode parses like
+    /// any modifier, and is a valid modifier for our own CQ.
+    func testCQWWParsesAndIsSendable() {
+        let p = FT8MessageParser.parse("CQ WW K1ABC FN42")
+        XCTAssertTrue(p.isCQ)
+        XCTAssertEqual(p.sender, "K1ABC")
+        XCTAssertEqual(p.grid, "FN42")
+        XCTAssertTrue(QSOSequencer.isValidCQModifier("WW"))
+        XCTAssertNotNil(FT8Encoder.encode(message: "CQ WW W0CJW DM79", frequencyHz: 1500))
+    }
+
     // MARK: Answerer side (we answered their CQ)
 
     /// Their "R GRID" completes the contact whether or not the option is
