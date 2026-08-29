@@ -80,6 +80,14 @@ enum CabrilloExporter {
         return line + "\n"
     }
 
+    /// QSOs whose received exchange is missing — in a grid-only contest,
+    /// no grid was copied from the partner. They export as "----" and the
+    /// robot will throw them out; better to know before uploading.
+    static func missingExchange(records: [QSORecord], contest: String?) -> [QSORecord] {
+        guard exchangeStyle(for: contest) == .gridOnly else { return [] }
+        return records.filter { $0.partnerGrid == nil }
+    }
+
     // MARK: - Contest identity
 
     /// The lookup key for a user-typed contest name: "WW Digi", "ww-digi"

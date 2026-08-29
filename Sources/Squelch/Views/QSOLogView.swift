@@ -46,6 +46,9 @@ struct QSOLogView: View {
     @State private var showingNewContest = false
     @State private var newContestName = ""
     @State private var exportDocument: LogExportDocument?
+    /// A Cabrillo export held back for confirmation — some QSOs have no
+    /// received exchange and would be thrown out by the log checker.
+    @State private var exportWarning: ExportWarning?
     @StateObject private var backfiller = QSOBackfiller()
     @State private var editingRecord: QSORecord?
     @State private var searchText = ""
@@ -148,13 +151,22 @@ struct QSOLogView: View {
         )
     }
 
+    struct ExportWarning: Identifiable {
+        let id = UUID()
+        let message: String
+        let document: LogExportDocument
+    }
+
+
     /// nil exports everything; a contest name exports just that contest's
-    /// QSOs with the CONTEST: header pre-filled.
+    /// QSOs with the CONTEST: header pre-filled. QSOs with no received
+    /// exchange are called out first — the export still goes ahead on
+    /// request, but blind uploads of NIL-bait are how penalties happen.
     private func exportCabrillo(contest: String?) {
         let records = contest.map { name in qsoLog.records.filter { $0.contest == name } }
             ?? qsoLog.records
         let slug = contest.map { "-" + $0.lowercased().replacingOccurrences(of: " ", with: "-") } ?? ""
-        exportDocument = LogExportDocument(
+        let document = LogExportDocument(
             text: CabrilloExporter.log(
                 records: records,
                 stationCallsign: myCallsign.uppercased(),
@@ -165,6 +177,16 @@ struct QSOLogView: View {
             contentType: LogExportDocument.cabrilloType,
             defaultFilename: "squelch\(slug).log"
         )
+        let missing = CabrilloExporter.missingExchange(records: records, contest: contest)
+        guard missing.isEmpty else {
+            let calls = missing.map(\.partner).sorted().joined(separator: ", ")
+            exportWarning = ExportWarning(
+                message: "\(missing.count) QSO\(missing.count == 1 ? " has" : "s have") no received grid — the exchange was never copied on the air, so the log checker will reject \(missing.count == 1 ? "it" : "them") (\(calls)). Delete or fix \(missing.count == 1 ? "it" : "them"), or export anyway.",
+                document: document
+            )
+            return
+        }
+        exportDocument = document
     }
 
     /// Selected rows as tab-separated text (visible-column order, current
@@ -413,6 +435,7 @@ struct QSOLogView: View {
                 qsoLog.append(record)
             }
         }
+        .modifier(MissingExchangeAlert(warning: $exportWarning) { exportDocument = $0 })
         .alert("New Contest", isPresented: $showingNewContest) {
             TextField("Name", text: $newContestName, prompt: Text("e.g. WW-DIGI"))
             Button("Start Logging") {
@@ -707,5 +730,25 @@ private struct QSOFormSheet: View {
             }(),
             txPowerWatts: Int(powerWatts.trimmingCharacters(in: .whitespaces))
         )
+    }
+}
+
+/// "Some QSOs have no received exchange" — held out of the log view's
+/// modifier chain, which is already at the type-checker's limit.
+private struct MissingExchangeAlert: ViewModifier {
+    @Binding var warning: QSOLogView.ExportWarning?
+    let exportAnyway: (LogExportDocument) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            "Missing exchange",
+            isPresented: Binding(get: { warning != nil }, set: { if !$0 { warning = nil } }),
+            presenting: warning
+        ) { w in
+            Button("Export Anyway") { exportAnyway(w.document) }
+            Button("Cancel", role: .cancel) {}
+        } message: { w in
+            Text(w.message)
+        }
     }
 }

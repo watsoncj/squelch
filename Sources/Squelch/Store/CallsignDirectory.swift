@@ -43,16 +43,76 @@ final class CallsignDirectory: ObservableObject {
         }
         if let onResult { waiters[call, default: []].append(onResult) }
         lookups[call] = .pending
-        guard let url = URL(string: "https://api.hamdb.org/v1/\(call)/json/squelch") else {
+        // A compound call ("W1AW/2", "PJ4/K1ABC") is looked up by its
+        // licensed base — the slash form 404s — and the answer is trimmed
+        // to what still applies to a station operating away from home
+        let target = Self.lookupTarget(call)
+        guard let url = URL(string: "https://api.hamdb.org/v1/\(target.base)/json/squelch") else {
             settle(call, .failed)
             return
         }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            let result: LookupState = error != nil ? .failed : Self.classify(data)
+            let result: LookupState = error != nil ? .failed : Self.trim(Self.classify(data), for: target)
             DispatchQueue.main.async {
                 self?.settle(call, result)
             }
         }.resume()
+    }
+
+    // MARK: - Compound callsigns
+
+    /// What a compound callsign tells a license lookup: which segment is
+    /// the licensed call, and how much of the license record still
+    /// describes the station on the air.
+    struct LookupTarget: Equatable {
+        enum Scope: Equatable {
+            /// Plain call, or a suffix that doesn't move the station
+            /// (/QRP, /AG…): the whole license record applies.
+            case full
+            /// Portable within the license's country (/2, /P, /M, /MM,
+            /// /AM, /R): name and country hold, address-derived grid,
+            /// state and city do not.
+            case nameAndCountry
+            /// Operating under a foreign prefix (PJ4/K1ABC): only the
+            /// name is about the person in front of the radio.
+            case nameOnly
+        }
+        let base: String
+        let scope: Scope
+    }
+
+    /// Suffixes that qualify the license rather than the location.
+    private static let nonLocatingSuffixes: Set<String> = ["QRP", "AG", "AE", "AT", "T", "KT"]
+
+    static func lookupTarget(_ callsign: String) -> LookupTarget {
+        let parts = callsign.uppercased().split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return LookupTarget(base: callsign.uppercased(), scope: .full) }
+        // The licensed call is the longest callsign-shaped segment; with a
+        // prefix form ("PJ4/K1ABC") that's the second one
+        let base = parts.max { a, b in
+            (FT8MessageParser.isCallsign(a) ? a.count : 0) < (FT8MessageParser.isCallsign(b) ? b.count : 0)
+        } ?? parts[0]
+        let modifiers = parts.filter { $0 != base }
+        if parts[0] != base {
+            return LookupTarget(base: base, scope: .nameOnly) // foreign prefix
+        }
+        if modifiers.allSatisfy({ nonLocatingSuffixes.contains($0) }) {
+            return LookupTarget(base: base, scope: .full)
+        }
+        return LookupTarget(base: base, scope: .nameAndCountry)
+    }
+
+    /// Drop the license-address fields a relocated station has outgrown.
+    static func trim(_ state: LookupState, for target: LookupTarget) -> LookupState {
+        guard case .found(let e) = state, target.scope != .full else { return state }
+        return .found(Entry(
+            name: e.name,
+            city: nil,
+            state: nil,
+            country: target.scope == .nameAndCountry ? e.country : nil,
+            grid: nil,
+            licenseClass: e.licenseClass
+        ))
     }
 
     private func settle(_ call: String, _ result: LookupState) {

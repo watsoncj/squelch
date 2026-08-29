@@ -277,6 +277,43 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(CallsignDirectory.classify(Data(notFound.utf8)), .missing)
         XCTAssertEqual(CallsignDirectory.classify(Data("garbage".utf8)), .failed)
         XCTAssertEqual(CallsignDirectory.classify(nil), .failed)
+    }
+
+    /// A compound call is looked up by its licensed base, and the license
+    /// address only applies when the station is actually at home.
+    func testCompoundCallLookupTarget() {
+        typealias T = CallsignDirectory.LookupTarget
+        XCTAssertEqual(CallsignDirectory.lookupTarget("W1AW"), T(base: "W1AW", scope: .full))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("w1aw/2"), T(base: "W1AW", scope: .nameAndCountry))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("K1ABC/P"), T(base: "K1ABC", scope: .nameAndCountry))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("K1ABC/MM"), T(base: "K1ABC", scope: .nameAndCountry))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("K1ABC/QRP"), T(base: "K1ABC", scope: .full))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("W0CJW/AG"), T(base: "W0CJW", scope: .full))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("PJ4/K1ABC"), T(base: "K1ABC", scope: .nameOnly))
+        XCTAssertEqual(CallsignDirectory.lookupTarget("VE3ABC/W7"), T(base: "VE3ABC", scope: .nameAndCountry))
+    }
+
+    func testCompoundCallTrimsLicenseAddress() {
+        let home = CallsignDirectory.Entry(
+            name: "Arrl Hq Operators Club", city: "Newington", state: "CT",
+            country: "United States", grid: "FN31PR", licenseClass: nil
+        )
+        let portable = CallsignDirectory.trim(.found(home), for: .init(base: "W1AW", scope: .nameAndCountry))
+        guard case .found(let p) = portable else { return XCTFail("expected found") }
+        XCTAssertEqual(p.name, "Arrl Hq Operators Club")
+        XCTAssertEqual(p.country, "United States")
+        XCTAssertNil(p.grid, "FN31 is Newington — a /2 station isn't there")
+        XCTAssertNil(p.state)
+        XCTAssertNil(p.city)
+
+        let abroad = CallsignDirectory.trim(.found(home), for: .init(base: "W1AW", scope: .nameOnly))
+        guard case .found(let a) = abroad else { return XCTFail("expected found") }
+        XCTAssertEqual(a.name, "Arrl Hq Operators Club")
+        XCTAssertNil(a.country)
+        XCTAssertNil(a.grid)
+
+        XCTAssertEqual(CallsignDirectory.trim(.found(home), for: .init(base: "W1AW", scope: .full)), .found(home))
+        XCTAssertEqual(CallsignDirectory.trim(.missing, for: .init(base: "W1AW", scope: .nameOnly)), .missing)
         XCTAssertEqual(CallsignDirectory.className("E"), "Amateur Extra")
     }
 

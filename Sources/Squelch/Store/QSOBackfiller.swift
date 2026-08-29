@@ -6,6 +6,10 @@ extension QSORecord {
     /// extends to the lookup's 6-char square when the two agree (a portable
     /// station's real square beats its license address). Returns true if
     /// anything changed.
+    ///
+    /// In a grid-only contest the grid IS the exchange: a missing one
+    /// stays missing, because a license-address grid was never copied on
+    /// the air and the log must not claim it was.
     mutating func merge(_ entry: CallsignDirectory.Entry) -> Bool {
         var changed = false
         if name?.isEmpty != false, !entry.name.isEmpty {
@@ -14,8 +18,10 @@ extension QSORecord {
         }
         if let grid = entry.grid {
             if partnerGrid == nil {
-                partnerGrid = grid
-                changed = true
+                if !exchangeIsGrid {
+                    partnerGrid = grid
+                    changed = true
+                }
             } else if let heard = partnerGrid, heard.count == 4,
                       grid.hasPrefix(heard), grid != heard {
                 partnerGrid = grid
@@ -31,6 +37,12 @@ extension QSORecord {
             changed = true
         }
         return changed
+    }
+
+    /// Logged under a contest whose exchange is the grid itself (WW Digi,
+    /// ARRL VHF) — `partnerGrid` then means "what they sent", nothing else.
+    var exchangeIsGrid: Bool {
+        CabrilloExporter.exchangeStyle(for: contest) == .gridOnly
     }
 }
 

@@ -107,6 +107,34 @@ final class CabrilloExporterTests: XCTestCase {
         XCTAssertEqual(CabrilloExporter.locationField(nil, stationCallsign: "JA1ABC"), "DX")
     }
 
+    /// The received grid is the exchange in a grid-only contest: never
+    /// filled from a license lookup, and flagged when missing.
+    func testGridOnlyContestKeepsMissingGridMissing() {
+        let entry = CallsignDirectory.Entry(
+            name: "Jimmy", city: nil, state: "IN", country: "United States", grid: "EM69WQ", licenseClass: nil
+        )
+        var contestQSO = record(grid: nil)
+        contestQSO.contest = "WW-DIGI"
+        XCTAssertTrue(contestQSO.merge(entry))
+        XCTAssertNil(contestQSO.partnerGrid, "license grid must not pose as the received exchange")
+        XCTAssertEqual(contestQSO.name, "Jimmy")
+        XCTAssertEqual(contestQSO.state, "IN")
+
+        var heard4 = record(grid: "EM69")
+        heard4.contest = "WW-DIGI"
+        _ = heard4.merge(entry)
+        XCTAssertEqual(heard4.partnerGrid, "EM69WQ", "a heard grid may still extend to the license's 6-char square")
+
+        var casual = record(grid: nil)
+        XCTAssertTrue(casual.merge(entry))
+        XCTAssertEqual(casual.partnerGrid, "EM69WQ", "casual QSOs keep the backfill")
+
+        XCTAssertEqual(CabrilloExporter.missingExchange(records: [contestQSO, heard4], contest: "WW-DIGI").map(\.partner),
+                       [contestQSO.partner])
+        XCTAssertTrue(CabrilloExporter.missingExchange(records: [casual], contest: "ARRL-FD").isEmpty,
+                      "only grid-only contests are checked")
+    }
+
     func testQSOLineFieldsInOrder() {
         let line = CabrilloExporter.qsoLine(
             for: record(), stationCallsign: "W0CJW", myGrid4: "DM79"
