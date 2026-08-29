@@ -256,6 +256,75 @@ final class ContestExchangeTests: XCTestCase {
         XCTAssertNotNil(FT8Encoder.encode(message: "CQ WW W0CJW DM79", frequencyHz: 1500))
     }
 
+    /// KJ5PTH, 2026-08-29 03:10Z: two stations answered one CQ; the first
+    /// closed with RR73 in the same slot the second was still sending its
+    /// grid. Promoting the second mid-slot must not count that grid as a
+    /// "repeat" of an R GRID we hadn't sent yet — it took one genuine
+    /// repeat to a report instead of two.
+    func testPileupCallerGridInPromotionSlotIsNotARepeat() {
+        let seq = makeSequencer(contest: true)
+        seq.startCQ(parity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "CQ W0CJW DM79")
+
+        // Two answers in one slot: KS4OT is taken, KJ5PTH queued
+        seq.ingest(decodes: [.init(text: "W0CJW KS4OT EM83", snr: -10),
+                             .init(text: "W0CJW KJ5PTH EL39", snr: -12)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KS4OT W0CJW R DM79")
+
+        // KS4OT closes; KJ5PTH's grid lands in the very same slot — the
+        // decoder's order puts the RR73 first, so KJ5PTH is promoted and
+        // then his grid is handled while he's already the partner
+        seq.ingest(decodes: [.init(text: "W0CJW KS4OT RR73", snr: -11),
+                             .init(text: "W0CJW KJ5PTH EL39", snr: -16)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79", "first R GRID to KJ5PTH")
+
+        // One genuine repeat → repeat the R GRID, not a report
+        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -13)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79",
+                       "the grid heard in the promotion slot predates our R GRID and must not count")
+
+        // Second genuine repeat → now the report
+        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -14)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW -14")
+    }
+
+    /// The same protection when the grid and the promotion arrive in the
+    /// other order within the slot (grid decoded before the RR73): the
+    /// grid is queued for a non-partner, then he's promoted — still no
+    /// repeat counted.
+    func testPileupPromotionOrderIndependent() {
+        let seq = makeSequencer(contest: true)
+        seq.startCQ(parity: 1)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW KS4OT EM83", snr: -10),
+                             .init(text: "W0CJW KJ5PTH EL39", snr: -12)], slotParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -16),
+                             .init(text: "W0CJW KS4OT RR73", snr: -11)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -13)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -14)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW -14")
+    }
+
+    /// A grid repeat that arrives after a *retry* of R GRID (silence in
+    /// between) still counts — the flag is about whether it was ever sent,
+    /// not about the slot immediately before.
+    func testRepeatAfterSilentRetryStillCounts() {
+        let seq = makeSequencer(contest: true)
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+        seq.ingest(decodes: [], slotParity: 1) // silence → retry
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1) // repeat 1
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -9)], slotParity: 1) // repeat 2
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09")
+    }
+
     // MARK: Answerer side (we answered their CQ)
 
     /// Their "R GRID" completes the contact whether or not the option is

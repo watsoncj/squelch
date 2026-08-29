@@ -135,8 +135,11 @@ final class QSOSequencer: ObservableObject {
     private var busyPassesLeft = 0
     /// Times the partner re-sent their grid after our "R GRID" — a
     /// station not running the contest exchange keeps waiting for a
-    /// report, so after two repeats we give them one.
+    /// report, so after two repeats we give them one. Only grids heard
+    /// once the R GRID has actually gone out count: a pileup caller
+    /// promoted mid-slot is still calling, not reacting to anything.
     private var gridRepeats = 0
+    private var rogerGridSent = false
     /// Busy patience granted at each engagement — none during a contest.
     private var busyPassBudget: Int { isContestActive() ? 0 : maxBusyPasses }
 
@@ -451,6 +454,9 @@ final class QSOSequencer: ObservableObject {
         }
         respondedSinceLastTX = false
         partnerBusyWith = nil // per-slot evidence, consumed above
+        if awaiting == .contestSignoff {
+            rogerGridSent = true // from here on a repeated grid is a reaction to it
+        }
         if mode == .cqLoop {
             // Rebuild from the live modifier — a flavor change mid-run
             // shapes this very call, and the description tracks it
@@ -498,8 +504,11 @@ final class QSOSequencer: ObservableObject {
             } else if FT8MessageParser.isGrid(payload) || payload.isEmpty {
                 // They repeated their grid: our R GRID didn't land, or they
                 // aren't running the contest exchange and are waiting for
-                // a report. Repeat once, then give them the report.
-                gridRepeats += 1
+                // a report. Repeat once, then give them the report. A grid
+                // heard before our R GRID went out (they answered the CQ
+                // in the same slot their predecessor closed) is just them
+                // still calling — it doesn't count.
+                if rogerGridSent { gridRepeats += 1 }
                 if gridRepeats >= 2 {
                     reportSent = Self.formatReport(snr)
                     currentTX = "\(from) \(myCall) \(reportSent)"
@@ -621,6 +630,7 @@ final class QSOSequencer: ObservableObject {
     /// back even mid-contest.
     private func armCallerReply(to call: String, snr: Float) {
         gridRepeats = 0
+        rogerGridSent = false
         if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty {
             reportSent = ""
             currentTX = "\(call) \(myCall) R \(myGrid4)"
@@ -725,6 +735,7 @@ final class QSOSequencer: ObservableObject {
         partnerBusyWith = nil
         busyPassesLeft = 0
         gridRepeats = 0
+        rogerGridSent = false
         courtesyTX = nil
         cqSlotCounter = 0 // resumed runs open with an immediate CQ
         // `abandoned`, `recentlyCompleted`, and `queuedCallers` deliberately
