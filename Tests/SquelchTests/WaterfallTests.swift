@@ -76,3 +76,19 @@ final class WaterfallTests: XCTestCase {
                        "tone column off: got \(best.column), expected ~\(expectedX)")
     }
 }
+
+/// The waterfall's highlight box and the click-to-inspect hit box are sized
+/// from the active mode — FT4 paints wider and shorter than FT8.
+final class ModePaintExtentTests: XCTestCase {
+    func testTransmissionSeconds() {
+        XCTAssertEqual(DigiMode.ft8.transmissionSeconds, 12.64, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.ft4.transmissionSeconds, 5.04, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.wspr.transmissionSeconds, 110.6, accuracy: 0.1)
+    }
+
+    func testToneSpanHz() {
+        XCTAssertEqual(DigiMode.ft8.toneSpanHz, 50, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.ft4.toneSpanHz, 83.33, accuracy: 0.01, "4 tones at 20.83 Hz — wider than FT8")
+        XCTAssertEqual(DigiMode.wspr.toneSpanHz, 5.86, accuracy: 0.01)
+    }
+}

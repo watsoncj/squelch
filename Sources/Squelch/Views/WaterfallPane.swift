@@ -126,14 +126,15 @@ struct WaterfallPane: View {
 
                 // Selected station's transmissions, boxed in the map's
                 // selection blue. Row dates place each decode in time even
-                // across decoding gaps; the x span is the FT8 tone spread.
+                // across decoding gaps; the box is sized from the active
+                // mode's tone spread and time on air.
                 if !highlightMessages.isEmpty, let frame = processor.frame {
                     let imageHeight = CGFloat(frame.image.height)
                     let offset = min(scrollback, max(0, imageHeight - geo.size.height))
-                    let toneSpanHz = 50.0 // 8 tones × 6.25 Hz
+                    let toneSpanHz = DigiMode.current.toneSpanHz
                     ForEach(highlightMessages) { message in
                         let start = message.slotStart.addingTimeInterval(TimeInterval(message.timeOffset))
-                        let end = start.addingTimeInterval(DigiMode.current == .wspr ? 110.6 : 12.64)
+                        let end = start.addingTimeInterval(transmissionSeconds)
                         if let first = frame.rowDates.firstIndex(where: { $0 >= start }),
                            frame.rowDates[first] <= end {
                             let last = frame.rowDates.lastIndex(where: { $0 <= end }) ?? first
@@ -451,9 +452,7 @@ struct WaterfallPane: View {
         (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
     }
 
-    private var transmissionSeconds: Double {
-        DigiMode.current == .wspr ? 110.6 : 12.64
-    }
+    private var transmissionSeconds: Double { DigiMode.current.transmissionSeconds }
 
     /// View point → (frequency, row date) → SignalInspector. nil when the
     /// click lands outside the painted history.
@@ -467,7 +466,8 @@ struct WaterfallPane: View {
             time: frame.rowDates[rowIndex],
             messages: recentMessages(in: frame),
             slotSeconds: DigiMode.current.slotSeconds,
-            transmissionSeconds: transmissionSeconds
+            transmissionSeconds: transmissionSeconds,
+            toneSpanHz: DigiMode.current.toneSpanHz
         )
     }
 
@@ -487,7 +487,8 @@ struct WaterfallPane: View {
         let lowX = WaterfallProcessor.x(
             forFrequency: Double(message.audioFrequency) - padHz, width: size.width)
         let highX = WaterfallProcessor.x(
-            forFrequency: Double(message.audioFrequency) + 50 + padHz, width: size.width)
+            forFrequency: Double(message.audioFrequency) + DigiMode.current.toneSpanHz + padHz,
+            width: size.width)
         return CGRect(x: lowX,
                       y: imageHeight - 1 - CGFloat(last + padRows) - offset,
                       width: max(4, highX - lowX),

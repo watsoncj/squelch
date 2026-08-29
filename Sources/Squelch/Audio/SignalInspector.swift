@@ -28,7 +28,9 @@ struct SignalInspector {
 
     /// A transmission occupies [audioFrequency, +toneSpanHz] ×
     /// [slotStart+timeOffset, +transmissionSeconds]; tolerances widen the
-    /// box so near-misses on a 50 Hz-wide target still resolve.
+    /// box so near-misses on a narrow target still resolve. Both spans are
+    /// the caller's — they differ per mode (`DigiMode.toneSpanHz` /
+    /// `.transmissionSeconds`); the default is FT8's.
     static func inspect(
         frequencyHz: Double,
         time: Date,

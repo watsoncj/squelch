@@ -25,6 +25,28 @@ enum DigiMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Time on air, first symbol to last — the height a transmission
+    /// paints on the waterfall. FT8 79 × 0.160 s, FT4 105 × 0.048 s.
+    var transmissionSeconds: Double {
+        switch self {
+        case .ft8: return 79 * 0.160   // 12.64
+        case .ft4: return 105 * 0.048  // 5.04
+        case .wspr: return WSPRCodec.transmissionSeconds // 110.6
+        }
+    }
+
+    /// How wide the tone set paints. Tone spacing is the reciprocal of the
+    /// symbol period, so this is tone count ÷ symbol period: FT8 8 ×
+    /// 6.25 Hz, FT4 4 × 20.83 Hz, WSPR 4 × 1.46 Hz. FT4 is the widest of
+    /// the three despite having half FT8's tones.
+    var toneSpanHz: Double {
+        switch self {
+        case .ft8: return 8 / 0.160        // 50.00
+        case .ft4: return 4 / 0.048        // 83.33
+        case .wspr: return 4 * 12000 / 8192 // 5.86
+        }
+    }
+
     var isFT4: Bool { self == .ft4 }
     /// WSPR is a beacon mode: no QSO sequencer, 2-minute slots.
     var supportsQSO: Bool { self != .wspr }
