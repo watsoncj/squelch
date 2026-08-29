@@ -279,6 +279,34 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertEqual(CallsignDirectory.classify(nil), .failed)
     }
 
+    /// Station defaults fill an unset setting for a known callsign and
+    /// never overwrite what the operator typed.
+    func testStationDefaultsFillOnlyUnsetSection() {
+        let suite = "SquelchTests.stationDefaults.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        // Unknown call: nothing happens
+        defaults.set("W1AW", forKey: SettingsKeys.myCallsign)
+        SquelchApp.applyStationDefaults(defaults: defaults)
+        XCTAssertNil(defaults.string(forKey: SettingsKeys.arrlSection))
+
+        // Known call, section unset → filled (case- and whitespace-tolerant)
+        defaults.set(" kb0ylk ", forKey: SettingsKeys.myCallsign)
+        SquelchApp.applyStationDefaults(defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.arrlSection), "CO")
+
+        // Blank counts as unset
+        defaults.set("  ", forKey: SettingsKeys.arrlSection)
+        SquelchApp.applyStationDefaults(defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.arrlSection), "CO")
+
+        // Operator's own value always wins
+        defaults.set("WY", forKey: SettingsKeys.arrlSection)
+        SquelchApp.applyStationDefaults(defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: SettingsKeys.arrlSection), "WY")
+    }
+
     /// A compound call is looked up by its licensed base, and the license
     /// address only applies when the station is actually at home.
     func testCompoundCallLookupTarget() {

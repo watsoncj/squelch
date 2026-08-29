@@ -659,6 +659,7 @@ struct SquelchApp: App {
 
     init() {
         Self.migrateRadioFunSettings()
+        Self.applyStationDefaults()
         // First-run defaults
         UserDefaults.standard.register(defaults: [
                         SettingsKeys.dialFrequencyMHz: 14.074,
@@ -692,6 +693,25 @@ struct SquelchApp: App {
             }
         }
         defaults.set(true, forKey: marker)
+    }
+
+    /// Per-station settings that can be filled in without asking: values
+    /// known for a callsign that the operator hasn't set. Applied at every
+    /// launch, only to keys still unset, so a later edit always sticks.
+    static let stationDefaults: [String: [String: String]] = [
+        "KB0YLK": [SettingsKeys.arrlSection: "CO"],
+    ]
+
+    static func applyStationDefaults(defaults: UserDefaults = .standard) {
+        let call = (defaults.string(forKey: SettingsKeys.myCallsign) ?? "")
+            .trimmingCharacters(in: .whitespaces).uppercased()
+        guard let values = stationDefaults[call] else { return }
+        for (key, value) in values {
+            let current = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespaces) ?? ""
+            if current.isEmpty {
+                defaults.set(value, forKey: key)
+            }
+        }
     }
 
     var body: some Scene {
