@@ -39,7 +39,6 @@ struct QSOLogView: View {
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
-    @AppStorage(SettingsKeys.contestExchange) private var contestExchange = false
     @AppStorage(SettingsKeys.arrlSection) private var arrlSection = ""
     @State private var selection = Set<UUID>()
     @State private var showingAdd = false
@@ -354,17 +353,13 @@ struct QSOLogView: View {
                         newContestName = ""
                         showingNewContest = true
                     }
-                    Divider()
-                    Toggle("Grid-only exchange (no signal reports)", isOn: $contestExchange)
-                        .disabled(activeContest.isEmpty)
-                        .help("WW Digi / VHF-contest sequence: answer a grid with R \(myGrid.isEmpty ? "GRID" : String(myGrid.prefix(4)).uppercased()) instead of a report — one slot shorter per QSO. Only in effect while a contest is selected.")
                 } label: {
                     Label(activeContest.isEmpty ? "Contest" : activeContest,
                           systemImage: activeContest.isEmpty ? "tag" : "tag.fill")
                         .labelStyle(.titleAndIcon) // the active name should be visible, not hidden behind the icon
                 }
                 .help(activeContest.isEmpty
-                      ? "Pick a contest to tag every new QSO with it — on-air and manual alike"
+                      ? "Pick a contest to tag every new QSO with it — on-air and manual alike. Grid-only contests (WW Digi, ARRL VHF) also switch the exchange to R GRID with stations heard using it."
                       : "New QSOs are being tagged \(activeContest) — set to Off when the contest ends")
             }
             ToolbarItem {

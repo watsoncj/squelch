@@ -39,7 +39,12 @@ struct QSORecord: Identifiable, Codable {
 ///                         → X MYCALL RR73
 /// The answerer side is always accepted — a partner's "R GRID" completes
 /// the contact whether or not the option is on; the option decides what
-/// WE send when a grid comes in.
+/// WE send when a grid comes in — and even then only to a station heard
+/// speaking the contest exchange (`speaksContestExchange`); anyone else
+/// gets a report first, which every program understands. A partner who
+/// repeats their grid after our "R GRID" gets the report on that first
+/// repeat: stations that don't know the message were seen leaving after
+/// one unanswered try.
 final class QSOSequencer: ObservableObject {
     struct Decode {
         let text: String
@@ -99,9 +104,13 @@ final class QSOSequencer: ObservableObject {
     /// `abandoned` if their signoff straggles in.
     var isContestActive: () -> Bool = { false }
     /// Whether to run the grid-only contest exchange (see the type doc) —
-    /// injectable; the app wires it to the contest-exchange option, in
-    /// effect only while a contest is active.
+    /// injectable; the app derives it from the active contest (WW Digi,
+    /// ARRL VHF — the contests whose Cabrillo exchange is the grid).
     var isContestExchange: () -> Bool = { false }
+    /// Whether a station has been heard using the contest exchange ("CQ
+    /// WW", "R GRID") — injectable; the app wires it to `ContestSpeakers`.
+    /// Gates the "R MYGRID" lead: unknown stations get a report first.
+    var speaksContestExchange: (String) -> Bool = { _ in false }
     /// Mode name stamped on logged QSOs ("FT8"/"FT4") — injectable; the
     /// app wires it to the live digi-mode setting.
     var modeName: () -> String = { "FT8" }
@@ -135,9 +144,9 @@ final class QSOSequencer: ObservableObject {
     private var busyPassesLeft = 0
     /// Times the partner re-sent their grid after our "R GRID" — a
     /// station not running the contest exchange keeps waiting for a
-    /// report, so after two repeats we give them one. Only grids heard
-    /// once the R GRID has actually gone out count: a pileup caller
-    /// promoted mid-slot is still calling, not reacting to anything.
+    /// report, so the first repeat earns one. Only grids heard once the
+    /// R GRID has actually gone out count: a pileup caller promoted
+    /// mid-slot is still calling, not reacting to anything.
     private var gridRepeats = 0
     private var rogerGridSent = false
     /// Busy patience granted at each engagement — none during a contest.
@@ -504,12 +513,14 @@ final class QSOSequencer: ObservableObject {
             } else if FT8MessageParser.isGrid(payload) || payload.isEmpty {
                 // They repeated their grid: our R GRID didn't land, or they
                 // aren't running the contest exchange and are waiting for
-                // a report. Repeat once, then give them the report. A grid
-                // heard before our R GRID went out (they answered the CQ
-                // in the same slot their predecessor closed) is just them
-                // still calling — it doesn't count.
+                // a report. Give them the report — a contest-mode partner
+                // who merely missed us answers it with R GRID, one slot
+                // lost; a partner who can't parse R GRID would otherwise
+                // leave. A grid heard before our R GRID went out (they
+                // answered the CQ in the same slot their predecessor
+                // closed) is just them still calling — it doesn't count.
                 if rogerGridSent { gridRepeats += 1 }
-                if gridRepeats >= 2 {
+                if gridRepeats >= 1 {
                     reportSent = Self.formatReport(snr)
                     currentTX = "\(from) \(myCall) \(reportSent)"
                     awaiting = .rogerReport
@@ -625,13 +636,15 @@ final class QSOSequencer: ObservableObject {
 
     /// Arm our reply to a station that gave us their grid (answered our
     /// CQ, or called us): the report in a normal exchange, "R MYGRID" in
-    /// the grid-only contest exchange. A bare-report answer already told
-    /// us the partner runs the standard sequence, so it gets a report
-    /// back even mid-contest.
+    /// the grid-only contest exchange — but only to a station heard
+    /// speaking it; an unprofiled one gets the report, which a contest-
+    /// mode partner still completes (R GRID → RR73). A bare-report answer
+    /// already told us the partner runs the standard sequence, so it gets
+    /// a report back even mid-contest.
     private func armCallerReply(to call: String, snr: Float) {
         gridRepeats = 0
         rogerGridSent = false
-        if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty {
+        if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty, speaksContestExchange(call) {
             reportSent = ""
             currentTX = "\(call) \(myCall) R \(myGrid4)"
             awaiting = .contestSignoff

@@ -28,6 +28,9 @@ final class AppModel: ObservableObject {
     let controller = DecodeController()
     let transmit = TransmitController()
     let sequencer = QSOSequencer()
+    /// Stations heard using the contest exchange this session — gates
+    /// whether the sequencer leads with "R GRID" or a report.
+    let contestSpeakers = ContestSpeakers()
     let qsoLog = QSOLog()
     let cat = CATController()
     let waterfall = WaterfallProcessor()
@@ -69,14 +72,16 @@ final class AppModel: ObservableObject {
             let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
             return !contest.trimmingCharacters(in: .whitespaces).isEmpty
         }
-        // Grid-only exchange (WW Digi / VHF style) only while a contest is
-        // active — a forgotten toggle must not leak into everyday QSOs
+        // Grid-only exchange (WW Digi / VHF style) follows the active
+        // contest: the same predicate that shapes its Cabrillo lines and
+        // withholds license grids from its log — nothing to remember to
+        // switch on, nothing to leak into everyday QSOs
         sequencer.isContestExchange = {
             let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
-            return !contest.trimmingCharacters(in: .whitespaces).isEmpty
-                && UserDefaults.standard.bool(forKey: SettingsKeys.contestExchange)
+            return CabrilloExporter.exchangeStyle(for: contest) == .gridOnly
         }
         sequencer.modeName = { DigiMode.current == .ft4 ? "FT4" : "FT8" }
+        sequencer.speaksContestExchange = { [contestSpeakers] in contestSpeakers.speaks($0) }
         sequencer.onQSOComplete = { [qsoLog, store, cat] record in
             var record = record
             // The exchange itself often never carries the grid (answerer
@@ -171,6 +176,9 @@ final class AppModel: ObservableObject {
         sequencer.cqModifier = Self.activeCQModifier()
         sequencer.cqSlotInterval = max(1, UserDefaults.standard.integer(forKey: SettingsKeys.cqSlotInterval))
 
+        // Who's been heard speaking the contest exchange — must precede
+        // ingest, so a "CQ WW" answered this very slot already counts
+        contestSpeakers.note(results.map(\.text), myCall: sequencer.myCall)
         // Always ingest — even idle, a straggling RR73 from an abandoned
         // exchange can complete and log a QSO (ingest no-ops otherwise)
         sequencer.ingest(

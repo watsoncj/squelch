@@ -10,7 +10,64 @@ final class ContestExchangeTests: XCTestCase {
         seq.myGrid4 = "DM79"
         seq.isContestActive = { contest }
         seq.isContestExchange = { contest }
+        seq.speaksContestExchange = { _ in true } // profiled — the fast path
         return seq
+    }
+
+    // MARK: Who gets "R GRID"
+
+    func testContestSpeakersProfile() {
+        let speakers = ContestSpeakers()
+        speakers.note(["CQ K1ABC FN42", "K1ABC W9XYZ RR73", "CQ DX N0FW EM79"], myCall: "W0CJW")
+        XCTAssertFalse(speakers.speaks("K1ABC"), "a plain CQ says nothing")
+        XCTAssertFalse(speakers.speaks("N0FW"), "CQ DX isn't the contest call")
+        speakers.note("CQ WW K1ABC FN42", myCall: "W0CJW")
+        XCTAssertTrue(speakers.speaks("K1ABC"))
+        speakers.note("N0FW W9XYZ R EM79", myCall: "W0CJW")
+        XCTAssertTrue(speakers.speaks("w9xyz"), "an R GRID to anyone profiles the sender")
+        XCTAssertFalse(speakers.speaks("N0FW"), "…not the addressee")
+        speakers.note("K1ABC W0CJW R DM79", myCall: "W0CJW")
+        XCTAssertFalse(speakers.speaks("W0CJW"), "our own loopback never counts")
+    }
+
+    /// KY0R, 03:26Z: a station never heard using the contest exchange
+    /// gets a report first — the message every program understands.
+    func testUnprofiledStationGetsReportFirst() {
+        let seq = makeSequencer(contest: true)
+        seq.speaksContestExchange = { $0 == "K1ABC" }
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW KY0R DM78", snr: -14)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "KY0R W0CJW -14")
+        // A standard station completes the standard way
+        seq.ingest(decodes: [.init(text: "W0CJW KY0R R-07", snr: -14)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "KY0R W0CJW RR73")
+        XCTAssertEqual(completed?.reportReceived, "-07")
+
+        // A profiled station still gets the fast path
+        seq.ingest(decodes: [], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ W0CJW DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+    }
+
+    /// A contest-mode WSJT-X station given a report answers "R GRID" —
+    /// the conservative lead costs one slot, never the QSO.
+    func testUnprofiledContestStationStillCompletes() {
+        let seq = makeSequencer(contest: true)
+        seq.speaksContestExchange = { _ in false }
+        var completed: QSORecord?
+        seq.onQSOComplete = { completed = $0 }
+        seq.startCQ(parity: 0)
+        _ = seq.transmission(forSlotParity: 0)
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ JN76", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "S52XYZ W0CJW -07")
+        seq.ingest(decodes: [.init(text: "W0CJW S52XYZ R JN76", snr: -8)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "S52XYZ W0CJW RR73")
+        XCTAssertEqual(completed?.partnerGrid, "JN76")
+        XCTAssertNil(completed?.reportReceived)
     }
 
     // MARK: Parsing
@@ -133,9 +190,10 @@ final class ContestExchangeTests: XCTestCase {
         XCTAssertEqual(completed?.reportReceived, "-14")
     }
 
-    /// A partner who keeps repeating their grid after our "R DM79" isn't
-    /// running the contest exchange: repeat once, then fall back to a
-    /// report and finish the standard way.
+    /// A partner who repeats their grid after our "R DM79" isn't running
+    /// the contest exchange (or missed us): the first repeat earns the
+    /// report, and the exchange finishes the standard way. KW8CW and KY0R
+    /// both left after one unanswered repeat — no second chance.
     func testCallerFallsBackToReportForStandardPartner() {
         let seq = makeSequencer(contest: true)
         var completed: QSORecord?
@@ -145,11 +203,8 @@ final class ContestExchangeTests: XCTestCase {
         seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
 
-        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
-        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79", "one repeat")
-
         seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -9)], slotParity: 1)
-        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09", "then the report they're waiting for")
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09", "first repeat → the report they're waiting for")
 
         seq.ingest(decodes: [.init(text: "W0CJW K1ABC R-12", snr: -9)], slotParity: 1)
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW RR73")
@@ -229,8 +284,6 @@ final class ContestExchangeTests: XCTestCase {
         _ = seq.transmission(forSlotParity: 0)
         seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
-        seq.ingest(decodes: [.init(text: "W0CJW K1ABC", snr: -7)], slotParity: 1)
-        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
         seq.ingest(decodes: [.init(text: "W0CJW K1ABC", snr: -9)], slotParity: 1)
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09")
     }
@@ -276,14 +329,10 @@ final class ContestExchangeTests: XCTestCase {
         // then his grid is handled while he's already the partner
         seq.ingest(decodes: [.init(text: "W0CJW KS4OT RR73", snr: -11),
                              .init(text: "W0CJW KJ5PTH EL39", snr: -16)], slotParity: 0)
-        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79", "first R GRID to KJ5PTH")
-
-        // One genuine repeat → repeat the R GRID, not a report
-        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -13)], slotParity: 0)
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79",
-                       "the grid heard in the promotion slot predates our R GRID and must not count")
+                       "the grid heard in the promotion slot predates our R GRID and must not count as a repeat — first TX is R GRID, not a report")
 
-        // Second genuine repeat → now the report
+        // The first genuine repeat → the report
         seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -14)], slotParity: 0)
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW -14")
     }
@@ -302,8 +351,6 @@ final class ContestExchangeTests: XCTestCase {
         seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -16),
                              .init(text: "W0CJW KS4OT RR73", snr: -11)], slotParity: 0)
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79")
-        seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -13)], slotParity: 0)
-        XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW R DM79")
         seq.ingest(decodes: [.init(text: "W0CJW KJ5PTH EL39", snr: -14)], slotParity: 0)
         XCTAssertEqual(seq.transmission(forSlotParity: 1), "KJ5PTH W0CJW -14")
     }
@@ -319,9 +366,7 @@ final class ContestExchangeTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
         seq.ingest(decodes: [], slotParity: 1) // silence → retry
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
-        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1) // repeat 1
-        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
-        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -9)], slotParity: 1) // repeat 2
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -9)], slotParity: 1) // the repeat
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW -09")
     }
 
