@@ -11,6 +11,7 @@
 
 #include "ldpc.h"
 #include "constants.h"
+#include <js8/js8_tables.h>
 
 #include <stdio.h>
 #include <math.h>
@@ -18,6 +19,21 @@
 #include <stdbool.h>
 
 static int ldpc_check(uint8_t codeword[]);
+static int ldpc_check_code(const ldpc_code_t* code, uint8_t codeword[]);
+
+const ldpc_code_t kLDPC_174_91 = {
+    .num_checks = FTX_LDPC_M,
+    .nm = kFTX_LDPC_Nm,
+    .mn = kFTX_LDPC_Mn,
+    .num_rows = kFTX_LDPC_Num_rows,
+};
+
+const ldpc_code_t kLDPC_174_87 = {
+    .num_checks = JS8_LDPC_M,
+    .nm = kJS8_LDPC_Nm,
+    .mn = kJS8_LDPC_Mn,
+    .num_rows = kJS8_LDPC_Num_rows,
+};
 static float fast_tanh(float x);
 static float fast_atanh(float x);
 
@@ -129,10 +145,34 @@ static int ldpc_check(uint8_t codeword[])
 
 void bp_decode(float codeword[], int max_iters, uint8_t plain[], int* ok)
 {
-    float tov[FTX_LDPC_N][3];
-    float toc[FTX_LDPC_M][7];
+    bp_decode_code(&kLDPC_174_91, codeword, max_iters, plain, ok);
+}
 
-    int min_errors = FTX_LDPC_M;
+static int ldpc_check_code(const ldpc_code_t* code, uint8_t codeword[])
+{
+    int errors = 0;
+    for (int m = 0; m < code->num_checks; ++m)
+    {
+        uint8_t x = 0;
+        for (int i = 0; i < code->num_rows[m]; ++i)
+        {
+            x ^= codeword[code->nm[m][i] - 1];
+        }
+        if (x != 0)
+        {
+            ++errors;
+        }
+    }
+    return errors;
+}
+
+void bp_decode_code(const ldpc_code_t* code, float codeword[], int max_iters, uint8_t plain[], int* ok)
+{
+    const int M = code->num_checks;
+    float tov[FTX_LDPC_N][3];
+    float toc[JS8_LDPC_M > FTX_LDPC_M ? JS8_LDPC_M : FTX_LDPC_M][7];
+
+    int min_errors = M;
 
     // initialize message data
     for (int n = 0; n < FTX_LDPC_N; ++n)
@@ -157,7 +197,7 @@ void bp_decode(float codeword[], int max_iters, uint8_t plain[], int* ok)
         }
 
         // Check to see if we have a codeword (check before we do any iter)
-        int errors = ldpc_check(plain);
+        int errors = ldpc_check_code(code, plain);
 
         if (errors < min_errors)
         {
@@ -171,16 +211,16 @@ void bp_decode(float codeword[], int max_iters, uint8_t plain[], int* ok)
         }
 
         // Send messages from bits to check nodes
-        for (int m = 0; m < FTX_LDPC_M; ++m)
+        for (int m = 0; m < M; ++m)
         {
-            for (int n_idx = 0; n_idx < kFTX_LDPC_Num_rows[m]; ++n_idx)
+            for (int n_idx = 0; n_idx < code->num_rows[m]; ++n_idx)
             {
-                int n = kFTX_LDPC_Nm[m][n_idx] - 1;
+                int n = code->nm[m][n_idx] - 1;
                 // for each (n, m)
                 float Tnm = codeword[n];
                 for (int m_idx = 0; m_idx < 3; ++m_idx)
                 {
-                    if ((kFTX_LDPC_Mn[n][m_idx] - 1) != m)
+                    if ((code->mn[n][m_idx] - 1) != m)
                     {
                         Tnm += tov[n][m_idx];
                     }
@@ -194,12 +234,12 @@ void bp_decode(float codeword[], int max_iters, uint8_t plain[], int* ok)
         {
             for (int m_idx = 0; m_idx < 3; ++m_idx)
             {
-                int m = kFTX_LDPC_Mn[n][m_idx] - 1;
+                int m = code->mn[n][m_idx] - 1;
                 // for each (n, m)
                 float Tmn = 1.0f;
-                for (int n_idx = 0; n_idx < kFTX_LDPC_Num_rows[m]; ++n_idx)
+                for (int n_idx = 0; n_idx < code->num_rows[m]; ++n_idx)
                 {
-                    if ((kFTX_LDPC_Nm[m][n_idx] - 1) != n)
+                    if ((code->nm[m][n_idx] - 1) != n)
                     {
                         Tmn *= toc[m][n_idx];
                     }

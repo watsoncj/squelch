@@ -1,6 +1,6 @@
 # Squelch
 
-A map-first FT8/FT4/WSPR station for macOS. Native SwiftUI — decode, log,
+A map-first FT8/FT4/JS8/WSPR station for macOS. Native SwiftUI — decode, log,
 and work the world from an edge-to-edge propagation map. Verified on the
 Yaesu FT-891 (with a Digirig) and the FT-991; adaptable to similar setups.
 
@@ -26,6 +26,14 @@ Xcode. A plain `swift test` skips the full-slot WSPR decode tests (minutes
 each in debug); run everything with `SQUELCH_SLOW=1 swift test -c release`
 before shipping decoder changes. `Scripts/make_release.sh` is the
 sign/notarize/staple pipeline.
+
+JS8 (receive, all five JS8Call speeds) decodes heartbeats, CQs and directed
+commands out of the box. Free text is compressed against JS8Call's
+262,144-word table, which is JS8Call data and not shipped here: install it
+from Settings › JS8 (Download), or with `Scripts/fetch_js8_dictionary.sh`.
+`Scripts/fetch_js8_fixtures.sh` fetches JS8Call's decoder test recordings;
+`JS8_FIXTURES=<dir> JS8_DICTIONARY=<JSC_map.cpp> swift test --filter JS8`
+runs the on-air checks.
 
 ## Supported hardware
 

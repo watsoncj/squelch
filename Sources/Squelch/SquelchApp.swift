@@ -37,6 +37,7 @@ final class AppModel: ObservableObject {
     let stateResolver = StateResolver()
     let wsprNet = WSPRNetService()
     let updater = UpdateChecker()
+    let js8 = JS8Session()
 
     @Published var pendingReply: PendingReply?
     /// One-shot request from a toolbar chip's callsign: select and reveal
@@ -80,7 +81,7 @@ final class AppModel: ObservableObject {
             let contest = UserDefaults.standard.string(forKey: SettingsKeys.activeContest) ?? ""
             return CabrilloExporter.exchangeStyle(for: contest) == .gridOnly
         }
-        sequencer.modeName = { DigiMode.current == .ft4 ? "FT4" : "FT8" }
+        sequencer.modeName = { DigiMode.current.logName }
         sequencer.speaksContestExchange = { [contestSpeakers] in contestSpeakers.speaks($0) }
         sequencer.onQSOComplete = { [qsoLog, store, cat] record in
             var record = record
@@ -135,11 +136,19 @@ final class AppModel: ObservableObject {
         controller.onSlotDecoded = { [weak self] results, slotStart in
             guard let self else { return }
             let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+            if self.controller.mode.isJS8 {
+                // Frames → assembled messages; the FT8 sequencer stays out
+                let messages = self.js8.ingest(results: results, slotStart: slotStart, speed: self.controller.mode)
+                self.store.ingest(js8: messages, myCoordinate: self.location.effectiveCoordinate(),
+                                  dialFrequencyMHz: dial > 0 ? dial : 7.078)
+                return
+            }
             self.store.ingest(
                 results: results,
                 slotStart: slotStart,
                 myCoordinate: self.location.effectiveCoordinate(),
-                dialFrequencyMHz: dial > 0 ? dial : 28.074
+                dialFrequencyMHz: dial > 0 ? dial : 28.074,
+                mode: self.controller.mode.logName
             )
             if self.controller.mode == .wspr,
                !self.demoMode,
@@ -549,7 +558,9 @@ final class AppModel: ObservableObject {
     /// fires. Refuse loudly instead. WSPR is a beacon mode with no QSOs.
     private func requireDecoding() -> Bool {
         guard controller.mode.supportsQSO || !controller.isRunning else {
-            transmit.txError = "WSPR is a beacon mode — switch to FT8/FT4 for QSOs"
+            transmit.txError = controller.mode == .wspr
+                ? "WSPR is a beacon mode — switch to FT8/FT4 for QSOs"
+                : "\(controller.mode.rawValue) is conversational — the FT8 sequencer doesn't apply"
             return false
         }
         if controller.isRunning { return true }
@@ -621,6 +632,21 @@ final class AppModel: ObservableObject {
             // Slot timing differs between FT8 and FT4 — restart decoding
             controller.stop()
             controller.statusText = "Mode changed to \(preset.mode.rawValue) — press Start"
+        }
+    }
+
+    /// Switch mode on the current frequency — the JS8 speed picker. Same
+    /// restart rule as `qsy`: the decoder latches slot timing at Start.
+    func setDigiMode(_ mode: DigiMode) {
+        guard mode != DigiMode.current else { return }
+        haltTX()
+        if mode != .wspr {
+            setWSPRBeacon(false)
+        }
+        UserDefaults.standard.set(mode.rawValue, forKey: SettingsKeys.digiMode)
+        if controller.isRunning {
+            controller.stop()
+            controller.statusText = "Mode changed to \(mode.rawValue) — press Start"
         }
     }
 
@@ -749,7 +775,7 @@ struct SquelchApp: App {
         .keyboardShortcut("l", modifiers: .command)
 
         Settings {
-            SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet, updater: model.updater)
+            SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet, updater: model.updater, js8: model.js8)
         }
     }
 }

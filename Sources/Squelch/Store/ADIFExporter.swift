@@ -57,9 +57,13 @@ enum ADIFExporter {
         return "<\(tag):\(value.utf8.count)>\(value) "
     }
 
-    /// FT8 is a top-level ADIF mode; FT4 rides as a submode of MFSK.
+    /// FT8 is a top-level ADIF mode; FT4 and JS8 ride as submodes of MFSK.
     static func modeFields(_ mode: String) -> (mode: String, submode: String?) {
-        mode == "FT4" ? ("MFSK", "FT4") : (mode, nil)
+        switch mode {
+        case "FT4": return ("MFSK", "FT4")
+        case "JS8": return ("MFSK", "JS8")
+        default: return (mode, nil)
+        }
     }
 
     private static let dateFormatter = utcFormatter("yyyyMMdd")

@@ -320,7 +320,8 @@ struct ContentView: View {
                 dialMHz: dialFrequencyMHz,
                 contest: activeContest.isEmpty ? nil : activeContest
             ),
-            contestName: activeContest.isEmpty ? nil : activeContest
+            contestName: activeContest.isEmpty ? nil : activeContest,
+            js8Pending: isJS8Mode ? actions.js8.pending : []
         ) {
             HStack {
                 Spacer()
@@ -455,8 +456,13 @@ struct ContentView: View {
                     FrequencyFlyout(
                         license: licenseClass,
                         currentMHz: dialFrequencyMHz,
+                        currentMode: DigiMode(rawValue: digiMode) ?? .ft8,
                         onPick: { preset in
                             actions.qsy(to: preset)
+                            showFrequencies = false
+                        },
+                        onPickSpeed: { mode in
+                            actions.setDigiMode(mode)
                             showFrequencies = false
                         }
                     )
@@ -496,6 +502,26 @@ struct ContentView: View {
                     }
                     .disabled(!actions.wsprBeaconEnabled && !txAvailable)
                     .help(txDisabledReason ?? "Transmit WSPR at the configured duty cycle; spots of your signal appear on wsprnet receivers worldwide")
+                } else if isJS8Mode {
+                    // JS8 is conversational: the FT8 CQ/hunt sequencer
+                    // doesn't apply. Speed lives here as well as in the
+                    // frequency flyout so it's one click away.
+                    Menu {
+                        ForEach(DigiMode.js8Speeds) { speed in
+                            Button {
+                                actions.setDigiMode(speed)
+                            } label: {
+                                if speed.rawValue == digiMode {
+                                    Label(speed.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(speed.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Speed", systemImage: "speedometer")
+                    }
+                    .help("JS8 speed — slower is more sensitive, faster carries more text per minute. Changing it restarts decoding.")
                 } else {
                     Button {
                         showCQ.toggle()
@@ -542,7 +568,9 @@ struct ContentView: View {
     private struct FrequencyFlyout: View {
         let license: LicenseClass
         let currentMHz: Double
+        let currentMode: DigiMode
         let onPick: (QSYPreset) -> Void
+        let onPickSpeed: (DigiMode) -> Void
 
         var body: some View {
             let txList = QSYPreset.transmitLegal(for: license)
@@ -551,6 +579,10 @@ struct ContentView: View {
                 Text("Frequency")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
+                if currentMode.isJS8 {
+                    speedPicker
+                    Divider()
+                }
                 ForEach(txList) { preset in
                     row(preset)
                 }
@@ -570,8 +602,41 @@ struct ContentView: View {
             .padding(12)
         }
 
+        /// JS8 speeds share a frequency; the preset rows carry NORMAL.
+        private var speedPicker: some View {
+            HStack(spacing: 4) {
+                Text("JS8 speed")
+                    .font(.caption)
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .padding(.trailing, 4)
+                ForEach(DigiMode.js8Speeds) { speed in
+                    Button {
+                        onPickSpeed(speed)
+                    } label: {
+                        Text(speed.rawValue.replacingOccurrences(of: "JS8 ", with: ""))
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                speed == currentMode ? Color.accentColor.opacity(0.25) : .clear,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(speedHelp(speed))
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+
+        private func speedHelp(_ speed: DigiMode) -> String {
+            String(format: "%@ — %g s period, %.0f Hz wide", speed.rawValue, speed.slotSeconds, speed.toneSpanHz)
+                + (speed == .js8Ultra ? " (experimental upstream)" : "")
+        }
+
         private func row(_ preset: QSYPreset) -> some View {
             let selected = abs(preset.mhz - currentMHz) < 0.00005
+                && (preset.mode == currentMode || (preset.mode == .js8 && currentMode.isJS8))
             return Button {
                 onPick(preset)
             } label: {
@@ -828,6 +893,10 @@ struct ContentView: View {
 
     private var isWSPRMode: Bool {
         digiMode == DigiMode.wspr.rawValue
+    }
+
+    private var isJS8Mode: Bool {
+        DigiMode(rawValue: digiMode)?.isJS8 ?? false
     }
 
     private var licenseClass: LicenseClass {

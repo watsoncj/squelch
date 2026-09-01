@@ -486,7 +486,7 @@ private struct QSOFormSheet: View {
     @State private var lastAutoFilledState = ""
     @State private var lastAutoFilledCountry = ""
 
-    private static let standardModes = ["FT8", "FT4", "SSB", "CW", "FM", "AM", "RTTY"]
+    private static let standardModes = ["FT8", "FT4", "JS8", "SSB", "CW", "FM", "AM", "RTTY"]
 
     private var modes: [String] {
         // An edited record may carry a mode outside the standard list
@@ -526,7 +526,7 @@ private struct QSOFormSheet: View {
     /// "five nine" on phone, 599 on CW, dB on the digital modes.
     private var reportHint: String {
         switch mode {
-        case "FT8", "FT4": return "e.g. -05"
+        case "FT8", "FT4", "JS8": return "e.g. -05"
         case "CW", "RTTY": return "e.g. 599"
         default: return "e.g. 59"
         }

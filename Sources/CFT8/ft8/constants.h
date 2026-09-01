@@ -52,12 +52,40 @@ extern "C"
 typedef enum
 {
     FTX_PROTOCOL_FT4,
-    FTX_PROTOCOL_FT8
+    FTX_PROTOCOL_FT8,
+    // JS8 speeds. All share FT8's 79-symbol / 8-tone frame geometry but use
+    // different Costas patterns, symbol periods, the LDPC(174,87) code with a
+    // 12-bit CRC, and no Gray mapping. See js8/js8.h.
+    FTX_PROTOCOL_JS8_NORMAL, ///< 160 ms symbols, 15 s period ("NORMAL", speed 0)
+    FTX_PROTOCOL_JS8_FAST,   ///< 100 ms symbols, 10 s period ("FAST", speed 1)
+    FTX_PROTOCOL_JS8_TURBO,  ///<  50 ms symbols,  6 s period ("JS8 40", speed 2)
+    FTX_PROTOCOL_JS8_SLOW,   ///< 320 ms symbols, 30 s period ("SLOW", speed 4)
+    FTX_PROTOCOL_JS8_ULTRA,  ///<  32 ms symbols,  4 s period ("JS8 60", speed 8, experimental)
 } ftx_protocol_t;
+
+/// True for any of the JS8 speeds.
+int ftx_protocol_is_js8(ftx_protocol_t protocol);
+/// Symbol duration in seconds (also the reciprocal of the tone spacing).
+float ftx_protocol_symbol_period(ftx_protocol_t protocol);
+/// Transmission period (slot length) in seconds.
+float ftx_protocol_slot_time(ftx_protocol_t protocol);
+/// Delay from the slot boundary to the first symbol, in seconds.
+float ftx_protocol_start_delay(ftx_protocol_t protocol);
+/// Number of channel symbols in one transmission (79 or 105).
+int ftx_protocol_num_tones(ftx_protocol_t protocol);
+/// Costas sync pattern for the three 7-symbol sync blocks (JS8 and FT8).
+/// Returns a pointer to 3 rows of 7 tones.
+const uint8_t (*ftx_protocol_costas7(ftx_protocol_t protocol))[7];
 
 /// Costas 7x7 tone pattern for synchronization
 extern const uint8_t kFT8_Costas_pattern[7];
 extern const uint8_t kFT4_Costas_pattern[4][4];
+/// FT8's Costas pattern repeated for each of the three sync blocks
+extern const uint8_t kFT8_Costas_blocks[3][7];
+/// JS8 NORMAL uses one pattern in all three sync blocks; the other speeds
+/// use three distinct patterns (one per block).
+extern const uint8_t kJS8_Costas_original[3][7];
+extern const uint8_t kJS8_Costas_modified[3][7];
 
 /// Gray code map to encode 8 symbols (tones)
 extern const uint8_t kFT8_Gray_map[8];

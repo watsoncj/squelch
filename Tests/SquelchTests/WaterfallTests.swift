@@ -84,11 +84,22 @@ final class ModePaintExtentTests: XCTestCase {
         XCTAssertEqual(DigiMode.ft8.transmissionSeconds, 12.64, accuracy: 0.001)
         XCTAssertEqual(DigiMode.ft4.transmissionSeconds, 5.04, accuracy: 0.001)
         XCTAssertEqual(DigiMode.wspr.transmissionSeconds, 110.6, accuracy: 0.1)
+        // JS8: 79 symbols at each speed's period
+        XCTAssertEqual(DigiMode.js8.transmissionSeconds, 12.64, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Fast.transmissionSeconds, 7.9, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Turbo.transmissionSeconds, 3.95, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Slow.transmissionSeconds, 25.28, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Ultra.transmissionSeconds, 2.528, accuracy: 0.001)
     }
 
     func testToneSpanHz() {
         XCTAssertEqual(DigiMode.ft8.toneSpanHz, 50, accuracy: 0.01)
         XCTAssertEqual(DigiMode.ft4.toneSpanHz, 83.33, accuracy: 0.01, "4 tones at 20.83 Hz — wider than FT8")
         XCTAssertEqual(DigiMode.wspr.toneSpanHz, 5.86, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.js8.toneSpanHz, 50, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.js8Fast.toneSpanHz, 80, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.js8Turbo.toneSpanHz, 160, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.js8Slow.toneSpanHz, 25, accuracy: 0.01)
+        XCTAssertEqual(DigiMode.js8Ultra.toneSpanHz, 250, accuracy: 0.01)
     }
 }

@@ -29,10 +29,12 @@ final class DecodeStore: ObservableObject {
 
     var logFileURL: URL { fileURL }
 
-    func ingest(results: [FT8Result], slotStart: Date, myCoordinate: CLLocationCoordinate2D?, dialFrequencyMHz: Double) {
+    func ingest(results: [FT8Result], slotStart: Date, myCoordinate: CLLocationCoordinate2D?, dialFrequencyMHz: Double, mode: String? = nil) {
         var newMessages: [DecodedMessage] = []
         for r in results {
-            let parsed = FT8MessageParser.parse(r.text)
+            // JS8 frames don't speak FT8 grammar; their sender/grid come
+            // from the JS8 frame layer (empty until it renders them)
+            let parsed = r.js8 == nil ? FT8MessageParser.parse(r.text) : FT8MessageParser.Parsed(sender: nil, addressee: nil, grid: nil, isCQ: false, isRogerGrid: false)
 
             // Prefer a grid in this message; otherwise reuse the last grid we
             // heard from this station so reports/73s still land on the map.
@@ -66,7 +68,8 @@ final class DecodeStore: ObservableObject {
                 grid: grid,
                 latitude: latitude,
                 longitude: longitude,
-                distanceKm: distanceKm
+                distanceKm: distanceKm,
+                mode: mode
             )
 
             newMessages.append(message)
@@ -75,6 +78,56 @@ final class DecodeStore: ObservableObject {
             appendToDisk(message)
         }
         // One array mutation (and one @Published emission) per slot
+        messages.insert(contentsOf: newMessages.reversed(), at: 0)
+        if messages.count > Self.maxMessagesInMemory {
+            messages.removeLast(messages.count - Self.maxMessagesInMemory)
+        }
+    }
+
+    /// Assembled JS8 messages → feed rows and map stations. The sender's
+    /// grid comes from heartbeats/CQs; other messages reuse the last grid
+    /// heard from that station.
+    func ingest(js8 js8Messages: [JS8Message], myCoordinate: CLLocationCoordinate2D?, dialFrequencyMHz: Double) {
+        var newMessages: [DecodedMessage] = []
+        for m in js8Messages {
+            let sender = m.from.isEmpty || m.from == JS8Fields.placeholderCall ? nil : m.from
+            var grid = m.grid?.uppercased()
+            if grid == nil, let call = sender {
+                grid = stations[call]?.grid
+            }
+            var latitude: Double?
+            var longitude: Double?
+            var distanceKm: Double?
+            if let grid, let coord = Maidenhead.coordinate(forGrid: grid) {
+                latitude = coord.latitude
+                longitude = coord.longitude
+                if let myCoordinate {
+                    let a = CLLocation(latitude: myCoordinate.latitude, longitude: myCoordinate.longitude)
+                    let b = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+                    distanceKm = a.distance(from: b) / 1000.0
+                }
+            }
+            let message = DecodedMessage(
+                id: UUID(),
+                slotStart: m.timestamp,
+                snr: m.snr,
+                timeOffset: m.timeOffset,
+                audioFrequency: m.offsetHz,
+                dialFrequencyMHz: dialFrequencyMHz,
+                text: m.displayText,
+                callsign: sender,
+                grid: grid,
+                latitude: latitude,
+                longitude: longitude,
+                distanceKm: distanceKm,
+                mode: "JS8"
+            )
+            newMessages.append(message)
+            totalDecodes += 1
+            updateStation(from: message)
+            appendToDisk(message)
+        }
+        guard !newMessages.isEmpty else { return }
         messages.insert(contentsOf: newMessages.reversed(), at: 0)
         if messages.count > Self.maxMessagesInMemory {
             messages.removeLast(messages.count - Self.maxMessagesInMemory)

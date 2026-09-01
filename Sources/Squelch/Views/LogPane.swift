@@ -148,6 +148,8 @@ struct LogPane<Header: View>: View {
     var dupeCalls: Set<String> = []
     /// Active contest name, for the seal's tooltip wording.
     var contestName: String? = nil
+    /// JS8 messages still arriving — shown above the feed until complete.
+    var js8Pending: [JS8Receiver.Pending] = []
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
@@ -309,8 +311,36 @@ struct LogPane<Header: View>: View {
             .padding(.vertical, 6)
             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 10)
-            .padding(.bottom, 8)
+            .padding(.bottom, js8Pending.isEmpty ? 8 : 4)
+            ForEach(js8Pending, id: \.offsetHz) { p in
+                HStack(spacing: 6) {
+                    Image(systemName: "ellipsis.message")
+                        .foregroundStyle(.secondary)
+                    Text(pendingLabel(p))
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Spacer(minLength: 4)
+                    Text("\(Int(p.offsetHz)) Hz")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+                .help("Still receiving — JS8 text arrives one frame per slot; the row moves into the feed when the last frame lands")
+            }
+            if !js8Pending.isEmpty {
+                Spacer().frame(height: 6)
+            }
         }
+    }
+
+    private func pendingLabel(_ p: JS8Receiver.Pending) -> String {
+        var s = ""
+        if let from = p.from { s += from + ": " }
+        if let to = p.to { s += to + " " }
+        s += p.textSoFar
+        return s.isEmpty ? "receiving…" : s + "…"
     }
 
     /// Two-line feed row: who + how strong, then what it means + when.

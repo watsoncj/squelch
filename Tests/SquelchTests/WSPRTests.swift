@@ -87,6 +87,8 @@ final class WSPRTests: XCTestCase {
         XCTAssertEqual(DigiMode.wspr.slotSeconds, 120)
         XCTAssertFalse(DigiMode.wspr.supportsQSO)
         XCTAssertTrue(DigiMode.ft8.supportsQSO)
+        XCTAssertFalse(DigiMode.js8.supportsQSO, "JS8 has its own conversational layer")
+        XCTAssertEqual(DigiMode.js8Fast.logName, "JS8")
     }
 }
 

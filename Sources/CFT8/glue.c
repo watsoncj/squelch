@@ -8,6 +8,7 @@
 #include <ft8/encode.h>
 #include <ft8/constants.h>
 #include <common/monitor.h>
+#include <js8/js8.h>
 
 #include <math.h>
 #include <stdlib.h>
@@ -99,7 +100,31 @@ static ftx_callsign_hash_interface_t hash_if = {
     .save_hash = hashtable_add,
 };
 
-cft8_decoder_t* cft8_create(int sample_rate, bool ft4)
+static ftx_protocol_t to_ftx(cft8_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case CFT8_PROTOCOL_FT4: return FTX_PROTOCOL_FT4;
+    case CFT8_PROTOCOL_JS8_NORMAL: return FTX_PROTOCOL_JS8_NORMAL;
+    case CFT8_PROTOCOL_JS8_FAST: return FTX_PROTOCOL_JS8_FAST;
+    case CFT8_PROTOCOL_JS8_TURBO: return FTX_PROTOCOL_JS8_TURBO;
+    case CFT8_PROTOCOL_JS8_SLOW: return FTX_PROTOCOL_JS8_SLOW;
+    case CFT8_PROTOCOL_JS8_ULTRA: return FTX_PROTOCOL_JS8_ULTRA;
+    case CFT8_PROTOCOL_FT8:
+    default: return FTX_PROTOCOL_FT8;
+    }
+}
+
+float cft8_symbol_period(cft8_protocol_t protocol) { return ftx_protocol_symbol_period(to_ftx(protocol)); }
+float cft8_slot_seconds(cft8_protocol_t protocol) { return ftx_protocol_slot_time(to_ftx(protocol)); }
+float cft8_start_delay(cft8_protocol_t protocol) { return ftx_protocol_start_delay(to_ftx(protocol)); }
+float cft8_transmission_seconds(cft8_protocol_t protocol)
+{
+    ftx_protocol_t p = to_ftx(protocol);
+    return ftx_protocol_num_tones(p) * ftx_protocol_symbol_period(p);
+}
+
+cft8_decoder_t* cft8_create(int sample_rate, cft8_protocol_t protocol)
 {
     cft8_decoder_t* dec = calloc(1, sizeof(cft8_decoder_t));
     if (!dec)
@@ -110,7 +135,7 @@ cft8_decoder_t* cft8_create(int sample_rate, bool ft4)
         .sample_rate = sample_rate,
         .time_osr = 2,
         .freq_osr = 2,
-        .protocol = ft4 ? FTX_PROTOCOL_FT4 : FTX_PROTOCOL_FT8,
+        .protocol = to_ftx(protocol),
     };
     monitor_init(&dec->mon, &cfg);
     return dec;
@@ -169,18 +194,28 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
         memcpy(&decoded[idx_hash], &message, sizeof(message));
         decoded_hashtable[idx_hash] = &decoded[idx_hash];
 
-        char text[FTX_MAX_MESSAGE_LENGTH];
-        ftx_message_offsets_t offsets; // out-param; ftx_message_decode requires it non-NULL
-        if (FTX_MESSAGE_RC_OK != ftx_message_decode(&message, &hash_if, text, &offsets))
-            continue;
+        char text[FTX_MAX_MESSAGE_LENGTH] = { 0 };
+        if (ftx_protocol_is_js8(wf->protocol))
+        {
+            // Raw bits go to Swift; the JS8 frame layer lives there.
+        }
+        else
+        {
+            ftx_message_offsets_t offsets; // out-param; ftx_message_decode requires it non-NULL
+            if (FTX_MESSAGE_RC_OK != ftx_message_decode(&message, &hash_if, text, &offsets))
+                continue;
+        }
 
         cft8_result_t* res = &results[num_out++];
+        memset(res, 0, sizeof(*res));
         res->score = cand->score;
         res->snr = cand->score * 0.5f - 24.0f; // rough SNR estimate from sync score
         res->freq_hz = (dec->mon.min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / dec->mon.symbol_period;
         res->time_sec = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * dec->mon.symbol_period;
         strncpy(res->text, text, sizeof(res->text) - 1);
         res->text[sizeof(res->text) - 1] = '\0';
+        memcpy(res->js8_payload, message.payload, 9);
+        res->js8_type = (uint8_t)(message.payload[9] >> 5);
     }
 
     hashtable_age(dec->hashtable, 10);
@@ -278,8 +313,52 @@ static void synth_gfsk(const uint8_t* symbols, int n_sym, float f0, float symbol
     free(pulse);
 }
 
+// Lead silence + GFSK-shaped tones. Shared by the FT8/FT4 and JS8 paths.
+static int synth_frame(const uint8_t* tones, int n_tones, float symbol_period, float symbol_bt,
+                       float lead_seconds, float frequency_hz, int sample_rate,
+                       float* samples, int max_samples)
+{
+    int n_spsym = (int)(0.5f + sample_rate * symbol_period);
+    int lead_silence = (int)(0.5f + sample_rate * lead_seconds);
+    int n_signal = n_tones * n_spsym;
+    int total = lead_silence + n_signal;
+    if (total > max_samples)
+        return -100;
+
+    memset(samples, 0, lead_silence * sizeof(float));
+    synth_gfsk(tones, n_tones, frequency_hz, symbol_bt, symbol_period, sample_rate, samples + lead_silence);
+    return total;
+}
+
+int cft8_encode_js8(const uint8_t payload[9], int type, float frequency_hz,
+                    int sample_rate, cft8_protocol_t protocol,
+                    float* samples, int max_samples)
+{
+    ftx_protocol_t p = to_ftx(protocol);
+    if (!ftx_protocol_is_js8(p))
+        return -101;
+    uint8_t tones[JS8_NN];
+    js8_encode(payload, (uint8_t)type, p, tones);
+    return synth_frame(tones, JS8_NN, ftx_protocol_symbol_period(p), FT8_SYMBOL_BT,
+                       ftx_protocol_start_delay(p), frequency_hz, sample_rate, samples, max_samples);
+}
+
+void cft8_js8_tones(const uint8_t payload[9], int type, cft8_protocol_t protocol, uint8_t tones[79])
+{
+    js8_encode(payload, (uint8_t)type, to_ftx(protocol), tones);
+}
+
+bool cft8_js8_decode_tones(const uint8_t tones[79], uint8_t payload[9], int* type)
+{
+    uint8_t t = 0;
+    bool ok = js8_decode_tones(tones, payload, &t);
+    if (type)
+        *type = t;
+    return ok;
+}
+
 int cft8_encode(const char* message, float frequency_hz, int sample_rate,
-                bool ft4, float* samples, int max_samples)
+                cft8_protocol_t protocol, float* samples, int max_samples)
 {
     ftx_message_t msg;
     ftx_message_rc_t rc = ftx_message_encode(&msg, NULL, message);
@@ -289,7 +368,7 @@ int cft8_encode(const char* message, float frequency_hz, int sample_rate,
     uint8_t tones[FT4_NN]; // FT4_NN (105) > FT8_NN (79)
     int n_tones;
     float symbol_period, symbol_bt;
-    if (ft4)
+    if (protocol == CFT8_PROTOCOL_FT4)
     {
         ft4_encode(msg.payload, tones);
         n_tones = FT4_NN;
@@ -304,14 +383,6 @@ int cft8_encode(const char* message, float frequency_hz, int sample_rate,
         symbol_bt = FT8_SYMBOL_BT;
     }
 
-    int n_spsym = (int)(0.5f + sample_rate * symbol_period);
-    int lead_silence = sample_rate / 2; // 0.5 s, matching WSJT-X timing
-    int n_signal = n_tones * n_spsym;
-    int total = lead_silence + n_signal;
-    if (total > max_samples)
-        return -100;
-
-    memset(samples, 0, lead_silence * sizeof(float));
-    synth_gfsk(tones, n_tones, frequency_hz, symbol_bt, symbol_period, sample_rate, samples + lead_silence);
-    return total;
+    // 0.5 s lead silence, matching WSJT-X timing
+    return synth_frame(tones, n_tones, symbol_period, symbol_bt, 0.5f, frequency_hz, sample_rate, samples, max_samples);
 }

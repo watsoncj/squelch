@@ -7,6 +7,7 @@ struct SettingsView: View {
     @ObservedObject var controller: DecodeController
     @ObservedObject var wsprNet: WSPRNetService
     @ObservedObject var updater: UpdateChecker
+    @ObservedObject var js8: JS8Session
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.licenseClass) private var licenseClassRaw = LicenseClass.technician.rawValue
@@ -223,6 +224,39 @@ struct SettingsView: View {
                 }
 
                 Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band. While the beacon is armed, the sidebar shows who's hearing you (reports fetched from the WSPRnet database).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("JS8") {
+                HStack {
+                    Image(systemName: js8.wordTableInstalled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(js8.wordTableInstalled ? .green : .orange)
+                    Text(js8.wordTableInstalled ? "Word table installed" : "Word table not installed")
+                    Spacer()
+                    if js8.installingWordTable {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button("Download") {
+                        js8.downloadWordTable()
+                    }
+                    .disabled(js8.installingWordTable)
+                    Button("Choose File…") {
+                        let panel = NSOpenPanel()
+                        panel.allowedContentTypes = [.cSource, .plainText]
+                        panel.message = "Pick JS8Call's JSC_map.cpp"
+                        if panel.runModal() == .OK, let url = panel.url {
+                            js8.installWordTable(from: url)
+                        }
+                    }
+                    .disabled(js8.installingWordTable)
+                }
+                if let status = js8.wordTableStatus {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("JS8 compresses free text against a 262,144-word table that ships with JS8Call, not with Squelch. Without it, heartbeats, CQs and commands still decode, but message text shows as [JS8 word table not installed] and transmissions use the slower letter-by-letter coding. Download fetches JSC_map.cpp from the JS8Call-improved repository.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

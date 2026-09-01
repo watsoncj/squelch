@@ -86,6 +86,20 @@ final class FT891CATTests: XCTestCase {
     func testDigiModeSlots() {
         XCTAssertEqual(DigiMode.ft8.slotSeconds, 15.0)
         XCTAssertEqual(DigiMode.ft4.slotSeconds, 7.5)
+        XCTAssertEqual(DigiMode.js8.slotSeconds, 15.0)
+        XCTAssertEqual(DigiMode.js8Fast.slotSeconds, 10.0)
+        XCTAssertEqual(DigiMode.js8Turbo.slotSeconds, 6.0)
+        XCTAssertEqual(DigiMode.js8Slow.slotSeconds, 30.0)
+        XCTAssertEqual(DigiMode.js8Ultra.slotSeconds, 4.0)
+    }
+
+    func testJS8StartDelays() {
+        // JS8Call's per-speed lead-in before the first symbol
+        XCTAssertEqual(DigiMode.js8.startDelaySeconds, 0.5, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Fast.startDelaySeconds, 0.2, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Turbo.startDelaySeconds, 0.1, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Slow.startDelaySeconds, 0.5, accuracy: 0.001)
+        XCTAssertEqual(DigiMode.js8Ultra.startDelaySeconds, 0.1, accuracy: 0.001)
     }
 }
 

@@ -15,6 +15,9 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
     let latitude: Double?
     let longitude: Double?
     let distanceKm: Double?    // from my location at time of decode
+    /// Log-style mode name ("FT8", "FT4", "JS8", "WSPR"); nil on records
+    /// written before the field existed (all FT8/FT4 then).
+    var mode: String? = nil
 
     var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
@@ -23,10 +26,32 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
 
     var isCQ: Bool { text.hasPrefix("CQ ") }
 
+    var isJS8: Bool { mode == "JS8" }
+
     /// The station this message is calling (first token), derived from the
     /// text so it also works for records logged before this field existed.
     var addressee: String? {
-        FT8MessageParser.parse(text).addressee
+        if isJS8 { return js8Parts?.to }
+        return FT8MessageParser.parse(text).addressee
+    }
+
+    /// "FROM: TO CMD EXTRA TEXT ♢ " split back into its parts.
+    var js8Parts: (from: String?, to: String?, rest: String)? {
+        guard isJS8 else { return nil }
+        var body = text
+        if body.hasSuffix(" \(JS8Message.endOfTransmission) ") {
+            body = String(body.dropLast(3))
+        }
+        var from: String?
+        if let colon = body.firstIndex(of: ":"), body[..<colon].allSatisfy({ !$0.isWhitespace }) {
+            from = String(body[..<colon])
+            body = String(body[body.index(after: colon)...]).lstripped()
+        }
+        let tokens = body.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+        guard let first = tokens.first, !first.isEmpty, JS8Fields.isValidCallsign(first) else {
+            return (from, nil, body)
+        }
+        return (from, first, tokens.count > 1 ? tokens[1] : "")
     }
 
     /// Sender's country by callsign prefix, when recognizable.
@@ -45,7 +70,7 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
     /// CQ, and for messages calling `myCall` — except sign-offs, which
     /// carry nothing to answer.
     func isAnswerable(by myCall: String) -> Bool {
-        guard callsign != nil else { return false }
+        guard callsign != nil, !isJS8 else { return false }
         if isCQ { return true }
         guard addressee == myCall.uppercased() else { return false }
         return !QSOSequencer.isSignoff(payloadToken)
@@ -75,6 +100,9 @@ extension DecodedMessage {
 
         if upper.hasPrefix("TX WSPR") {
             return "WSPR beacon transmission"
+        }
+        if isJS8, let parts = js8Parts {
+            return Self.js8Summary(parts, myCall: myCall)
         }
         if upper.hasPrefix("WSPR ") {
             let power = tokens.first { $0.hasSuffix("DBM") }
@@ -118,6 +146,25 @@ extension DecodedMessage {
             described = payload
         }
         return "→ \(target): \(described)"
+    }
+}
+
+extension DecodedMessage {
+    /// "→ you: SNR?", "Heartbeat from EM73", "Calling CQ DX from EM73", "→ W0CJW: MSG hello"
+    static func js8Summary(_ parts: (from: String?, to: String?, rest: String), myCall: String) -> String {
+        let rest = parts.rest.trimmingCharacters(in: .whitespaces)
+        switch parts.to {
+        case "@HB":
+            let grid = rest.replacingOccurrences(of: "HEARTBEAT", with: "").trimmingCharacters(in: .whitespaces)
+            return grid.isEmpty ? "Heartbeat" : "Heartbeat from \(grid)"
+        case "@ALLCALL" where rest.hasPrefix("CQ"):
+            return "Calling \(rest)"
+        case let to?:
+            let target = to == myCall.uppercased() ? "you" : to
+            return "→ \(target): \(rest.isEmpty ? "(no text)" : rest)"
+        case nil:
+            return rest.isEmpty ? "Free text" : rest
+        }
     }
 }
 

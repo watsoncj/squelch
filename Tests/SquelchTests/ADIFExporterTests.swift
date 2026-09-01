@@ -33,6 +33,8 @@ final class ADIFExporterTests: XCTestCase {
         XCTAssertNil(ADIFExporter.modeFields("FT8").submode)
         XCTAssertEqual(ADIFExporter.modeFields("FT4").mode, "MFSK")
         XCTAssertEqual(ADIFExporter.modeFields("FT4").submode, "FT4")
+        XCTAssertEqual(ADIFExporter.modeFields("JS8").mode, "MFSK")
+        XCTAssertEqual(ADIFExporter.modeFields("JS8").submode, "JS8")
         XCTAssertEqual(ADIFExporter.modeFields("SSB").mode, "SSB")
     }
 

@@ -2,6 +2,8 @@
 #include "constants.h"
 #include "crc.h"
 #include "ldpc.h"
+#include <js8/js8.h>
+#include <js8/js8_tables.h>
 
 #include <stdbool.h>
 #include <math.h>
@@ -124,6 +126,56 @@ static int ft8_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
     return score;
 }
 
+// JS8: FT8's frame geometry with a (possibly different) Costas pattern per sync block
+static int js8_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* candidate)
+{
+    const uint8_t (*costas)[7] = ftx_protocol_costas7(wf->protocol);
+    int score = 0;
+    int num_average = 0;
+    const WF_ELEM_T* mag_cand = get_cand_mag(wf, candidate);
+
+    for (int m = 0; m < FT8_NUM_SYNC; ++m)
+    {
+        for (int k = 0; k < FT8_LENGTH_SYNC; ++k)
+        {
+            int block = (FT8_SYNC_OFFSET * m) + k;
+            int block_abs = candidate->time_offset + block;
+            if (block_abs < 0)
+                continue;
+            if (block_abs >= wf->num_blocks)
+                break;
+
+            const WF_ELEM_T* p8 = mag_cand + (block * wf->block_stride);
+            int sm = costas[m][k];
+            if (sm > 0)
+            {
+                score += WF_ELEM_MAG_INT(p8[sm]) - WF_ELEM_MAG_INT(p8[sm - 1]);
+                ++num_average;
+            }
+            if (sm < 7)
+            {
+                score += WF_ELEM_MAG_INT(p8[sm]) - WF_ELEM_MAG_INT(p8[sm + 1]);
+                ++num_average;
+            }
+            if ((k > 0) && (block_abs > 0))
+            {
+                score += WF_ELEM_MAG_INT(p8[sm]) - WF_ELEM_MAG_INT(p8[sm - wf->block_stride]);
+                ++num_average;
+            }
+            if (((k + 1) < FT8_LENGTH_SYNC) && ((block_abs + 1) < wf->num_blocks))
+            {
+                score += WF_ELEM_MAG_INT(p8[sm]) - WF_ELEM_MAG_INT(p8[sm + wf->block_stride]);
+                ++num_average;
+            }
+        }
+    }
+
+    if (num_average > 0)
+        score /= num_average;
+
+    return score;
+}
+
 static int ft4_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* candidate)
 {
     int score = 0;
@@ -189,8 +241,22 @@ static int ft4_sync_score(const ftx_waterfall_t* wf, const ftx_candidate_t* cand
 
 int ftx_find_candidates(const ftx_waterfall_t* wf, int num_candidates, ftx_candidate_t heap[], int min_score)
 {
-    int (*sync_fun)(const ftx_waterfall_t*, const ftx_candidate_t*) = (wf->protocol == FTX_PROTOCOL_FT4) ? ft4_sync_score : ft8_sync_score;
+    int (*sync_fun)(const ftx_waterfall_t*, const ftx_candidate_t*) =
+        (wf->protocol == FTX_PROTOCOL_FT4) ? ft4_sync_score : (ftx_protocol_is_js8(wf->protocol) ? js8_sync_score : ft8_sync_score);
     int num_tones = (wf->protocol == FTX_PROTOCOL_FT4) ? 4 : 8;
+
+    // Time search window in symbols. FT8/FT4 keep ft8_lib's -10..+20; the
+    // short-symbol JS8 speeds widen it so the same seconds of clock error
+    // (about -1 s .. +2.5 s) remain reachable.
+    int t_min = -10, t_max = 20;
+    if (ftx_protocol_is_js8(wf->protocol))
+    {
+        float period = ftx_protocol_symbol_period(wf->protocol);
+        int lo = -(int)(1.0f / period);
+        int hi = (int)(2.5f / period);
+        if (lo < t_min) t_min = lo;
+        if (hi > t_max) t_max = hi;
+    }
 
     int heap_size = 0;
     ftx_candidate_t candidate;
@@ -202,7 +268,7 @@ int ftx_find_candidates(const ftx_waterfall_t* wf, int num_candidates, ftx_candi
     {
         for (candidate.freq_sub = 0; candidate.freq_sub < wf->freq_osr; ++candidate.freq_sub)
         {
-            for (candidate.time_offset = -10; candidate.time_offset < 20; ++candidate.time_offset)
+            for (candidate.time_offset = t_min; candidate.time_offset < t_max; ++candidate.time_offset)
             {
                 for (candidate.freq_offset = 0; (candidate.freq_offset + num_tones - 1) < wf->num_bins; ++candidate.freq_offset)
                 {
@@ -303,6 +369,38 @@ static void ft8_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidat
     }
 }
 
+// JS8 data symbols carry 3 bits MSB first with no Gray mapping
+static void js8_extract_symbol(const WF_ELEM_T* wf, float* logl)
+{
+    float s2[8];
+    for (int j = 0; j < 8; ++j)
+        s2[j] = WF_ELEM_MAG(wf[j]);
+    logl[0] = max4(s2[4], s2[5], s2[6], s2[7]) - max4(s2[0], s2[1], s2[2], s2[3]);
+    logl[1] = max4(s2[2], s2[3], s2[6], s2[7]) - max4(s2[0], s2[1], s2[4], s2[5]);
+    logl[2] = max4(s2[1], s2[3], s2[5], s2[7]) - max4(s2[0], s2[2], s2[4], s2[6]);
+}
+
+static void js8_extract_likelihood(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, float* log174)
+{
+    const WF_ELEM_T* mag = get_cand_mag(wf, cand);
+    for (int k = 0; k < FT8_ND; ++k)
+    {
+        int sym_idx = k + ((k < 29) ? 7 : 14);
+        int bit_idx = 3 * k;
+        int block = cand->time_offset + sym_idx;
+        if ((block < 0) || (block >= wf->num_blocks))
+        {
+            log174[bit_idx + 0] = 0;
+            log174[bit_idx + 1] = 0;
+            log174[bit_idx + 2] = 0;
+        }
+        else
+        {
+            js8_extract_symbol(mag + (sym_idx * wf->block_stride), log174 + bit_idx);
+        }
+    }
+}
+
 static void ftx_normalize_logl(float* log174)
 {
     // Compute the variance of log174
@@ -327,6 +425,30 @@ static void ftx_normalize_logl(float* log174)
 bool ftx_decode_candidate(const ftx_waterfall_t* wf, const ftx_candidate_t* cand, int max_iterations, ftx_message_t* message, ftx_decode_status_t* status)
 {
     float log174[FTX_LDPC_N]; // message bits encoded as likelihood
+    if (ftx_protocol_is_js8(wf->protocol))
+    {
+        js8_extract_likelihood(wf, cand, log174);
+        ftx_normalize_logl(log174);
+
+        uint8_t plain174[FTX_LDPC_N];
+        bp_decode_code(&kLDPC_174_87, log174, max_iterations, plain174, &status->ldpc_errors);
+        if (status->ldpc_errors > 0)
+            return false;
+
+        // Message bits are the last 87 codeword bits; payload = 72 bits + 3 type bits
+        uint8_t type = 0;
+        for (int i = 0; i < FTX_PAYLOAD_LENGTH_BYTES; ++i)
+            message->payload[i] = 0;
+        if (!js8_unpack_bits(plain174 + JS8_LDPC_M, message->payload, &type, &status->crc_extracted))
+        {
+            status->crc_calculated = 0xFFFF;
+            return false;
+        }
+        status->crc_calculated = status->crc_extracted;
+        message->payload[9] = (uint8_t)(type << 5);
+        message->hash = status->crc_extracted;
+        return true;
+    }
     if (wf->protocol == FTX_PROTOCOL_FT4)
     {
         ft4_extract_likelihood(wf, cand, log174);

@@ -9,6 +9,87 @@ const uint8_t kFT4_Costas_pattern[4][4] = {
     { 3, 2, 0, 1 }
 };
 
+const uint8_t kFT8_Costas_blocks[3][7] = {
+    { 3, 1, 4, 0, 6, 5, 2 },
+    { 3, 1, 4, 0, 6, 5, 2 },
+    { 3, 1, 4, 0, 6, 5, 2 }
+};
+// JS8 sync patterns (JS8Call protocol constants)
+const uint8_t kJS8_Costas_original[3][7] = {
+    { 4, 2, 5, 6, 1, 3, 0 },
+    { 4, 2, 5, 6, 1, 3, 0 },
+    { 4, 2, 5, 6, 1, 3, 0 }
+};
+const uint8_t kJS8_Costas_modified[3][7] = {
+    { 0, 6, 2, 3, 5, 4, 1 },
+    { 1, 5, 0, 2, 3, 6, 4 },
+    { 2, 5, 0, 6, 4, 1, 3 }
+};
+
+int ftx_protocol_is_js8(ftx_protocol_t protocol)
+{
+    return protocol >= FTX_PROTOCOL_JS8_NORMAL;
+}
+
+float ftx_protocol_symbol_period(ftx_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_FT4: return FT4_SYMBOL_PERIOD;
+    case FTX_PROTOCOL_JS8_FAST: return 0.100f;  // 1200 samples @ 12 kHz
+    case FTX_PROTOCOL_JS8_TURBO: return 0.050f; //  600
+    case FTX_PROTOCOL_JS8_SLOW: return 0.320f;  // 3840
+    case FTX_PROTOCOL_JS8_ULTRA: return 0.032f; //  384
+    case FTX_PROTOCOL_FT8:
+    case FTX_PROTOCOL_JS8_NORMAL:
+    default: return FT8_SYMBOL_PERIOD;          // 1920
+    }
+}
+
+float ftx_protocol_slot_time(ftx_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_FT4: return FT4_SLOT_TIME;
+    case FTX_PROTOCOL_JS8_FAST: return 10.0f;
+    case FTX_PROTOCOL_JS8_TURBO: return 6.0f;
+    case FTX_PROTOCOL_JS8_SLOW: return 30.0f;
+    case FTX_PROTOCOL_JS8_ULTRA: return 4.0f;
+    case FTX_PROTOCOL_FT8:
+    case FTX_PROTOCOL_JS8_NORMAL:
+    default: return FT8_SLOT_TIME;
+    }
+}
+
+float ftx_protocol_start_delay(ftx_protocol_t protocol)
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_JS8_FAST: return 0.2f;
+    case FTX_PROTOCOL_JS8_TURBO: return 0.1f;
+    case FTX_PROTOCOL_JS8_ULTRA: return 0.1f;
+    default: return 0.5f; // FT8, FT4 (WSJT-X timing), JS8 NORMAL and SLOW
+    }
+}
+
+int ftx_protocol_num_tones(ftx_protocol_t protocol)
+{
+    return (protocol == FTX_PROTOCOL_FT4) ? FT4_NN : FT8_NN;
+}
+
+const uint8_t (*ftx_protocol_costas7(ftx_protocol_t protocol))[7]
+{
+    switch (protocol)
+    {
+    case FTX_PROTOCOL_JS8_NORMAL: return kJS8_Costas_original;
+    case FTX_PROTOCOL_JS8_FAST:
+    case FTX_PROTOCOL_JS8_TURBO:
+    case FTX_PROTOCOL_JS8_SLOW:
+    case FTX_PROTOCOL_JS8_ULTRA: return kJS8_Costas_modified;
+    default: return kFT8_Costas_blocks;
+    }
+}
+
 // Gray code map (FTx bits -> channel symbols)
 const uint8_t kFT8_Gray_map[8] = { 0, 1, 3, 2, 5, 6, 4, 7 };
 const uint8_t kFT4_Gray_map[4] = { 0, 1, 3, 2 };
