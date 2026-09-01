@@ -38,6 +38,10 @@ typedef struct {
 struct cft8_decoder {
     monitor_t mon;
     hash_entry_t hashtable[kHashtableSize];
+    // Raw slot audio, kept for the subtract-and-rescan passes (JS8).
+    float* audio;
+    int audio_len;
+    int audio_cap;
 };
 
 // ft8_lib's hash interface takes plain function pointers with no context
@@ -146,11 +150,23 @@ cft8_decoder_t* cft8_create(int sample_rate, cft8_protocol_t protocol)
         .protocol = ftx,
     };
     monitor_init(&dec->mon, &cfg);
+    if (ftx_protocol_is_js8(ftx))
+    {
+        dec->audio_cap = (int)(ftx_protocol_slot_time(ftx) * sample_rate);
+        dec->audio = malloc(dec->audio_cap * sizeof(float));
+    }
     return dec;
 }
 
 void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples)
 {
+    if (dec->audio)
+    {
+        int room = dec->audio_cap - dec->audio_len;
+        int take = num_samples < room ? num_samples : room;
+        memcpy(dec->audio + dec->audio_len, samples, take * sizeof(float));
+        dec->audio_len += take;
+    }
     const int block = dec->mon.block_size;
     for (int pos = 0; pos + block <= num_samples; pos += block)
     {
@@ -160,73 +176,272 @@ void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples)
     }
 }
 
+static void gfsk_pulse(int n_spsym, float symbol_bt, float* pulse);
+
+// Coherent subtraction of one decoded JS8 signal from the slot audio
+// (WSJT-X's subtractft8 scheme, adapted to a real-valued signal): build
+// the reference GFSK phase, demodulate the audio against it, low-pass the
+// product to recover the slowly varying complex envelope — which absorbs
+// the residual frequency/phase error — then reconstruct and subtract.
+static void subtract_js8(float* audio, int n_audio, const uint8_t tones[JS8_NN],
+                         float f0, float dt_sec, float symbol_period, int rate)
+{
+    int n_spsym = (int)(0.5f + rate * symbol_period);
+    int n_wave = JS8_NN * n_spsym;
+    int start = (int)lroundf(dt_sec * rate);
+    int refined_start = start;
+
+    float* pulse = malloc(3 * n_spsym * sizeof(float));
+    float* phi = malloc(n_wave * sizeof(float));
+    float* pr = malloc(n_wave * sizeof(float));
+    float* pi_ = malloc(n_wave * sizeof(float));
+    if (!pulse || !phi || !pr || !pi_)
+        goto done;
+    gfsk_pulse(n_spsym, 2.0f /* JS8 shares FT8's BT */, pulse);
+
+    // Reference phase, replicating synth_gfsk's pulse-shaped frequency
+    float dphi_peak = 2 * M_PI / n_spsym; // hmod = 1
+    float phase = 0;
+    for (int k = 0; k < n_wave; ++k)
+    {
+        float dphi = 2 * M_PI * f0 / rate;
+        int i = k / n_spsym;
+        for (int m = i - 1; m <= i + 1; ++m)
+        {
+            if (m < 0 || m >= JS8_NN)
+                continue;
+            int j = k - (m - 1) * n_spsym; // index into the symbol's 3-symbol pulse span
+            if (j >= 0 && j < 3 * n_spsym)
+                dphi += dphi_peak * tones[m] * pulse[j];
+        }
+        phi[k] = phase;
+        phase = fmodf(phase + dphi, 2 * M_PI);
+    }
+
+    // The candidate's estimates are coarse in two ways that ruin an
+    // otherwise −30 dB subtraction: frequency is quantized to half a tone
+    // spacing (±1.6 Hz), and time_sec carries the STFT analysis-window
+    // bias (a couple hundred ms). Refine both against the audio itself —
+    // the chunked-coherent envelope energy peaks at the true offsets.
+    {
+        int stride = n_spsym / 8 ? n_spsym / 8 : 1;
+        double best_energy;
+        // energy of the demod product for a (start, freq-delta) hypothesis
+        #define REF_ENERGY(S, WD, OUT)                                         \
+            do                                                                 \
+            {                                                                  \
+                double er = 0, ei = 0, en = 0;                                 \
+                int count = 0;                                                 \
+                for (int k = 0; k < n_wave; k += stride)                       \
+                {                                                              \
+                    int n = (S) + k;                                           \
+                    float a = (n >= 0 && n < n_audio) ? audio[n] : 0.0f;       \
+                    float ph = phi[k] + (WD) * k;                              \
+                    er += a * cosf(ph);                                        \
+                    ei += -a * sinf(ph);                                       \
+                    if (++count == 64)                                         \
+                    {                                                          \
+                        en += er * er + ei * ei;                               \
+                        er = ei = 0;                                           \
+                        count = 0;                                             \
+                    }                                                          \
+                }                                                              \
+                en += er * er + ei * ei;                                       \
+                (OUT) = en;                                                    \
+            } while (0)
+
+        // Pass A: time, 20 ms steps over [−400 ms, +100 ms] around the estimate
+        best_energy = -1;
+        for (int ds = -(rate * 2 / 5); ds <= rate / 10; ds += rate / 50)
+        {
+            double e;
+            REF_ENERGY(start + ds, 0.0f, e);
+            if (e > best_energy)
+            {
+                best_energy = e;
+                refined_start = start + ds;
+            }
+        }
+        // Pass B: frequency, ±1.6 Hz in 0.2 Hz steps
+        float best_delta = 0;
+        best_energy = -1;
+        for (float delta = -1.6f; delta <= 1.6f; delta += 0.2f)
+        {
+            double e;
+            REF_ENERGY(refined_start, 2 * (float)M_PI * delta / rate, e);
+            if (e > best_energy)
+            {
+                best_energy = e;
+                best_delta = delta;
+            }
+        }
+        // Pass C: time again, stepping down to near-sample resolution —
+        // the subtraction residual is set by symbol-boundary misalignment
+        // (2.5 ms of error already costs ~15 dB)
+        float w_best = 2 * (float)M_PI * best_delta / rate;
+        int spans[3] = { rate * 3 / 100, rate / 200, rate / 2000 }; // ±30 ms, ±5 ms, ±0.5 ms
+        int steps[3] = { rate / 200, rate / 2000, 1 };              // 5 ms, 0.5 ms, 1 sample
+        for (int level = 0; level < 3; ++level)
+        {
+            int coarse = refined_start;
+            int step = steps[level] > 0 ? steps[level] : 1;
+            best_energy = -1;
+            for (int ds = -spans[level]; ds <= spans[level]; ds += step)
+            {
+                double e;
+                REF_ENERGY(coarse + ds, w_best, e);
+                if (e > best_energy)
+                {
+                    best_energy = e;
+                    refined_start = coarse + ds;
+                }
+            }
+        }
+        #undef REF_ENERGY
+        for (int k = 0; k < n_wave; ++k)
+            phi[k] = fmodf(phi[k] + w_best * k, 2 * (float)M_PI);
+    }
+    start = refined_start;
+
+    // Prefix sums of the demodulated product z = audio · conj(ref)
+    double sr = 0, si = 0;
+    for (int k = 0; k < n_wave; ++k)
+    {
+        int n = start + k;
+        float a = (n >= 0 && n < n_audio) ? audio[n] : 0.0f;
+        sr += a * cosf(phi[k]);
+        si += -a * sinf(phi[k]);
+        pr[k] = (float)sr;
+        pi_[k] = (float)si;
+    }
+
+    // Moving-average envelope (~117 ms, WSJT-X's NFILT), reconstruct, subtract
+    int w = 1400 * rate / 12000;
+    if (w < 16)
+        w = 16;
+    for (int k = 0; k < n_wave; ++k)
+    {
+        int n = start + k;
+        if (n < 0 || n >= n_audio)
+            continue;
+        int lo = k - w / 2 - 1;
+        int hi = k + w / 2;
+        if (hi >= n_wave)
+            hi = n_wave - 1;
+        float base_r = lo >= 0 ? pr[lo] : 0.0f;
+        float base_i = lo >= 0 ? pi_[lo] : 0.0f;
+        int count = hi - (lo >= 0 ? lo : -1);
+        float cr = (pr[hi] - base_r) / count;
+        float ci = (pi_[hi] - base_i) / count;
+        audio[n] -= 2.0f * (cr * cosf(phi[k]) - ci * sinf(phi[k]));
+    }
+
+done:
+    free(pulse);
+    free(phi);
+    free(pr);
+    free(pi_);
+}
+
 int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
 {
     g_active_table = dec->hashtable;
     if (max_results > kMaxDecoded)
         max_results = kMaxDecoded;
 
-    const ftx_waterfall_t* wf = &dec->mon.wf;
+    monitor_t* mon = &dec->mon;
+    const ftx_waterfall_t* wf = &mon->wf;
     bool js8 = ftx_protocol_is_js8(wf->protocol);
-    ftx_candidate_t candidates[kJS8MaxCandidates];
-    int num_candidates = ftx_find_candidates(wf, js8 ? kJS8MaxCandidates : kMaxCandidates,
-                                             candidates, js8 ? kJS8MinScore : kMinScore);
     int iterations = js8 ? kJS8LDPCIterations : kLDPCIterations;
+    int sample_rate = (int)lroundf(mon->block_size / mon->symbol_period);
 
     ftx_message_t decoded[kMaxDecoded];
     ftx_message_t* decoded_hashtable[kMaxDecoded] = { 0 };
     int num_out = 0;
+    int subtracted = 0; // results already removed from the audio
+    // Subtract-and-rescan: decode, coherently subtract what decoded,
+    // rebuild the waterfall from the cleaned audio, scan again for the
+    // signals the strong ones were sitting on.
+    int max_passes = (js8 && dec->audio && dec->audio_len > 0) ? 3 : 1;
 
-    for (int idx = 0; idx < num_candidates && num_out < max_results; ++idx)
+    for (int pass = 0; pass < max_passes && num_out < max_results; ++pass)
     {
-        const ftx_candidate_t* cand = &candidates[idx];
-
-        ftx_message_t message;
-        ftx_decode_status_t status;
-        if (!ftx_decode_candidate(wf, cand, iterations, &message, &status))
-            continue;
-
-        // Duplicate check (same payload decoded from a different candidate)
-        int idx_hash = message.hash % kMaxDecoded;
-        bool duplicate = false;
-        while (decoded_hashtable[idx_hash] != NULL)
+        if (pass > 0)
         {
-            if ((decoded_hashtable[idx_hash]->hash == message.hash)
-                && (0 == memcmp(decoded_hashtable[idx_hash]->payload, message.payload, sizeof(message.payload))))
+            if (subtracted == num_out)
+                break; // last pass found nothing new
+            for (; subtracted < num_out; ++subtracted)
             {
-                duplicate = true;
-                break;
+                cft8_result_t* r = &results[subtracted];
+                uint8_t tones[JS8_NN];
+                js8_encode(r->js8_payload, r->js8_type, wf->protocol, tones);
+                subtract_js8(dec->audio, dec->audio_len, tones, r->freq_hz, r->time_sec,
+                             mon->symbol_period, sample_rate);
             }
-            idx_hash = (idx_hash + 1) % kMaxDecoded;
+            monitor_reset(mon);
+            for (int pos = 0; pos + mon->block_size <= dec->audio_len; pos += mon->block_size)
+            {
+                if (mon->wf.num_blocks >= mon->wf.max_blocks)
+                    break;
+                monitor_process(mon, dec->audio + pos);
+            }
         }
-        if (duplicate)
-            continue;
 
-        memcpy(&decoded[idx_hash], &message, sizeof(message));
-        decoded_hashtable[idx_hash] = &decoded[idx_hash];
+        ftx_candidate_t candidates[kJS8MaxCandidates];
+        int num_candidates = ftx_find_candidates(wf, js8 ? kJS8MaxCandidates : kMaxCandidates,
+                                                 candidates, js8 ? kJS8MinScore : kMinScore);
 
-        char text[FTX_MAX_MESSAGE_LENGTH] = { 0 };
-        if (ftx_protocol_is_js8(wf->protocol))
+        for (int idx = 0; idx < num_candidates && num_out < max_results; ++idx)
         {
-            // Raw bits go to Swift; the JS8 frame layer lives there.
-        }
-        else
-        {
-            ftx_message_offsets_t offsets; // out-param; ftx_message_decode requires it non-NULL
-            if (FTX_MESSAGE_RC_OK != ftx_message_decode(&message, &hash_if, text, &offsets))
+            const ftx_candidate_t* cand = &candidates[idx];
+
+            ftx_message_t message;
+            ftx_decode_status_t status;
+            if (!ftx_decode_candidate(wf, cand, iterations, &message, &status))
                 continue;
-        }
 
-        cft8_result_t* res = &results[num_out++];
-        memset(res, 0, sizeof(*res));
-        res->score = cand->score;
-        res->snr = cand->score * 0.5f - 24.0f; // rough SNR estimate from sync score
-        res->freq_hz = (dec->mon.min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / dec->mon.symbol_period;
-        res->time_sec = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * dec->mon.symbol_period;
-        strncpy(res->text, text, sizeof(res->text) - 1);
-        res->text[sizeof(res->text) - 1] = '\0';
-        memcpy(res->js8_payload, message.payload, 9);
-        res->js8_type = (uint8_t)(message.payload[9] >> 5);
+            // Duplicate check (same payload decoded from a different candidate)
+            int idx_hash = message.hash % kMaxDecoded;
+            bool duplicate = false;
+            while (decoded_hashtable[idx_hash] != NULL)
+            {
+                if ((decoded_hashtable[idx_hash]->hash == message.hash)
+                    && (0 == memcmp(decoded_hashtable[idx_hash]->payload, message.payload, sizeof(message.payload))))
+                {
+                    duplicate = true;
+                    break;
+                }
+                idx_hash = (idx_hash + 1) % kMaxDecoded;
+            }
+            if (duplicate)
+                continue;
+
+            memcpy(&decoded[idx_hash], &message, sizeof(message));
+            decoded_hashtable[idx_hash] = &decoded[idx_hash];
+
+            char text[FTX_MAX_MESSAGE_LENGTH] = { 0 };
+            if (js8)
+            {
+                // Raw bits go to Swift; the JS8 frame layer lives there.
+            }
+            else
+            {
+                ftx_message_offsets_t offsets; // out-param; ftx_message_decode requires it non-NULL
+                if (FTX_MESSAGE_RC_OK != ftx_message_decode(&message, &hash_if, text, &offsets))
+                    continue;
+            }
+
+            cft8_result_t* res = &results[num_out++];
+            memset(res, 0, sizeof(*res));
+            res->score = cand->score;
+            res->snr = cand->score * 0.5f - 24.0f; // rough SNR estimate from sync score
+            res->freq_hz = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / mon->symbol_period;
+            res->time_sec = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * mon->symbol_period;
+            strncpy(res->text, text, sizeof(res->text) - 1);
+            res->text[sizeof(res->text) - 1] = '\0';
+            memcpy(res->js8_payload, message.payload, 9);
+            res->js8_type = (uint8_t)(message.payload[9] >> 5);
+        }
     }
 
     hashtable_age(dec->hashtable, 10);
@@ -236,6 +451,7 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
 void cft8_reset(cft8_decoder_t* dec)
 {
     monitor_reset(&dec->mon);
+    dec->audio_len = 0;
 }
 
 void cft8_destroy(cft8_decoder_t* dec)
@@ -243,6 +459,7 @@ void cft8_destroy(cft8_decoder_t* dec)
     if (!dec)
         return;
     monitor_free(&dec->mon);
+    free(dec->audio);
     free(dec);
 }
 
