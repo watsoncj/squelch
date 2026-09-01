@@ -21,6 +21,13 @@ enum {
     kLDPCIterations = 25,
     kMaxDecoded = 50,
     kHashtableSize = 256,
+    // JS8 digs deeper: fixture measurements (JS8Call's media/tests) show
+    // finer time alignment is worth +3 decodes of 33, and the extra CPU
+    // (~0.1 s per 15 s slot) is nothing. FT8/FT4 keep the proven settings.
+    kJS8TimeOSR = 8,
+    kJS8MinScore = 4,
+    kJS8MaxCandidates = 500,
+    kJS8LDPCIterations = 30,
 };
 
 typedef struct {
@@ -129,13 +136,14 @@ cft8_decoder_t* cft8_create(int sample_rate, cft8_protocol_t protocol)
     cft8_decoder_t* dec = calloc(1, sizeof(cft8_decoder_t));
     if (!dec)
         return NULL;
+    ftx_protocol_t ftx = to_ftx(protocol);
     monitor_config_t cfg = {
         .f_min = 200,
         .f_max = 3000,
         .sample_rate = sample_rate,
-        .time_osr = 2,
+        .time_osr = ftx_protocol_is_js8(ftx) ? kJS8TimeOSR : 2,
         .freq_osr = 2,
-        .protocol = to_ftx(protocol),
+        .protocol = ftx,
     };
     monitor_init(&dec->mon, &cfg);
     return dec;
@@ -159,8 +167,11 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
         max_results = kMaxDecoded;
 
     const ftx_waterfall_t* wf = &dec->mon.wf;
-    ftx_candidate_t candidates[kMaxCandidates];
-    int num_candidates = ftx_find_candidates(wf, kMaxCandidates, candidates, kMinScore);
+    bool js8 = ftx_protocol_is_js8(wf->protocol);
+    ftx_candidate_t candidates[kJS8MaxCandidates];
+    int num_candidates = ftx_find_candidates(wf, js8 ? kJS8MaxCandidates : kMaxCandidates,
+                                             candidates, js8 ? kJS8MinScore : kMinScore);
+    int iterations = js8 ? kJS8LDPCIterations : kLDPCIterations;
 
     ftx_message_t decoded[kMaxDecoded];
     ftx_message_t* decoded_hashtable[kMaxDecoded] = { 0 };
@@ -172,7 +183,7 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
 
         ftx_message_t message;
         ftx_decode_status_t status;
-        if (!ftx_decode_candidate(wf, cand, kLDPCIterations, &message, &status))
+        if (!ftx_decode_candidate(wf, cand, iterations, &message, &status))
             continue;
 
         // Duplicate check (same payload decoded from a different candidate)
