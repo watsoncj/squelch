@@ -279,12 +279,36 @@ final class JS8VaricodeTests: XCTestCase {
         XCTAssertTrue(rx.pending.isEmpty)
     }
 
-    func testReceiverRejectsBadChecksum() {
+    func testReceiverDeliversBadChecksumAsPartial() {
         let rx = JS8Receiver(dictionary: Self.words)
         _ = rx.ingest([input(frame("SN5-lVAGosa0", [.first]), at: 0)])
-        // "HELLO WORLD" instead of "HELLO 387": the checksum doesn't validate
+        // "HELLO WORLD" instead of "HELLO 387": the checksum doesn't
+        // validate, but the text still reaches the feed as a partial
         let out = rx.ingest([input(frame("tYuMzoX+++++", [.last]), at: 15)])
-        XCTAssertTrue(out.isEmpty)
+        XCTAssertEqual(out.count, 1)
+        XCTAssertEqual(out.first?.isComplete, false)
+        XCTAssertEqual(out.first?.displayText, "KN4CRD: W0CJW MSG HELLO WORLD")
+    }
+
+    func testReceiverSalvagesExpiredPartials() {
+        // A directed header whose text never finishes: expiry delivers
+        // "FROM: TO CMD <text> ……" instead of discarding it
+        let rx = JS8Receiver(dictionary: Self.words)
+        _ = rx.ingest([input(frame("SN5-lVAGosa0", [.first]), at: 0)])
+        _ = rx.ingest([input(frame("tYuMzoX+++++", []), at: 15)]) // no Last
+        // 61 s: the idle rule tries completion, the checksum fails → partial
+        let out = rx.ingest([], now: Date(timeIntervalSince1970: 15 + 61))
+        XCTAssertEqual(out.map(\.displayText), ["KN4CRD: W0CJW MSG HELLO WORLD"])
+        XCTAssertEqual(out.first?.isComplete, false)
+        XCTAssertTrue(rx.pending.isEmpty)
+
+        // Anonymous free text that never completes: kept, tail marked
+        let rx2 = JS8Receiver(dictionary: Self.words)
+        let f1 = JS8Frame(payload: JS8FrameCodec.dataCompressed("HELLO ", dictionary: Self.words)!.payload, type: [.first])
+        _ = rx2.ingest([input(f1, at: 0)])
+        let out2 = rx2.ingest([], now: Date(timeIntervalSince1970: 91))
+        XCTAssertEqual(out2.map(\.displayText), ["HELLO \(JS8Receiver.missingFrameMarker)"])
+        XCTAssertEqual(out2.first?.isComplete, false)
     }
 
     func testReceiverResolvesCompoundPlaceholder() {

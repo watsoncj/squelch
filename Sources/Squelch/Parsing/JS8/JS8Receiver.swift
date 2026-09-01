@@ -308,6 +308,32 @@ final class JS8Receiver {
                           speed: d.speed, isComplete: complete)
     }
 
+    /// What an abandoned buffer can still tell us: the command (if its
+    /// header frame arrived) and whatever text frames landed, with the
+    /// missing tail marked. Nil when nothing presentable was heard.
+    private func partialMessage(from b: Buffer) -> JS8Message? {
+        var text = b.msgs.map(\.text).joined().rstripped()
+        let ended = b.msgs.last?.flags.contains(.last) ?? false
+        if !ended {
+            text += (text.isEmpty ? "" : " ") + Self.missingFrameMarker
+        }
+        if var cmd = b.cmd {
+            if cmd.from == JS8Fields.placeholderCall, let c = b.compound.first {
+                cmd.from = c.call
+                cmd.grid = c.grid
+            }
+            cmd.snr = b.snr
+            var m = message(from: cmd, text: text, complete: false)
+            m.timestamp = b.latest
+            return m
+        }
+        guard !text.isEmpty, text != Self.missingFrameMarker else { return nil }
+        let from = b.compound.first?.call ?? ""
+        return JS8Message(kind: .freeText, from: from, to: "", cmd: "", extra: "", text: text,
+                          grid: b.compound.first?.grid, snr: b.snr, offsetHz: 0, timeOffset: b.timeOffset,
+                          timestamp: b.latest, speed: b.speed, isComplete: false)
+    }
+
     private func completeBuffers(now: Date) -> [JS8Message] {
         var out: [JS8Message] = []
         // Compound completion: fill placeholders from buffered compound calls
@@ -347,6 +373,11 @@ final class JS8Receiver {
                 b.msgs[b.msgs.count - 1].flags.insert(.last)
             }
             if age > Self.bufferExpirySeconds {
+                // Don't discard what was heard: deliver it as a partial
+                // (no end-of-transmission marker, tail flagged as missing)
+                if let partial = partialMessage(from: b) {
+                    out.append(partial)
+                }
                 buffers.removeValue(forKey: key)
                 continue
             }
@@ -379,12 +410,22 @@ final class JS8Receiver {
                 cmd.snr = b.snr
                 cmd.timeOffset = b.timeOffset
                 out.append(message(from: cmd, text: text, complete: true))
+            } else if let partial = partialMessage(from: b) {
+                // Bad checksum or unresolved placeholder — frames were
+                // lost, but show what arrived rather than eating it
+                out.append(partial)
             }
             buffers.removeValue(forKey: key)
         }
-        // Stale free-text lines
+        // Stale free-text lines: deliver as partials, marker on the tail
         for (key, a) in activity where now.timeIntervalSince(a.timestamp) > Self.bufferExpirySeconds {
             activity.removeValue(forKey: key)
+            let text = a.text.rstripped()
+            guard !text.isEmpty, text != Self.missingFrameMarker else { continue }
+            out.append(JS8Message(kind: .freeText, from: a.from, to: "", cmd: "", extra: "",
+                                  text: text + " " + Self.missingFrameMarker, grid: nil, snr: a.snr,
+                                  offsetHz: Float(key), timeOffset: a.timeOffset, timestamp: a.timestamp,
+                                  speed: a.speed, isComplete: false))
         }
         return out
     }
