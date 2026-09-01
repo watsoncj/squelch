@@ -124,6 +124,8 @@ final class JS8Receiver {
 
     static let bufferIdleSeconds: TimeInterval = 60
     static let bufferExpirySeconds: TimeInterval = 90
+    /// Shown where a frame went missing (JS8Call's default indicator).
+    static let missingFrameMarker = "……"
 
     init(dictionary: JS8Dictionary? = JS8Dictionary.installed) {
         self.dictionary = dictionary
@@ -193,6 +195,11 @@ final class JS8Receiver {
             let shown = text ?? (compressed ? "[JS8 word table not installed]" : "")
             if let k = bufferKey(near: input.offsetHz, tolerance: tolerance) {
                 var b = buffers.removeValue(forKey: k)!
+                // A transmission sends one frame per slot: a gap of more
+                // than 1.5 periods means a frame was lost — mark it
+                if !b.msgs.isEmpty, input.timestamp.timeIntervalSince(b.latest) > 1.5 * input.speed.slotSeconds {
+                    b.msgs.append(TextDetail(text: Self.missingFrameMarker, flags: [], timestamp: b.latest))
+                }
                 b.msgs.append(TextDetail(text: shown, flags: flags, timestamp: input.timestamp))
                 b.snr = input.snr
                 b.timeOffset = input.timeOffset
@@ -262,6 +269,9 @@ final class JS8Receiver {
         if !flags.contains(.first), let k = activityKey(near: input.offsetHz, tolerance: tolerance),
            let existing = activity.removeValue(forKey: k) {
             line = existing
+            if input.timestamp.timeIntervalSince(line.timestamp) > 1.5 * input.speed.slotSeconds {
+                line.text += Self.missingFrameMarker
+            }
             line.text += text
         } else {
             if let k = activityKey(near: input.offsetHz, tolerance: tolerance) {

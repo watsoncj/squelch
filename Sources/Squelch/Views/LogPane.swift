@@ -133,6 +133,8 @@ struct LogPane<Header: View>: View {
     @ObservedObject var stateResolver: StateResolver
     @Binding var selection: DecodedMessage.ID?
     var onReply: ((DecodedMessage) -> Void)? = nil
+    /// JS8 rows: open the composer addressed to this row's sender.
+    var onJS8Compose: ((DecodedMessage) -> Void)? = nil
     var replyEnabled = true
     /// Mic permission was refused: the empty state becomes the fix-it
     /// guide — a fresh install otherwise fails silently (dead meter, no
@@ -201,6 +203,21 @@ struct LogPane<Header: View>: View {
             .listStyle(.plain)
             .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
                 if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
+                    if message.isJS8, let call = message.callsign, call != myCallsign, let onJS8Compose {
+                        Button("Message \(call)…") {
+                            onJS8Compose(message)
+                        }
+                        Button("Query \(call) SNR") {
+                            var m = message
+                            _ = m // reuse the compose path with a prefilled query
+                            onJS8Compose(DecodedMessage(
+                                id: message.id, slotStart: message.slotStart, snr: message.snr,
+                                timeOffset: message.timeOffset, audioFrequency: message.audioFrequency,
+                                dialFrequencyMHz: message.dialFrequencyMHz, text: "\(call) SNR?",
+                                callsign: message.callsign, grid: message.grid, latitude: message.latitude,
+                                longitude: message.longitude, distanceKm: message.distanceKm, mode: message.mode))
+                        }
+                    }
                     if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
                         Button(replyEnabled
                                ? (message.isCQ ? "Reply to \(call)" : "Answer \(call)")

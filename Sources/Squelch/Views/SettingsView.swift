@@ -251,6 +251,16 @@ struct SettingsView: View {
                     }
                     .disabled(js8.installingWordTable)
                 }
+                Toggle("Auto-reply to queries addressed to me (SNR?, GRID?)", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8AutoReply) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8AutoReply) }
+                ))
+                .help("Answers directed SNR?/GRID? queries automatically in the next slot — this keys the radio unattended. Rate-limited to one reply per station per 15 minutes. Off by default.")
+                Toggle("Acknowledge heartbeats with a signal report", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8HBAck) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8HBAck) }
+                ))
+                .help("Replies \"CALL HEARTBEAT SNR ±NN\" to heartbeats you decode — the ack you've seen other stations send. Keys the radio unattended; rate-limited per station. Off by default.")
                 if let status = js8.wordTableStatus {
                     Text(status)
                         .font(.caption)

@@ -11,6 +11,17 @@ final class JS8Session: ObservableObject {
     @Published private(set) var wordTableStatus: String?
     @Published private(set) var installingWordTable = false
 
+    /// Frames waiting to go out, one per slot.
+    @Published private(set) var txQueue: [JS8Frame] = []
+    /// The message the queue belongs to, for the UI.
+    @Published private(set) var txLabel: String?
+    private var txFramesTotal = 0
+    private var txEcho: JS8Message?
+
+    /// Senders auto-replied to recently (both query replies and HB acks).
+    private var autoRepliedAt: [String: Date] = [:]
+    static let autoReplyIntervalSeconds: TimeInterval = 15 * 60
+
     private let receiver: JS8Receiver
 
     static let wordTableURL = URL(string: "https://raw.githubusercontent.com/JS8Call-improved/JS8Call-improved/HEAD/JS8_JSC/JSC_map.cpp")!
@@ -35,6 +46,90 @@ final class JS8Session: ObservableObject {
 
     func reset() {
         pending = []
+    }
+
+    // MARK: Transmit queue
+
+    var isSending: Bool { !txQueue.isEmpty }
+
+    /// Build a message into frames and queue it. One outgoing message at a
+    /// time — a queue in flight refuses new sends (the UI disables Send).
+    @discardableResult
+    func send(text: String, myCall: String, myGrid: String, selectedCall: String = "", mode: DigiMode) -> Bool {
+        guard !isSending, !myCall.isEmpty else { return false }
+        let line = text.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !line.isEmpty else { return false }
+        let built = JS8MessageBuilder.build(text: line, myCall: myCall, myGrid: myGrid,
+                                           selectedCall: selectedCall, mode: mode,
+                                           dictionary: JS8Dictionary.installed)
+        guard !built.frames.isEmpty else { return false }
+        txQueue = built.frames
+        txFramesTotal = built.frames.count
+        txLabel = line
+        // Local echo, shown when the last frame has gone out; displayText
+        // renders it as "MYCALL: <line> ♢ "
+        txEcho = JS8Message(kind: .freeText, from: myCall.uppercased(), to: built.directedTo ?? "",
+                            cmd: "", extra: "", text: line, grid: nil, snr: 0, offsetHz: 0,
+                            timestamp: Date(), speed: mode, isComplete: true)
+        return true
+    }
+
+    /// Pop the next frame to transmit this slot.
+    func nextFrame() -> (frame: JS8Frame, label: String, isLast: Bool)? {
+        guard !txQueue.isEmpty else { return nil }
+        let frame = txQueue.removeFirst()
+        let index = txFramesTotal - txQueue.count
+        let label = "JS8 \(index)/\(txFramesTotal): \(txLabel ?? "")"
+        let isLast = txQueue.isEmpty
+        if isLast { txLabel = nil }
+        return (frame, label, isLast)
+    }
+
+    /// The echo message for the just-completed transmission.
+    func takeEcho() -> JS8Message? {
+        defer { txEcho = nil }
+        return txEcho
+    }
+
+    func haltTX() {
+        txQueue = []
+        txLabel = nil
+        txEcho = nil
+    }
+
+    // MARK: Auto-replies
+
+    /// Reply texts owed for this slot's completed messages: query answers
+    /// when addressed to us, heartbeat acknowledgements when enabled. At
+    /// most one per slot, rate-limited per sender, never while sending.
+    func autoReplies(for messages: [JS8Message], myCall: String, myGrid: String,
+                     replyToQueries: Bool, ackHeartbeats: Bool, now: Date = Date()) -> [String] {
+        guard !isSending, !myCall.isEmpty else { return [] }
+        let me = myCall.uppercased()
+        autoRepliedAt = autoRepliedAt.filter { now.timeIntervalSince($0.value) < Self.autoReplyIntervalSeconds }
+        for m in messages {
+            let sender = m.from.uppercased()
+            guard !sender.isEmpty, sender != me, autoRepliedAt[sender] == nil,
+                  JS8Fields.isValidCallsign(sender) else { continue }
+            let snr = JS8Fields.formatSNR(max(-30, min(31, Int(m.snr.rounded()))))
+            var reply: String?
+            if replyToQueries, m.kind == .directed, m.to.uppercased() == me {
+                switch m.cmd {
+                case " SNR?": reply = "\(sender) SNR \(snr)"
+                case " GRID?":
+                    let grid = String(myGrid.uppercased().prefix(4))
+                    if !grid.isEmpty { reply = "\(sender) GRID \(grid)" }
+                default: break
+                }
+            } else if ackHeartbeats, m.kind == .heartbeat, m.to == "@HB" {
+                reply = "\(sender) HEARTBEAT SNR \(snr)"
+            }
+            if let reply {
+                autoRepliedAt[sender] = now
+                return [reply]
+            }
+        }
+        return []
     }
 
     // MARK: Word table

@@ -316,6 +316,18 @@ final class JS8VaricodeTests: XCTestCase {
         XCTAssertEqual(out.map(\.displayText), ["KN4CRD: W0CJW MSG HELLO ♢ "], "60 s idle closes the message")
     }
 
+    func testReceiverMarksMissingFrames() {
+        let rx = JS8Receiver(dictionary: Self.words)
+        // Free text that loses its middle frame: "HELLO " ... (lost) ... "WORLD"
+        let f1 = JS8Frame(payload: JS8FrameCodec.dataCompressed("HELLO ", dictionary: Self.words)!.payload, type: [.first])
+        let f3 = JS8Frame(payload: JS8FrameCodec.dataCompressed("WORLD", dictionary: Self.words)!.payload, type: [.last])
+        XCTAssertTrue(rx.ingest([input(f1, at: 0)]).isEmpty)
+        // Two idle slots pass — the gap gets its marker
+        XCTAssertTrue(rx.ingest([], now: Date(timeIntervalSince1970: 40)).isEmpty)
+        let out = rx.ingest([input(f3, at: 45)])
+        XCTAssertEqual(out.map(\.displayText), ["HELLO \(JS8Receiver.missingFrameMarker)WORLD ♢ "])
+    }
+
     func testReceiverDeduplicatesRepeatedFrame() {
         let rx = JS8Receiver(dictionary: Self.words)
         let out = rx.ingest([input(frame("SN5-lVAGotaQ"), offset: 1500, at: 0), input(frame("SN5-lVAGotaQ"), offset: 1500.5, at: 0)])

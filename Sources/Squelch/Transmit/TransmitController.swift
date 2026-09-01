@@ -59,6 +59,15 @@ final class TransmitController: ObservableObject {
         return performTransmission(samples: samples, label: text)
     }
 
+    /// Transmit pre-encoded audio (a JS8 frame). Same guards and watchdog
+    /// as the FT8 path; the samples carry their own lead-in.
+    @discardableResult
+    func transmitRaw(samples: [Float], label: String) -> Bool {
+        guard !anyTXActive else { return false }
+        guard checkLegalAndConfigured() else { return false }
+        return performTransmission(samples: samples, label: label)
+    }
+
     /// WSPR beacon: 110.6 s transmission at the given audio offset (the
     /// caller randomizes within the sub-band to spread beacons).
     @discardableResult

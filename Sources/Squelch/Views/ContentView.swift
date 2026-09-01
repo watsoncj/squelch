@@ -30,6 +30,8 @@ struct ContentView: View {
     @State private var showFrequencies = false
     @State private var showHunt = false
     @State private var showCQ = false
+    @State private var showJS8Composer = false
+    @State private var js8ComposerSeed = ""
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @State private var isFullScreen = false
@@ -312,6 +314,12 @@ struct ContentView: View {
                 }
             ),
             onReply: { message in actions.reply(to: message) },
+            onJS8Compose: { message in
+                // Prefill: a raw "CALL SNR?" query passes through as-is;
+                // otherwise address the sender
+                js8ComposerSeed = message.text.hasSuffix("SNR?") ? message.text : "\(message.callsign ?? "") "
+                showJS8Composer = true
+            },
             replyEnabled: txAvailable && sequencer.mode == .idle,
             micDenied: controller.micDenied,
             workedCalls: qsoLog.workedCalls,
@@ -503,9 +511,43 @@ struct ContentView: View {
                     .disabled(!actions.wsprBeaconEnabled && !txAvailable)
                     .help(txDisabledReason ?? "Transmit WSPR at the configured duty cycle; spots of your signal appear on wsprnet receivers worldwide")
                 } else if isJS8Mode {
-                    // JS8 is conversational: the FT8 CQ/hunt sequencer
-                    // doesn't apply. Speed lives here as well as in the
-                    // frequency flyout so it's one click away.
+                    Button {
+                        showJS8Composer.toggle()
+                    } label: {
+                        Label("Message", systemImage: actions.js8.isSending ? "paperplane.fill" : "paperplane")
+                            .foregroundStyle(actions.js8.isSending ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
+                    }
+                    .help("Compose a JS8 message — free text, or a directed command to a station")
+                    .popover(isPresented: $showJS8Composer, arrowEdge: .bottom) {
+                        JS8ComposerFlyout(
+                            js8: actions.js8,
+                            initialText: js8ComposerSeed,
+                            txAvailable: txAvailable,
+                            txDisabledReason: txDisabledReason,
+                            decoding: controller.isRunning,
+                            grid: String((actions.location.effectiveGrid ?? "").prefix(4)),
+                            onSend: { text in
+                                if actions.sendJS8(text: text) {
+                                    showJS8Composer = false
+                                }
+                            },
+                            onHalt: { actions.haltTX() }
+                        )
+                        .onDisappear { js8ComposerSeed = "" }
+                    }
+
+                    Button {
+                        actions.sendJS8Heartbeat()
+                    } label: {
+                        Label("Heartbeat", systemImage: "waveform.path.ecg")
+                    }
+                    .disabled(!txAvailable || !controller.isRunning || actions.js8.isSending)
+                    .help(txDisabledReason ?? (controller.isRunning
+                          ? "Send one heartbeat now (@HB with your grid) — stations that hear it reply with your signal report"
+                          : "Start decoding first — JS8 transmits at slot boundaries"))
+
+                    // Speed lives here as well as in the frequency flyout
+                    // so it's one click away.
                     Menu {
                         ForEach(DigiMode.js8Speeds) { speed in
                             Button {
@@ -893,6 +935,77 @@ struct ContentView: View {
 
     private var isWSPRMode: Bool {
         digiMode == DigiMode.wspr.rawValue
+    }
+
+    /// Composer flyout for JS8: free text or "CALL CMD …" directed lines.
+    private struct JS8ComposerFlyout: View {
+        @ObservedObject var js8: JS8Session
+        var initialText: String
+        let txAvailable: Bool
+        let txDisabledReason: String?
+        let decoding: Bool
+        let grid: String
+        let onSend: (String) -> Void
+        let onHalt: () -> Void
+
+        @State private var text = ""
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("JS8 Message")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                TextField("W0ABC MSG HELLO — or free text", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+                    .onSubmit { send() }
+                if let label = js8.txLabel {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Sending: \(label) — \(js8.txQueue.count) frame\(js8.txQueue.count == 1 ? "" : "s") to go")
+                            .font(.caption)
+                            .lineLimit(1)
+                        Spacer()
+                        Button("Halt") { onHalt() }
+                            .controlSize(.small)
+                    }
+                }
+                HStack {
+                    Button("CQ") { text = "CQ CQ CQ" + (grid.isEmpty ? "" : " \(grid)") }
+                        .controlSize(.small)
+                        .help("Fill in a CQ — edit the flavor (CQ DX, CQ QRP…) before sending")
+                    Spacer()
+                    Button("Send") { send() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canSend)
+                }
+                if !txAvailable {
+                    Text(txDisabledReason ?? "TX unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if !decoding {
+                    Text("Start decoding first — frames go out at slot boundaries.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Directed lines (\"CALL SNR?\", \"CALL MSG …\") use JS8 commands; anything else goes as free text with your callsign in front. One frame per \(Int(DigiMode.current.slotSeconds)) s slot.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 320, alignment: .leading)
+                }
+            }
+            .padding(12)
+            .onAppear { if !initialText.isEmpty { text = initialText } }
+        }
+
+        private var canSend: Bool {
+            txAvailable && decoding && !js8.isSending && !text.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+
+        private func send() {
+            guard canSend else { return }
+            onSend(text)
+        }
     }
 
     private var isJS8Mode: Bool {

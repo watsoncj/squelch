@@ -141,6 +141,7 @@ final class AppModel: ObservableObject {
                 let messages = self.js8.ingest(results: results, slotStart: slotStart, speed: self.controller.mode)
                 self.store.ingest(js8: messages, myCoordinate: self.location.effectiveCoordinate(),
                                   dialFrequencyMHz: dial > 0 ? dial : 7.078)
+                self.runJS8Transmit(completed: messages)
                 return
             }
             self.store.ingest(
@@ -170,6 +171,76 @@ final class AppModel: ObservableObject {
                 updater.startAutomaticChecks()
             }
         }
+    }
+
+    /// JS8's slot-driven TX: queue auto-replies owed for this slot's
+    /// messages, then send the next queued frame right at the boundary
+    /// (the encoded audio's per-speed lead-in absorbs the slight lateness,
+    /// same as FT8). One frame per slot until the queue drains.
+    private func runJS8Transmit(completed: [JS8Message]) {
+        guard !demoMode else { return }
+        let defaults = UserDefaults.standard
+        let myCall = defaults.string(forKey: SettingsKeys.myCallsign) ?? ""
+        let myGrid = location.effectiveGrid ?? ""
+        for text in js8.autoReplies(
+            for: completed, myCall: myCall, myGrid: myGrid,
+            replyToQueries: defaults.bool(forKey: SettingsKeys.js8AutoReply),
+            ackHeartbeats: defaults.bool(forKey: SettingsKeys.js8HBAck)
+        ) {
+            js8.send(text: text, myCall: myCall, myGrid: myGrid, mode: controller.mode)
+        }
+        guard !transmit.anyTXActive, let next = js8.nextFrame() else { return }
+        let offset = defaults.double(forKey: SettingsKeys.txOffsetHz)
+        guard let samples = FT8Encoder.encode(frame: next.frame,
+                                              frequencyHz: offset > 0 ? offset : 1500,
+                                              mode: controller.mode) else {
+            js8.haltTX()
+            return
+        }
+        if !transmit.transmitRaw(samples: samples, label: next.label) {
+            js8.haltTX() // TX blocked (legality/config) — don't keep trying
+        } else if next.isLast, let echo = js8.takeEcho() {
+            let dial = defaults.double(forKey: SettingsKeys.dialFrequencyMHz)
+            store.ingest(js8: [echo], myCoordinate: location.effectiveCoordinate(),
+                         dialFrequencyMHz: dial > 0 ? dial : 7.078)
+        }
+    }
+
+    /// Queue a JS8 message for transmission (composer / reply / heartbeat
+    /// button). Frames go out one per slot from the decode loop, so
+    /// decoding must be running.
+    @discardableResult
+    func sendJS8(text: String, selectedCall: String = "") -> Bool {
+        guard controller.mode.isJS8 else { return false }
+        guard controller.isRunning else {
+            transmit.txError = "Start decoding first — JS8 frames go out at receive slot boundaries"
+            return false
+        }
+        let dial = UserDefaults.standard.double(forKey: SettingsKeys.dialFrequencyMHz)
+        guard TransmitController.isTXLegalMHz(dial) else {
+            transmit.txError = String(format: "TX blocked: %.3f MHz is outside %@ data privileges",
+                                      dial, LicenseClass.current.rawValue)
+            return false
+        }
+        let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
+        guard !myCall.isEmpty else {
+            transmit.txError = "TX blocked: set your callsign in Settings first"
+            return false
+        }
+        guard js8.send(text: text, myCall: myCall, myGrid: location.effectiveGrid ?? "",
+                       selectedCall: selectedCall, mode: controller.mode) else {
+            transmit.txError = js8.isSending
+                ? "A JS8 message is already going out — halt it first"
+                : "Nothing to send — the message didn't produce any frames"
+            return false
+        }
+        transmit.txError = nil
+        return true
+    }
+
+    func sendJS8Heartbeat() {
+        let grid = String((location.effectiveGrid ?? "").prefix(4))
+        sendJS8(text: grid.isEmpty ? "HEARTBEAT" : "HEARTBEAT \(grid)")
     }
 
     /// After each receive slot: update the QSO state machine and, if it wants
@@ -654,6 +725,7 @@ final class AppModel: ObservableObject {
         pendingReply = nil
         recentlyAbandoned = nil
         sequencer.stop()
+        js8.haltTX()
         transmit.haltAll()
     }
 

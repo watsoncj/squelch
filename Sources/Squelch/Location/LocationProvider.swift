@@ -115,4 +115,6 @@ enum SettingsKeys {
     static let autoUpdateCheck = "autoUpdateCheck"
     static let activeContest = "activeContest"
     static let arrlSection = "arrlSection"
+    static let js8AutoReply = "js8AutoReply"
+    static let js8HBAck = "js8HBAck"
 }
