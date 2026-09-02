@@ -331,7 +331,8 @@ struct ContentView: View {
                 contest: activeContest.isEmpty ? nil : activeContest
             ),
             contestName: activeContest.isEmpty ? nil : activeContest,
-            js8Pending: isJS8Mode ? actions.js8.pending : []
+            js8Pending: isJS8Mode ? actions.js8.pending : [],
+            js8FilterAvailable: isJS8Mode
         ) {
             HStack {
                 Spacer()

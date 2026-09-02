@@ -120,7 +120,8 @@ final class DecodeStore: ObservableObject {
                 latitude: latitude,
                 longitude: longitude,
                 distanceKm: distanceKm,
-                mode: "JS8"
+                mode: "JS8",
+                js8Kind: m.feedKind
             )
             newMessages.append(message)
             totalDecodes += 1

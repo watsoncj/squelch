@@ -18,6 +18,10 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
     /// Log-style mode name ("FT8", "FT4", "JS8", "WSPR"); nil on records
     /// written before the field existed (all FT8/FT4 then).
     var mode: String? = nil
+    /// JS8 traffic class ("heartbeat", "hbAck", "cq", "directed",
+    /// "freeText") — lets the feed separate ambient robot traffic from
+    /// communication. Nil on non-JS8 rows and older records.
+    var js8Kind: String? = nil
 
     var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
@@ -27,6 +31,15 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
     var isCQ: Bool { text.hasPrefix("CQ ") }
 
     var isJS8: Bool { mode == "JS8" }
+
+    /// Ambient JS8 telemetry (heartbeats and their acks) as opposed to
+    /// communication. Older records without js8Kind fall back to text
+    /// heuristics so the filter works on the existing log.
+    var isJS8Ambient: Bool {
+        guard isJS8 else { return false }
+        if let js8Kind { return js8Kind == "heartbeat" || js8Kind == "hbAck" }
+        return text.contains("@HB HEARTBEAT") || text.contains(" HEARTBEAT SNR ")
+    }
 
     /// The station this message is calling (first token), derived from the
     /// text so it also works for records logged before this field existed.

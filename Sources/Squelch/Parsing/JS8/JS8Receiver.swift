@@ -29,6 +29,17 @@ struct JS8Message: Equatable {
 
     static let endOfTransmission = "♢"
 
+    /// Class tag for the feed filter: heartbeats and their acks are
+    /// ambient telemetry; everything else is communication.
+    var feedKind: String {
+        switch kind {
+        case .heartbeat: return "heartbeat"
+        case .cq: return "cq"
+        case .freeText: return "freeText"
+        case .directed: return cmd == " HEARTBEAT SNR" ? "hbAck" : "directed"
+        }
+    }
+
     /// "FROM: TO CMD EXTRA TEXT ♢ " — what JS8Call prints.
     var displayText: String {
         var base = kind == .freeText ? text : to + cmd
