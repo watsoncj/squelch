@@ -158,7 +158,8 @@ final class JS8Session: ObservableObject {
     /// when addressed to us, heartbeat acknowledgements when enabled. At
     /// most one per slot, rate-limited per sender, never while sending.
     func autoReplies(for messages: [JS8Message], myCall: String, myGrid: String,
-                     replyToQueries: Bool, ackHeartbeats: Bool, now: Date = Date()) -> [String] {
+                     replyToQueries: Bool, ackHeartbeats: Bool,
+                     inbox: JS8Inbox? = nil, relayEnabled: Bool = false, now: Date = Date()) -> [String] {
         guard !isSending, !myCall.isEmpty else { return [] }
         let me = myCall.uppercased()
         let mine = identities(myCall: me)
@@ -169,11 +170,24 @@ final class JS8Session: ObservableObject {
                   JS8Fields.isValidCallsign(sender) else { continue }
             let snr = JS8Fields.formatSNR(max(-30, min(31, Int(m.snr.rounded()))))
             var reply: String?
-            if replyToQueries, m.kind == .directed, m.cmd == " MSG", m.to.uppercased() == me, !m.text.isEmpty {
+            if replyToQueries, m.kind == .directed, m.cmd == " MSG", mine.contains(m.to.uppercased()), !m.text.isEmpty {
                 // A receipted message: acknowledge delivery (the receipt is
                 // the point of MSG — exempt from the per-station rate limit)
                 autoRepliedAt.removeValue(forKey: sender)
                 return ["\(sender) ACK"]
+            }
+            if replyToQueries, relayEnabled, let inbox, m.kind == .directed, m.cmd == " MSG TO:",
+               m.to.uppercased() == me, !m.text.isEmpty {
+                // Hold a message for a third station: "ME MSG TO:DEST text".
+                // The destination is the first token of the buffered text;
+                // the storage receipt is a bare ACK (the id travels later
+                // via QUERY MSGS).
+                let parts = m.text.split(separator: " ", maxSplits: 1)
+                if parts.count == 2, JS8Fields.isValidCallsign(String(parts[0])) {
+                    inbox.store(from: sender, to: String(parts[0]), text: String(parts[1]))
+                    autoRepliedAt.removeValue(forKey: sender)
+                    return ["\(sender) ACK"]
+                }
             }
             if replyToQueries, m.kind == .directed, mine.contains(m.to.uppercased()) {
                 switch m.cmd {
@@ -181,6 +195,24 @@ final class JS8Session: ObservableObject {
                 case " GRID?":
                     let grid = String(myGrid.uppercased().prefix(4))
                     if !grid.isEmpty { reply = "\(sender) GRID \(grid)" }
+                case " QUERY MSGS":
+                    // "<FROM> YES MSG ID <id>[ +<k>]" or the bare "<FROM> NO"
+                    if let inbox, let offerFor = inbox.offer(for: sender, now: now) {
+                        reply = "\(sender) YES MSG ID \(offerFor.id)" + (offerFor.more > 0 ? " +\(offerFor.more)" : "")
+                    } else {
+                        reply = "\(sender) NO"
+                    }
+                case " QUERY":
+                    // Retrieval: "QUERY" with payload "MSG <id>" delivers the
+                    // stored text as "<FROM> MSG <text> FROM <orig>"
+                    if let inbox,
+                       let match = m.text.range(of: "^MSG (\\d+)$", options: .regularExpression),
+                       let id = Int(m.text[match].dropFirst(4)),
+                       let heldMessage = inbox.message(id: id, for: sender) {
+                        inbox.markDelivered(id: id, to: sender)
+                        autoRepliedAt.removeValue(forKey: sender)
+                        return ["\(sender) MSG \(heldMessage.text) FROM \(heldMessage.from)"]
+                    }
                 default: break
                 }
             } else if ackHeartbeats, m.kind == .heartbeat, m.to == "@HB" {

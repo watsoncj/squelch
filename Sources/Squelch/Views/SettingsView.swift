@@ -382,6 +382,12 @@ struct SettingsView: View {
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8AutoReply) }
                 ))
                 .help("Answers directed SNR?/GRID? queries automatically in the next slot — this keys the radio unattended. Rate-limited to one reply per station per 15 minutes. Off by default.")
+                Toggle("Hold messages for other stations (relay mailbox)", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8Relay) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8Relay) }
+                ))
+                .help("Store-and-forward: accept \"MSG TO:CALL …\" requests, hold the text, and deliver it when the recipient asks (QUERY MSGS / QUERY MSG n). Makes your station useful to a net; requires auto-reply. Off by default.")
+
                 Toggle("Acknowledge heartbeats with a signal report", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8HBAck) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8HBAck) }

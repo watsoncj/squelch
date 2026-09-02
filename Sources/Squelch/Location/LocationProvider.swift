@@ -119,4 +119,5 @@ enum SettingsKeys {
     static let js8HBAck = "js8HBAck"
     static let js8Groups = "js8Groups"
     static let js8HBIntervalMinutes = "js8HBIntervalMinutes"
+    static let js8Relay = "js8Relay"
 }

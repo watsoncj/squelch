@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     let updater = UpdateChecker()
     let js8 = JS8Session()
     let js8Chats = JS8MessageStore()
+    let js8Inbox = JS8Inbox()
 
     @Published var pendingReply: PendingReply?
     /// One-shot request from a toolbar chip's callsign: select and reveal
@@ -194,7 +195,9 @@ final class AppModel: ObservableObject {
         for text in js8.autoReplies(
             for: completed, myCall: myCall, myGrid: myGrid,
             replyToQueries: defaults.bool(forKey: SettingsKeys.js8AutoReply),
-            ackHeartbeats: defaults.bool(forKey: SettingsKeys.js8HBAck)
+            ackHeartbeats: defaults.bool(forKey: SettingsKeys.js8HBAck),
+            inbox: js8Inbox,
+            relayEnabled: defaults.bool(forKey: SettingsKeys.js8Relay)
         ) {
             js8.send(text: text, myCall: myCall, myGrid: myGrid, mode: controller.mode)
         }

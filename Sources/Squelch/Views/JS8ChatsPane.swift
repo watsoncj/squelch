@@ -102,6 +102,9 @@ struct JS8ChatsPane: View {
                     Button("Query SNR") { _ = onSend("\(partner) SNR?", partner) }
                     Button("How copy?") { _ = onSend("\(partner) HW CPY?", partner) }
                     Button("Check for messages") { _ = onSend("\(partner) QUERY MSGS", partner) }
+                    if let id = offeredMessageID(partner) {
+                        Button("Retrieve message \(id)") { _ = onSend("\(partner) QUERY MSG \(id)", partner) }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -186,6 +189,17 @@ struct JS8ChatsPane: View {
         parts.append(TimeDisplay.current(UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? "").dateFormatter.string(from: msg.timestamp))
         if !msg.outgoing { parts.append(String(format: "%+.0f dB", msg.snr)) }
         return parts.joined(separator: " · ")
+    }
+
+    /// A "MSG ID <n>" offer in the thread's recent incoming traffic —
+    /// the station is holding mail for us.
+    private func offeredMessageID(_ partner: String) -> Int? {
+        for msg in store.thread(with: partner).suffix(6).reversed() where !msg.outgoing {
+            if let range = msg.text.range(of: "MSG ID ([0-9]+)", options: .regularExpression) {
+                return Int(msg.text[range].dropFirst(7))
+            }
+        }
+        return nil
     }
 
     private var canTransmit: Bool { txAvailable && decoding }
