@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var showHunt = false
     @State private var showCQ = false
     @State private var showJS8Composer = false
+    @AppStorage("js8SidebarTab") private var js8SidebarChats = false
     /// Composer draft — outlives the popover so collapsing it doesn't eat
     /// half-typed text; cleared when a message is queued for transmit.
     @State private var js8ComposerText = ""
@@ -260,7 +261,24 @@ struct ContentView: View {
     /// feed stays live above it.
     private var panelStack: some View {
         VStack(spacing: 0) {
-            feedPane
+            if isJS8Mode {
+                js8TabPicker
+            }
+            if isJS8Mode, js8SidebarChats {
+                JS8ChatsPane(
+                    store: actions.js8Chats,
+                    js8: actions.js8,
+                    myCall: myCallsign,
+                    txAvailable: txAvailable,
+                    decoding: controller.isRunning,
+                    onSend: { text, partner in
+                        actions.sendJS8(text: text, selectedCall: partner)
+                    }
+                )
+                .padding(.top, 40) // clear the titlebar drag strip like the feed's header
+            } else {
+                feedPane
+            }
             if let call = selectedStationCall {
                 Divider()
                 StationDetailView(
@@ -293,6 +311,22 @@ struct ContentView: View {
             sidebarResizeHandle
         }
         .ignoresSafeArea(edges: .top) // full window height, flush corners
+    }
+
+    /// Feed ↔ Chats, JS8 mode only. The unread badge makes the tab worth
+    /// glancing at when a message lands while you're watching the feed.
+    private var js8TabPicker: some View {
+        let unread = actions.js8Chats.totalUnread
+        return Picker("", selection: $js8SidebarChats) {
+            Text("Feed").tag(false)
+            Text(unread > 0 ? "Chats (\(unread))" : "Chats").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .padding(.horizontal, 40)
+        .padding(.top, 46)
+        .padding(.bottom, 2)
     }
 
     private var feedPane: some View {

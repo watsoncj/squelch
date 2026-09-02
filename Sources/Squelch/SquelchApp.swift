@@ -38,6 +38,7 @@ final class AppModel: ObservableObject {
     let wsprNet = WSPRNetService()
     let updater = UpdateChecker()
     let js8 = JS8Session()
+    let js8Chats = JS8MessageStore()
 
     @Published var pendingReply: PendingReply?
     /// One-shot request from a toolbar chip's callsign: select and reveal
@@ -147,6 +148,8 @@ final class AppModel: ObservableObject {
                 let messages = self.js8.ingest(results: results, slotStart: slotStart, speed: self.controller.mode)
                 self.store.ingest(js8: messages, myCoordinate: self.location.effectiveCoordinate(),
                                   dialFrequencyMHz: dial > 0 ? dial : 7.078)
+                let myCall = UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? ""
+                self.js8Chats.ingest(messages, myCall: myCall, identities: self.js8.identities(myCall: myCall))
                 self.runJS8Transmit(completed: messages)
                 return
             }
@@ -210,6 +213,9 @@ final class AppModel: ObservableObject {
         } else if next.isLast, let echo = js8.takeEcho() {
             // Any completed transmission restarts the heartbeat countdown
             bumpJS8HeartbeatTimer()
+            if !echo.to.isEmpty {
+                js8Chats.recordOutgoing(text: echo.text, to: echo.to, myCall: echo.from)
+            }
             let dial = defaults.double(forKey: SettingsKeys.dialFrequencyMHz)
             store.ingest(js8: [echo], myCoordinate: location.effectiveCoordinate(),
                          dialFrequencyMHz: dial > 0 ? dial : 7.078)
