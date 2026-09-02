@@ -25,6 +25,9 @@ struct StationDetailView: View {
     var onClose: () -> Void
     var onReply: ((DecodedMessage) -> Void)? = nil
     var replyEnabled = true
+    /// JS8 mode: send a directed query/message line to this station.
+    var onJS8Query: ((String) -> Void)? = nil
+    var js8QueryEnabled = false
 
     @AppStorage(SettingsKeys.myCallsign) private var myCallsign = ""
     @AppStorage(SettingsKeys.activeContest) private var activeContest = ""
@@ -86,6 +89,7 @@ struct StationDetailView: View {
                         workedBadge(record)
                     }
                     replyButton
+                    js8QueryRow
                     Divider()
                     threadSection
                 }
@@ -229,6 +233,43 @@ struct StationDetailView: View {
                 .foregroundStyle(dupe ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
         }
         .font(.callout)
+    }
+
+    /// One-click JS8 queries at this station — the machine-answerable set
+    /// plus the human "how copy".
+    @ViewBuilder
+    private var js8QueryRow: some View {
+        if let onJS8Query {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    ForEach(["SNR?", "GRID?", "HW CPY?"], id: \.self) { q in
+                        js8QueryChip(q, onJS8Query)
+                    }
+                }
+                HStack(spacing: 6) {
+                    ForEach(["INFO?", "STATUS?", "HEARING?", "QUERY MSGS"], id: \.self) { q in
+                        js8QueryChip(q, onJS8Query)
+                    }
+                }
+            }
+        }
+    }
+
+    private func js8QueryChip(_ query: String, _ send: @escaping (String) -> Void) -> some View {
+        Button {
+            send("\(callsign) \(query)")
+        } label: {
+            Text(query)
+                .font(.caption.monospaced())
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!js8QueryEnabled)
+        .help(js8QueryEnabled
+              ? "Transmit \"\(callsign) \(query)\" in the next slot"
+              : "Start decoding (and check TX legality) first")
     }
 
     private var replyButton: some View {

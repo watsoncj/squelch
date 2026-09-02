@@ -33,9 +33,18 @@ final class JS8Session: ObservableObject {
     /// Heartbeats use this to ride the 500–1000 Hz heartbeat sub-band.
     private(set) var txOffsetOverride: Double?
 
-    /// Senders auto-replied to recently (both query replies and HB acks).
+    /// Rate limiter for unsolicited-ish replies (group-addressed queries
+    /// and heartbeat acks). Queries directed at our own callsign are part
+    /// of a conversation and are never limited — matching JS8Call, whose
+    /// 15-minute limit applies to @ALLCALL/group traffic only.
     private var autoRepliedAt: [String: Date] = [:]
     static let autoReplyIntervalSeconds: TimeInterval = 15 * 60
+
+    /// Stations heard recently (any decoded message), for HEARING? replies.
+    private var heardAt: [String: Date] = [:]
+    static let hearingWindowSeconds: TimeInterval = 30 * 60
+    /// The last line we transmitted — what an AGN? repeats.
+    private(set) var lastSentText: String?
 
     /// Groups this station has joined (@R8AUXCOM, @CENTS, …). Traffic to a
     /// joined group counts as addressed to us: highlighted, threaded, and
@@ -79,7 +88,26 @@ final class JS8Session: ObservableObject {
         let messages = receiver.ingest(inputs, now: slotStart.addingTimeInterval(speed.slotSeconds))
         pending = receiver.pending
         noteHeardBy(messages)
+        noteHeard(messages)
         return messages
+    }
+
+    private func noteHeard(_ messages: [JS8Message], now: Date = Date()) {
+        heardAt = heardAt.filter { now.timeIntervalSince($0.value) < Self.hearingWindowSeconds }
+        for m in messages where !m.from.isEmpty && m.from != JS8Fields.placeholderCall
+            && JS8Fields.isValidCallsign(m.from) {
+            heardAt[m.from.uppercased()] = m.timestamp
+        }
+    }
+
+    /// Up to `limit` recently heard stations, freshest first, minus the
+    /// excluded calls (the asker, ourselves).
+    func recentlyHeard(excluding: Set<String>, limit: Int = 4, now: Date = Date()) -> [String] {
+        heardAt
+            .filter { now.timeIntervalSince($0.value) < Self.hearingWindowSeconds && !excluding.contains($0.key) }
+            .sorted { $0.value > $1.value }
+            .prefix(limit)
+            .map(\.key)
     }
 
     /// Track " HEARTBEAT SNR" acks addressed to us.
@@ -120,6 +148,7 @@ final class JS8Session: ObservableObject {
         txFramesTotal = built.frames.count
         txLabel = line
         txOffsetOverride = offsetHz
+        lastSentText = line
         // Local echo, shown when the last frame has gone out; displayText
         // renders it as "MYCALL: <line> ♢ "
         txEcho = JS8Message(kind: .freeText, from: myCall.uppercased(), to: built.directedTo ?? "",
@@ -159,15 +188,20 @@ final class JS8Session: ObservableObject {
     /// most one per slot, rate-limited per sender, never while sending.
     func autoReplies(for messages: [JS8Message], myCall: String, myGrid: String,
                      replyToQueries: Bool, ackHeartbeats: Bool,
-                     inbox: JS8Inbox? = nil, relayEnabled: Bool = false, now: Date = Date()) -> [String] {
+                     inbox: JS8Inbox? = nil, relayEnabled: Bool = false,
+                     info: String = "", statusText: String = "", now: Date = Date()) -> [String] {
         guard !isSending, !myCall.isEmpty else { return [] }
         let me = myCall.uppercased()
         let mine = identities(myCall: me)
         autoRepliedAt = autoRepliedAt.filter { now.timeIntervalSince($0.value) < Self.autoReplyIntervalSeconds }
+        noteHeard(messages, now: now)
         for m in messages {
             let sender = m.from.uppercased()
-            guard !sender.isEmpty, sender != me, autoRepliedAt[sender] == nil,
-                  JS8Fields.isValidCallsign(sender) else { continue }
+            guard !sender.isEmpty, sender != me, JS8Fields.isValidCallsign(sender) else { continue }
+            // Group-addressed queries and heartbeat acks are rate-limited;
+            // queries to our own callsign are conversation and are not
+            let isDirect = m.to.uppercased() == me
+            if !isDirect, autoRepliedAt[sender] != nil { continue }
             let snr = JS8Fields.formatSNR(max(-30, min(31, Int(m.snr.rounded()))))
             var reply: String?
             if replyToQueries, m.kind == .directed, m.cmd == " MSG", mine.contains(m.to.uppercased()), !m.text.isEmpty {
@@ -189,12 +223,25 @@ final class JS8Session: ObservableObject {
                     return ["\(sender) ACK"]
                 }
             }
+            if replyToQueries, isDirect, m.kind == .directed, m.cmd == " AGN?", let last = lastSentText {
+                // Repeat the previous transmission verbatim
+                return [last]
+            }
             if replyToQueries, m.kind == .directed, mine.contains(m.to.uppercased()) {
                 switch m.cmd {
                 case " SNR?": reply = "\(sender) SNR \(snr)"
                 case " GRID?":
                     let grid = String(myGrid.uppercased().prefix(4))
                     if !grid.isEmpty { reply = "\(sender) GRID \(grid)" }
+                case " INFO?":
+                    let text = info.uppercased().trimmingCharacters(in: .whitespaces)
+                    if !text.isEmpty { reply = "\(sender) INFO \(text)" }
+                case " STATUS?":
+                    let text = statusText.uppercased().trimmingCharacters(in: .whitespaces)
+                    if !text.isEmpty { reply = "\(sender) STATUS \(text)" }
+                case " HEARING?":
+                    let calls = recentlyHeard(excluding: [sender, me], now: now)
+                    if !calls.isEmpty { reply = "\(sender) HEARING \(calls.joined(separator: " "))" }
                 case " QUERY MSGS":
                     // "<FROM> YES MSG ID <id>[ +<k>]" or the bare "<FROM> NO"
                     if let inbox, let offerFor = inbox.offer(for: sender, now: now) {
@@ -219,7 +266,7 @@ final class JS8Session: ObservableObject {
                 reply = "\(sender) HEARTBEAT SNR \(snr)"
             }
             if let reply {
-                autoRepliedAt[sender] = now
+                if !isDirect { autoRepliedAt[sender] = now }
                 return [reply]
             }
         }

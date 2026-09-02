@@ -167,6 +167,63 @@ final class JS8SessionTests: XCTestCase {
         _ = ackToMe
     }
 
+    func testDirectQueriesAreNotRateLimited() {
+        let s = JS8Session()
+        let q = message(kind: .directed, from: "KN4CRD", to: "W0CJW", cmd: " SNR?", snr: -12)
+        XCTAssertEqual(s.autoReplies(for: [q], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false).count, 1)
+        XCTAssertEqual(s.autoReplies(for: [q], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false).count, 1,
+                       "a follow-up query mid-conversation still gets answered")
+    }
+
+    func testAGNRepeatsLastTransmission() {
+        let s = JS8Session()
+        let agn = message(kind: .directed, from: "KN4CRD", to: "W0CJW", cmd: " AGN?")
+        XCTAssertTrue(s.autoReplies(for: [agn], myCall: "W0CJW", myGrid: "DM79",
+                                    replyToQueries: true, ackHeartbeats: false).isEmpty,
+                      "nothing sent yet — nothing to repeat")
+        XCTAssertTrue(s.send(text: "KN4CRD HELLO FROM COLORADO", myCall: "W0CJW", myGrid: "DM79", mode: .js8))
+        while s.nextFrame() != nil {}
+        XCTAssertEqual(s.autoReplies(for: [agn], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false),
+                       ["KN4CRD HELLO FROM COLORADO"])
+    }
+
+    func testInfoAndStatusQueries() {
+        let s = JS8Session()
+        let info = message(kind: .directed, from: "KN4CRD", to: "W0CJW", cmd: " INFO?")
+        XCTAssertTrue(s.autoReplies(for: [info], myCall: "W0CJW", myGrid: "DM79",
+                                    replyToQueries: true, ackHeartbeats: false).isEmpty,
+                      "no info configured — silence, per the convention")
+        XCTAssertEqual(s.autoReplies(for: [info], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false,
+                                     info: "FT-891 40W EFHW"),
+                       ["KN4CRD INFO FT-891 40W EFHW"])
+        let status = message(kind: .directed, from: "KN4CRD", to: "W0CJW", cmd: " STATUS?")
+        XCTAssertEqual(s.autoReplies(for: [status], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false,
+                                     statusText: "SQUELCH 1.14.0"),
+                       ["KN4CRD STATUS SQUELCH 1.14.0"])
+    }
+
+    func testHearingListsRecentStations() {
+        let s = JS8Session()
+        // Hear three stations (their messages pass through the reply scan)
+        for call in ["W7CSO", "KE7IK", "N7BTH"] {
+            _ = s.autoReplies(for: [message(kind: .directed, from: call, to: "K9XYZ", cmd: " ")],
+                              myCall: "W0CJW", myGrid: "DM79", replyToQueries: true, ackHeartbeats: false)
+        }
+        let q = message(kind: .directed, from: "KN4CRD", to: "W0CJW", cmd: " HEARING?")
+        let out = s.autoReplies(for: [q], myCall: "W0CJW", myGrid: "DM79",
+                                replyToQueries: true, ackHeartbeats: false)
+        XCTAssertEqual(out.count, 1)
+        let reply = out[0]
+        XCTAssertTrue(reply.hasPrefix("KN4CRD HEARING "), reply)
+        for call in ["W7CSO", "KE7IK", "N7BTH"] { XCTAssertTrue(reply.contains(call), reply) }
+        XCTAssertFalse(reply.dropFirst("KN4CRD ".count).contains("KN4CRD"), "the asker isn't in their own list")
+    }
+
     func testMultiFrameMessageCountsDown() {
         let s = JS8Session()
         XCTAssertTrue(s.send(text: "W0ABC MSG HELLO HELLO HELLO", myCall: "W0CJW", myGrid: "DM79", mode: .js8))

@@ -197,7 +197,9 @@ final class AppModel: ObservableObject {
             replyToQueries: defaults.bool(forKey: SettingsKeys.js8AutoReply),
             ackHeartbeats: defaults.bool(forKey: SettingsKeys.js8HBAck),
             inbox: js8Inbox,
-            relayEnabled: defaults.bool(forKey: SettingsKeys.js8Relay)
+            relayEnabled: defaults.bool(forKey: SettingsKeys.js8Relay),
+            info: defaults.string(forKey: SettingsKeys.js8Info) ?? "",
+            statusText: "SQUELCH \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "DEV")"
         ) {
             js8.send(text: text, myCall: myCall, myGrid: myGrid, mode: controller.mode)
         }

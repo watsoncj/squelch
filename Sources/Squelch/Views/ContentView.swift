@@ -291,7 +291,9 @@ struct ContentView: View {
                     location: location,
                     onClose: { selectedStationCall = nil },
                     onReply: { message in actions.reply(to: message) },
-                    replyEnabled: txAvailable && sequencer.mode == .idle
+                    replyEnabled: txAvailable && sequencer.mode == .idle,
+                    onJS8Query: isJS8Mode ? { line in _ = actions.sendJS8(text: line) } : nil,
+                    js8QueryEnabled: txAvailable && controller.isRunning && !actions.js8.isSending
                 )
                 .frame(height: 380)
             } else if isJS8Mode, !actions.js8.heardBy.isEmpty, !js8HeardByDismissed {

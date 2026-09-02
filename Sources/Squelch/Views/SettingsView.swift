@@ -382,6 +382,12 @@ struct SettingsView: View {
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8AutoReply) }
                 ))
                 .help("Answers directed SNR?/GRID? queries automatically in the next slot — this keys the radio unattended. Rate-limited to one reply per station per 15 minutes. Off by default.")
+                TextField("Station info", text: Binding(
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.js8Info) ?? "" },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8Info) }
+                ), prompt: Text("e.g. FT-891 40W EFHW COLORADO SPRINGS"))
+                .help("The INFO? auto-reply: a short rig/antenna/QTH line other stations can query. Empty = INFO? goes unanswered. Uppercase letters, digits and basic punctuation travel best.")
+
                 Toggle("Hold messages for other stations (relay mailbox)", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8Relay) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8Relay) }
