@@ -398,7 +398,6 @@ struct ContentView: View {
             ),
             contestName: activeContest.isEmpty ? nil : activeContest,
             js8Pending: isJS8Mode ? actions.js8.pending : [],
-            js8FilterAvailable: isJS8Mode,
             js8Groups: isJS8Mode ? actions.js8.joinedGroups : []
         ) {
             sidebarHeaderRow

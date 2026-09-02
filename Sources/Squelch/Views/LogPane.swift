@@ -152,9 +152,6 @@ struct LogPane<Header: View>: View {
     var contestName: String? = nil
     /// JS8 messages still arriving — shown above the feed until complete.
     var js8Pending: [JS8Receiver.Pending] = []
-    /// JS8 mode: offer the Comm/All filter (heartbeats and acks hidden by
-    /// default — they live on the map and the heard-by panel).
-    var js8FilterAvailable = false
     /// Joined JS8 groups — traffic addressed to them highlights like
     /// traffic addressed to the operator.
     var js8Groups: Set<String> = []
@@ -167,7 +164,6 @@ struct LogPane<Header: View>: View {
 
     @State private var searchText = ""
     @State private var ageNow = Date()
-    @AppStorage("js8FeedShowsAll") private var js8ShowAll = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -349,19 +345,7 @@ struct LogPane<Header: View>: View {
             .padding(.vertical, 6)
             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 10)
-            .padding(.bottom, js8Pending.isEmpty && !js8FilterAvailable ? 8 : 4)
-            if js8FilterAvailable {
-                Picker("", selection: $js8ShowAll) {
-                    Text("Comm").tag(false)
-                    Text("All").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .padding(.horizontal, 60)
-                .padding(.bottom, 6)
-                .help("Comm hides ambient traffic — heartbeats and signal-report acks — which still feed the map and station cards. All shows everything decoded.")
-            }
+            .padding(.bottom, js8Pending.isEmpty ? 8 : 4)
             ForEach(js8Pending, id: \.offsetHz) { p in
                 HStack(spacing: 6) {
                     Image(systemName: "ellipsis.message")
@@ -462,9 +446,6 @@ struct LogPane<Header: View>: View {
 
     private var filtered: [DecodedMessage] {
         var result = store.messages
-        if js8FilterAvailable, !js8ShowAll {
-            result = result.filter { !$0.isJS8Ambient }
-        }
         let query = searchText.trimmingCharacters(in: .whitespaces).uppercased()
         if !query.isEmpty {
             result = result.filter { $0.text.uppercased().contains(query) }
