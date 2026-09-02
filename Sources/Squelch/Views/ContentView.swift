@@ -31,7 +31,9 @@ struct ContentView: View {
     @State private var showHunt = false
     @State private var showCQ = false
     @State private var showJS8Composer = false
-    @State private var js8ComposerSeed = ""
+    /// Composer draft — outlives the popover so collapsing it doesn't eat
+    /// half-typed text; cleared when a message is queued for transmit.
+    @State private var js8ComposerText = ""
     @State private var devices: [AudioDevice] = []
     @State private var selectedMessageID: DecodedMessage.ID?
     @State private var isFullScreen = false
@@ -317,7 +319,7 @@ struct ContentView: View {
             onJS8Compose: { message in
                 // Prefill: a raw "CALL SNR?" query passes through as-is;
                 // otherwise address the sender
-                js8ComposerSeed = message.text.hasSuffix("SNR?") ? message.text : "\(message.callsign ?? "") "
+                js8ComposerText = message.text.hasSuffix("SNR?") ? message.text : "\(message.callsign ?? "") "
                 showJS8Composer = true
             },
             replyEnabled: txAvailable && sequencer.mode == .idle,
@@ -521,19 +523,19 @@ struct ContentView: View {
                     .popover(isPresented: $showJS8Composer, arrowEdge: .bottom) {
                         JS8ComposerFlyout(
                             js8: actions.js8,
-                            initialText: js8ComposerSeed,
+                            text: $js8ComposerText,
                             txAvailable: txAvailable,
                             txDisabledReason: txDisabledReason,
                             decoding: controller.isRunning,
                             grid: String((actions.location.effectiveGrid ?? "").prefix(4)),
                             onSend: { text in
                                 if actions.sendJS8(text: text) {
+                                    js8ComposerText = ""
                                     showJS8Composer = false
                                 }
                             },
                             onHalt: { actions.haltTX() }
                         )
-                        .onDisappear { js8ComposerSeed = "" }
                     }
 
                     Button {
@@ -1014,15 +1016,13 @@ struct ContentView: View {
     /// Composer flyout for JS8: free text or "CALL CMD …" directed lines.
     private struct JS8ComposerFlyout: View {
         @ObservedObject var js8: JS8Session
-        var initialText: String
+        @Binding var text: String
         let txAvailable: Bool
         let txDisabledReason: String?
         let decoding: Bool
         let grid: String
         let onSend: (String) -> Void
         let onHalt: () -> Void
-
-        @State private var text = ""
 
         var body: some View {
             VStack(alignment: .leading, spacing: 8) {
@@ -1069,7 +1069,6 @@ struct ContentView: View {
                 }
             }
             .padding(12)
-            .onAppear { if !initialText.isEmpty { text = initialText } }
         }
 
         private var canSend: Bool {
