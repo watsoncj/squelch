@@ -953,12 +953,14 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.primary.opacity(0.6))
                     .padding(.trailing, 2)
+                    .lineLimit(1)
                 ForEach(DigiMode.js8Speeds) { speed in
                     Button {
                         onPickSpeed(speed)
                     } label: {
                         Text(speed.rawValue.replacingOccurrences(of: "JS8 ", with: ""))
                             .font(.caption)
+                            .lineLimit(1)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
                             .background(
@@ -971,6 +973,9 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 8)
+            // Size to the labels — the column otherwise squeezes the
+            // strip to the frequency rows' width and wraps every word
+            .fixedSize()
         }
 
         private func speedHelp(_ speed: DigiMode) -> String {
