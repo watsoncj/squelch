@@ -126,6 +126,27 @@ final class JS8Receiver {
         let to: String?
         let textSoFar: String
         let since: Date
+
+        /// The chat thread this in-progress message belongs to, using the
+        /// same keying as the store: to me → sender, group → group, other
+        /// stations → the pair, free text → the sender once identified.
+        func chatPartner(myCall: String, identities: Set<String>) -> String? {
+            let me = myCall.uppercased()
+            guard !me.isEmpty else { return nil }
+            let f = from?.uppercased()
+            let t = to?.uppercased()
+            if f == me { return nil } // our own loopback
+            switch (f, t) {
+            case (let f?, let t?):
+                if t.hasPrefix("@") { return t }
+                if t == me || identities.contains(t) { return f }
+                return [f, t].sorted().joined(separator: " · ")
+            case (let f?, nil):
+                return f
+            default:
+                return nil // unattributed fragment — feed only
+            }
+        }
     }
 
     private var buffers: [Int: Buffer] = [:]      // keyed by rounded offset

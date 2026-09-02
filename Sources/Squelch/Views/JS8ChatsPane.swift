@@ -18,6 +18,14 @@ struct JS8ChatsPane: View {
     @State private var selectedPartner: String?
     @State private var draft = ""
 
+    private var identities: Set<String> {
+        js8.identities(myCall: myCall)
+    }
+
+    private func pendingFor(_ partner: String) -> JS8Receiver.Pending? {
+        js8.pending.first { $0.chatPartner(myCall: myCall, identities: identities) == partner }
+    }
+
     var body: some View {
         if let partner = selectedPartner {
             threadView(partner)
@@ -28,8 +36,27 @@ struct JS8ChatsPane: View {
 
     // MARK: Conversations
 
+    /// Stored conversations, plus provisional rows for messages still
+    /// arriving toward threads that don't exist yet.
+    private var listedConversations: [JS8MessageStore.Conversation] {
+        var convos = store.conversations(includeObserved: includeObserved)
+        let known = Set(convos.map(\.partner))
+        for p in js8.pending {
+            guard let partner = p.chatPartner(myCall: myCall, identities: identities),
+                  !known.contains(partner),
+                  includeObserved || identities.contains(partner) || p.to?.uppercased() == myCall.uppercased() else { continue }
+            convos.insert(JS8MessageStore.Conversation(
+                partner: partner,
+                last: JS8ChatMessage(id: UUID(), timestamp: p.since, from: p.from ?? "", to: p.to ?? "",
+                                     cmd: "", text: p.textSoFar, snr: 0, offsetHz: p.offsetHz,
+                                     outgoing: false, read: true, forMe: nil),
+                unread: 0), at: 0)
+        }
+        return convos
+    }
+
     private var conversationList: some View {
-        List(store.conversations(includeObserved: includeObserved)) { convo in
+        List(listedConversations) { convo in
             Button {
                 selectedPartner = convo.partner
                 store.markRead(partner: convo.partner)
@@ -42,10 +69,18 @@ struct JS8ChatsPane: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(convo.partner)
                             .font(.body.monospaced().bold())
-                        Text((convo.last.outgoing ? "you: " : "") + convo.last.bubbleText)
-                            .font(.callout)
-                            .foregroundStyle(.primary.opacity(0.7))
-                            .lineLimit(1)
+                        if let p = pendingFor(convo.partner) {
+                            Text("⋯ " + (p.textSoFar.isEmpty ? "receiving" : p.textSoFar))
+                                .font(.callout.italic())
+                                .foregroundStyle(.primary.opacity(0.55))
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        } else {
+                            Text((convo.last.outgoing ? "you: " : "") + convo.last.bubbleText)
+                                .font(.callout)
+                                .foregroundStyle(.primary.opacity(0.7))
+                                .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 6)
                     VStack(alignment: .trailing, spacing: 2) {
@@ -131,6 +166,10 @@ struct JS8ChatsPane: View {
                             bubble(msg)
                                 .id(msg.id)
                         }
+                        if let p = pendingFor(partner) {
+                            liveBubble(p)
+                                .id("pending")
+                        }
                     }
                     .padding(10)
                 }
@@ -143,6 +182,11 @@ struct JS8ChatsPane: View {
                     if let last = store.thread(with: partner).last {
                         withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                         store.markRead(partner: partner)
+                    }
+                }
+                .onChange(of: js8.pending) { _, _ in
+                    if pendingFor(partner) != nil {
+                        withAnimation { proxy.scrollTo("pending", anchor: .bottom) }
                     }
                 }
             }
@@ -170,6 +214,27 @@ struct JS8ChatsPane: View {
             }
             .padding(8)
         }
+    }
+
+    /// A message mid-arrival: one new frame lands each slot, so the text
+    /// literally grows word by word.
+    private func liveBubble(_ p: JS8Receiver.Pending) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Text(p.textSoFar.isEmpty ? "…" : p.textSoFar + " …")
+                    .font(.callout.monospaced().italic())
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.15), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            Text("receiving · \(Int(p.offsetHz)) Hz · one frame per slot")
+                .font(.caption2)
+                .foregroundStyle(.primary.opacity(0.55))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func bubble(_ msg: JS8ChatMessage) -> some View {

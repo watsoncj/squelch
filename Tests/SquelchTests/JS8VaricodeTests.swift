@@ -352,6 +352,20 @@ final class JS8VaricodeTests: XCTestCase {
         XCTAssertEqual(out.map(\.displayText), ["HELLO \(JS8Receiver.missingFrameMarker)WORLD ♢ "])
     }
 
+    func testPendingChatPartnerKeying() {
+        func pending(from: String?, to: String?) -> JS8Receiver.Pending {
+            JS8Receiver.Pending(offsetHz: 1500, from: from, to: to, textSoFar: "HEL", since: Date())
+        }
+        let me = "W0CJW"
+        let ids: Set<String> = ["W0CJW", "@R8AUXCOM"]
+        XCTAssertEqual(pending(from: "KJ7VWV", to: "W0CJW").chatPartner(myCall: me, identities: ids), "KJ7VWV")
+        XCTAssertEqual(pending(from: "W7CSO", to: "@R8AUXCOM").chatPartner(myCall: me, identities: ids), "@R8AUXCOM")
+        XCTAssertEqual(pending(from: "W7CSO", to: "KE7IK").chatPartner(myCall: me, identities: ids), "KE7IK · W7CSO")
+        XCTAssertEqual(pending(from: "KJ7VWV", to: nil).chatPartner(myCall: me, identities: ids), "KJ7VWV")
+        XCTAssertNil(pending(from: nil, to: nil).chatPartner(myCall: me, identities: ids), "unattributed stays in the feed")
+        XCTAssertNil(pending(from: "W0CJW", to: "KJ7VWV").chatPartner(myCall: me, identities: ids), "our own loopback")
+    }
+
     func testReceiverDeduplicatesRepeatedFrame() {
         let rx = JS8Receiver(dictionary: Self.words)
         let out = rx.ingest([input(frame("SN5-lVAGotaQ"), offset: 1500, at: 0), input(frame("SN5-lVAGotaQ"), offset: 1500.5, at: 0)])
