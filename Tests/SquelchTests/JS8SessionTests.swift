@@ -125,6 +125,48 @@ final class JS8SessionTests: XCTestCase {
                                      replyToQueries: true, ackHeartbeats: false).isEmpty)
     }
 
+    func testMessageReceiptGetsACK() {
+        let s = JS8Session()
+        let msg = message(kind: .directed, from: "KF0DCV", to: "W0CJW", cmd: " MSG")
+        var withText = msg
+        withText.text = "HELLO"
+        XCTAssertEqual(s.autoReplies(for: [withText], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false),
+                       ["KF0DCV ACK"])
+        // The receipt is exempt from the rate limit: a second MSG also acks
+        XCTAssertEqual(s.autoReplies(for: [withText], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false),
+                       ["KF0DCV ACK"])
+        // A MSG to someone else gets nothing
+        var other = message(kind: .directed, from: "KF0DCV", to: "WB7TSQ", cmd: " MSG")
+        other.text = "HELLO"
+        XCTAssertTrue(s.autoReplies(for: [other], myCall: "W0CJW", myGrid: "DM79",
+                                    replyToQueries: true, ackHeartbeats: false).isEmpty)
+    }
+
+    func testHeardByTracksAcksToMe() {
+        UserDefaults.standard.set("W0CJW", forKey: SettingsKeys.myCallsign)
+        let s = JS8Session()
+        let ackToMe = JS8Message(kind: .directed, from: "KE6UVW", to: "W0CJW", cmd: " HEARTBEAT SNR",
+                                 extra: "-14", text: "", grid: nil, snr: -9, offsetHz: 900,
+                                 timestamp: Date(), speed: .js8, isComplete: true)
+        let f = JS8Frame(bits: 1, type: [.first, .last])
+        _ = f // heard-by feeds off assembled messages via ingest; call the tracker through ingest's path
+        // Use the internal path indirectly: ingest with no frames, then feed via reflection-free helper
+        // (noteHeardBy is private; exercise through ingest of a crafted frame is heavy — assert via messages route)
+        // Simplest: session exposes heardBy after ingest([]) of receiver messages — emulate by building the
+        // directed ack frame end-to-end:
+        guard let payload = JS8FrameCodec.directed(from: "KE6UVW", to: "W0CJW", cmdCode: 29, num: 17) else {
+            return XCTFail()
+        }
+        let frame = JS8Frame(payload: payload, type: [.first, .last])
+        let result = FT8Result(snr: -9, timeOffset: 0.5, freqHz: 900, text: "", js8: frame)
+        _ = s.ingest(results: [result], slotStart: Date(), speed: .js8)
+        XCTAssertEqual(s.heardBy.map(\.call), ["KE6UVW"])
+        XCTAssertEqual(s.heardBy.first?.report, "-14")
+        _ = ackToMe
+    }
+
     func testMultiFrameMessageCountsDown() {
         let s = JS8Session()
         XCTAssertTrue(s.send(text: "W0ABC MSG HELLO HELLO HELLO", myCall: "W0CJW", myGrid: "DM79", mode: .js8))

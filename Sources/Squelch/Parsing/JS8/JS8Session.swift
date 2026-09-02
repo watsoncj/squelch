@@ -7,6 +7,18 @@ final class JS8Session: ObservableObject {
     /// Messages still being received (a directed command waiting for its
     /// text, free text mid-transmission).
     @Published private(set) var pending: [JS8Receiver.Pending] = []
+
+    /// A station that acknowledged one of our heartbeats: their report of
+    /// our signal, freshest first. The JS8 twin of WSPR's beacon reports.
+    struct HeardBy: Identifiable, Equatable {
+        let call: String
+        let report: String   // their SNR of us, e.g. "-14"
+        let at: Date
+        var id: String { call }
+    }
+    @Published private(set) var heardBy: [HeardBy] = []
+    static let heardByMaxAge: TimeInterval = 60 * 60
+
     @Published private(set) var wordTableInstalled: Bool
     @Published private(set) var wordTableStatus: String?
     @Published private(set) var installingWordTable = false
@@ -66,7 +78,22 @@ final class JS8Session: ObservableObject {
         }
         let messages = receiver.ingest(inputs, now: slotStart.addingTimeInterval(speed.slotSeconds))
         pending = receiver.pending
+        noteHeardBy(messages)
         return messages
+    }
+
+    /// Track " HEARTBEAT SNR" acks addressed to us.
+    private func noteHeardBy(_ messages: [JS8Message]) {
+        let me = (UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "").uppercased()
+        guard !me.isEmpty else { return }
+        var list = heardBy.filter { Date().timeIntervalSince($0.at) < Self.heardByMaxAge }
+        var changed = list.count != heardBy.count
+        for m in messages where m.kind == .directed && m.cmd == " HEARTBEAT SNR" && m.to.uppercased() == me {
+            list.removeAll { $0.call == m.from.uppercased() }
+            list.insert(HeardBy(call: m.from.uppercased(), report: m.extra, at: m.timestamp), at: 0)
+            changed = true
+        }
+        if changed { heardBy = list.sorted { $0.at > $1.at } }
     }
 
     func reset() {
@@ -142,6 +169,12 @@ final class JS8Session: ObservableObject {
                   JS8Fields.isValidCallsign(sender) else { continue }
             let snr = JS8Fields.formatSNR(max(-30, min(31, Int(m.snr.rounded()))))
             var reply: String?
+            if replyToQueries, m.kind == .directed, m.cmd == " MSG", m.to.uppercased() == me, !m.text.isEmpty {
+                // A receipted message: acknowledge delivery (the receipt is
+                // the point of MSG — exempt from the per-station rate limit)
+                autoRepliedAt.removeValue(forKey: sender)
+                return ["\(sender) ACK"]
+            }
             if replyToQueries, m.kind == .directed, mine.contains(m.to.uppercased()) {
                 switch m.cmd {
                 case " SNR?": reply = "\(sender) SNR \(snr)"

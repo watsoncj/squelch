@@ -32,6 +32,7 @@ struct ContentView: View {
     @State private var showCQ = false
     @State private var showJS8Composer = false
     @AppStorage("js8SidebarTab") private var js8SidebarChats = false
+    @State private var js8HeardByDismissed = false
     /// Composer draft — outlives the popover so collapsing it doesn't eat
     /// half-typed text; cleared when a message is queued for transmit.
     @State private var js8ComposerText = ""
@@ -292,6 +293,9 @@ struct ContentView: View {
                     replyEnabled: txAvailable && sequencer.mode == .idle
                 )
                 .frame(height: 380)
+            } else if isJS8Mode, !actions.js8.heardBy.isEmpty, !js8HeardByDismissed {
+                Divider()
+                JS8HeardByView(js8: actions.js8, onClose: { js8HeardByDismissed = true })
             } else if wsprNet.reportsRelevant && !beaconReportsDismissed {
                 // Beacon on (or just off): who's hearing us, from WSPRnet.
                 // Station selection wins the slot — reports return when the
