@@ -359,6 +359,24 @@ struct SettingsView: View {
                     }
                     .disabled(js8.installingWordTable)
                 }
+                TextField("Joined groups", text: Binding(
+                    get: { UserDefaults.standard.string(forKey: SettingsKeys.js8Groups) ?? "" },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8Groups) }
+                ), prompt: Text("e.g. @R8AUXCOM, @CENTS"))
+                .help("Comma-separated custom groups. Traffic addressed to a joined group is treated as addressed to you: highlighted in the feed, threaded in Chats, and answered by auto-reply. You can also join from a group row's context menu in the feed.")
+
+                Picker("Auto heartbeat", selection: Binding(
+                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.js8HBIntervalMinutes) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8HBIntervalMinutes) }
+                )) {
+                    Text("Off").tag(0)
+                    Text("Every 10 min").tag(10)
+                    Text("Every 15 min").tag(15)
+                    Text("Every 30 min").tag(30)
+                    Text("Every 60 min").tag(60)
+                }
+                .help("Sends \"@HB HEARTBEAT <grid>\" on a timer while decoding runs on the JS8 (Normal) speed — at a random offset in the 500–1000 Hz heartbeat sub-band, with the countdown pushed back by any transmission and held during live conversations. Off by default.")
+
                 Toggle("Auto-reply to queries addressed to me (SNR?, GRID?)", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8AutoReply) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8AutoReply) }

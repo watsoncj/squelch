@@ -17,10 +17,35 @@ final class JS8Session: ObservableObject {
     @Published private(set) var txLabel: String?
     private var txFramesTotal = 0
     private var txEcho: JS8Message?
+    /// Audio offset for the queued message; nil = the station's TX offset.
+    /// Heartbeats use this to ride the 500–1000 Hz heartbeat sub-band.
+    private(set) var txOffsetOverride: Double?
 
     /// Senders auto-replied to recently (both query replies and HB acks).
     private var autoRepliedAt: [String: Date] = [:]
     static let autoReplyIntervalSeconds: TimeInterval = 15 * 60
+
+    /// Groups this station has joined (@R8AUXCOM, @CENTS, …). Traffic to a
+    /// joined group counts as addressed to us: highlighted, threaded, and
+    /// eligible for auto-reply. Parsed from the comma-separated setting.
+    static func joinedGroups(from raw: String?) -> Set<String> {
+        guard let raw else { return [] }
+        return Set(raw.uppercased()
+            .split(whereSeparator: { ", ".contains($0) })
+            .map { $0.hasPrefix("@") ? String($0) : "@" + $0 }
+            .filter { $0.count > 1 && JS8Fields.isValidCallsign($0) })
+    }
+
+    var joinedGroups: Set<String> {
+        Self.joinedGroups(from: UserDefaults.standard.string(forKey: SettingsKeys.js8Groups))
+    }
+
+    /// The set of destinations that mean "this is for me".
+    func identities(myCall: String) -> Set<String> {
+        var ids = joinedGroups
+        if !myCall.isEmpty { ids.insert(myCall.uppercased()) }
+        return ids
+    }
 
     private let receiver: JS8Receiver
 
@@ -55,7 +80,8 @@ final class JS8Session: ObservableObject {
     /// Build a message into frames and queue it. One outgoing message at a
     /// time — a queue in flight refuses new sends (the UI disables Send).
     @discardableResult
-    func send(text: String, myCall: String, myGrid: String, selectedCall: String = "", mode: DigiMode) -> Bool {
+    func send(text: String, myCall: String, myGrid: String, selectedCall: String = "", mode: DigiMode,
+              offsetHz: Double? = nil) -> Bool {
         guard !isSending, !myCall.isEmpty else { return false }
         let line = text.trimmingCharacters(in: .whitespaces).uppercased()
         guard !line.isEmpty else { return false }
@@ -66,6 +92,7 @@ final class JS8Session: ObservableObject {
         txQueue = built.frames
         txFramesTotal = built.frames.count
         txLabel = line
+        txOffsetOverride = offsetHz
         // Local echo, shown when the last frame has gone out; displayText
         // renders it as "MYCALL: <line> ♢ "
         txEcho = JS8Message(kind: .freeText, from: myCall.uppercased(), to: built.directedTo ?? "",
@@ -95,6 +122,7 @@ final class JS8Session: ObservableObject {
         txQueue = []
         txLabel = nil
         txEcho = nil
+        txOffsetOverride = nil
     }
 
     // MARK: Auto-replies
@@ -106,6 +134,7 @@ final class JS8Session: ObservableObject {
                      replyToQueries: Bool, ackHeartbeats: Bool, now: Date = Date()) -> [String] {
         guard !isSending, !myCall.isEmpty else { return [] }
         let me = myCall.uppercased()
+        let mine = identities(myCall: me)
         autoRepliedAt = autoRepliedAt.filter { now.timeIntervalSince($0.value) < Self.autoReplyIntervalSeconds }
         for m in messages {
             let sender = m.from.uppercased()
@@ -113,7 +142,7 @@ final class JS8Session: ObservableObject {
                   JS8Fields.isValidCallsign(sender) else { continue }
             let snr = JS8Fields.formatSNR(max(-30, min(31, Int(m.snr.rounded()))))
             var reply: String?
-            if replyToQueries, m.kind == .directed, m.to.uppercased() == me {
+            if replyToQueries, m.kind == .directed, mine.contains(m.to.uppercased()) {
                 switch m.cmd {
                 case " SNR?": reply = "\(sender) SNR \(snr)"
                 case " GRID?":

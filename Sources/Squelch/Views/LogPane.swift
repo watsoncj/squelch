@@ -155,6 +155,9 @@ struct LogPane<Header: View>: View {
     /// JS8 mode: offer the Comm/All filter (heartbeats and acks hidden by
     /// default — they live on the map and the heard-by panel).
     var js8FilterAvailable = false
+    /// Joined JS8 groups — traffic addressed to them highlights like
+    /// traffic addressed to the operator.
+    var js8Groups: Set<String> = []
     /// Rendered above the search field inside the glass header inset
     /// (the sidebar toggle row in the main window).
     @ViewBuilder var header: () -> Header
@@ -198,7 +201,7 @@ struct LogPane<Header: View>: View {
                 )
                 .listRowSeparator(.hidden)
                 .listRowBackground(
-                    msg.mentions(myCallsign)
+                    msg.mentions(myCallsign) || (msg.isJS8 && js8Groups.contains(msg.addressee ?? ""))
                         ? Color.accentColor.opacity(0.14)
                         : Color.clear
                 )
@@ -207,6 +210,20 @@ struct LogPane<Header: View>: View {
             .listStyle(.plain)
             .contextMenu(forSelectionType: DecodedMessage.ID.self) { ids in
                 if let id = ids.first, let message = store.messages.first(where: { $0.id == id }) {
+                    if message.isJS8, let to = message.addressee, to.hasPrefix("@"),
+                       !["@HB", "@ALLCALL"].contains(to), JS8Fields.isGroupAllowed(to) {
+                        if js8Groups.contains(to) {
+                            Button("Leave \(to)") {
+                                let updated = js8Groups.subtracting([to]).sorted().joined(separator: ", ")
+                                UserDefaults.standard.set(updated, forKey: SettingsKeys.js8Groups)
+                            }
+                        } else {
+                            Button("Join \(to)") {
+                                let updated = js8Groups.union([to]).sorted().joined(separator: ", ")
+                                UserDefaults.standard.set(updated, forKey: SettingsKeys.js8Groups)
+                            }
+                        }
+                    }
                     if message.isJS8, let call = message.callsign, call != myCallsign, let onJS8Compose {
                         Button("Message \(call)…") {
                             onJS8Compose(message)

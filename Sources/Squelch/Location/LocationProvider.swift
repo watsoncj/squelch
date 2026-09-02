@@ -117,4 +117,6 @@ enum SettingsKeys {
     static let arrlSection = "arrlSection"
     static let js8AutoReply = "js8AutoReply"
     static let js8HBAck = "js8HBAck"
+    static let js8Groups = "js8Groups"
+    static let js8HBIntervalMinutes = "js8HBIntervalMinutes"
 }

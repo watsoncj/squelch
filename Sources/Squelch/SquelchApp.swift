@@ -66,6 +66,12 @@ final class AppModel: ObservableObject {
     /// Demo mode must never key the radio, even with PTT configured.
     let demoMode = CommandLine.arguments.contains("--demo")
 
+    /// Auto-heartbeat: next transmission due (armed by the interval
+    /// setting; pushed back by any transmission or live conversation).
+    private var js8NextHeartbeatDue: Date?
+    private var js8LastConversationAt = Date.distantPast
+    private static let js8HBConversationHoldSeconds: TimeInterval = 120
+
     init() {
         // Contest time pressure zeroes the sequencer's busy-pass patience;
         // read live so flipping the selector mid-session takes effect
@@ -189,10 +195,12 @@ final class AppModel: ObservableObject {
         ) {
             js8.send(text: text, myCall: myCall, myGrid: myGrid, mode: controller.mode)
         }
+        scheduleJS8Heartbeat(completed: completed, myCall: myCall, myGrid: myGrid)
         guard !transmit.anyTXActive, let next = js8.nextFrame() else { return }
-        let offset = defaults.double(forKey: SettingsKeys.txOffsetHz)
+        let stationOffset = defaults.double(forKey: SettingsKeys.txOffsetHz)
+        let offset = js8.txOffsetOverride ?? (stationOffset > 0 ? stationOffset : 1500)
         guard let samples = FT8Encoder.encode(frame: next.frame,
-                                              frequencyHz: offset > 0 ? offset : 1500,
+                                              frequencyHz: offset,
                                               mode: controller.mode) else {
             js8.haltTX()
             return
@@ -200,10 +208,46 @@ final class AppModel: ObservableObject {
         if !transmit.transmitRaw(samples: samples, label: next.label) {
             js8.haltTX() // TX blocked (legality/config) — don't keep trying
         } else if next.isLast, let echo = js8.takeEcho() {
+            // Any completed transmission restarts the heartbeat countdown
+            bumpJS8HeartbeatTimer()
             let dial = defaults.double(forKey: SettingsKeys.dialFrequencyMHz)
             store.ingest(js8: [echo], myCoordinate: location.effectiveCoordinate(),
                          dialFrequencyMHz: dial > 0 ? dial : 7.078)
         }
+    }
+
+    /// The auto-heartbeat: fills idle air on the Normal speed only, in the
+    /// 500–1000 Hz heartbeat sub-band, never over a queued message or a
+    /// live conversation. Any TX pushes the countdown back a full interval.
+    private func scheduleJS8Heartbeat(completed: [JS8Message], myCall: String, myGrid: String) {
+        let interval = UserDefaults.standard.integer(forKey: SettingsKeys.js8HBIntervalMinutes)
+        guard interval > 0, controller.mode == .js8, !myCall.isEmpty else {
+            js8NextHeartbeatDue = nil
+            return
+        }
+        let now = Date()
+        let me = js8.identities(myCall: myCall)
+        if completed.contains(where: { me.contains($0.to.uppercased()) || $0.from.uppercased() == myCall.uppercased() }) {
+            js8LastConversationAt = now
+        }
+        guard let due = js8NextHeartbeatDue else {
+            js8NextHeartbeatDue = now.addingTimeInterval(TimeInterval(interval) * 60 + Double.random(in: -15...15))
+            return
+        }
+        guard now >= due, !js8.isSending, !transmit.anyTXActive,
+              now.timeIntervalSince(js8LastConversationAt) > Self.js8HBConversationHoldSeconds else { return }
+        let grid = String(myGrid.uppercased().prefix(4))
+        let hbOffset = Double.random(in: 500...1000)
+        if js8.send(text: grid.isEmpty ? "HEARTBEAT" : "HEARTBEAT \(grid)",
+                    myCall: myCall, myGrid: myGrid, mode: controller.mode, offsetHz: hbOffset) {
+            bumpJS8HeartbeatTimer()
+        }
+    }
+
+    private func bumpJS8HeartbeatTimer() {
+        let interval = UserDefaults.standard.integer(forKey: SettingsKeys.js8HBIntervalMinutes)
+        guard interval > 0 else { return }
+        js8NextHeartbeatDue = Date().addingTimeInterval(TimeInterval(interval) * 60 + Double.random(in: -15...15))
     }
 
     /// Queue a JS8 message for transmission (composer / reply / heartbeat

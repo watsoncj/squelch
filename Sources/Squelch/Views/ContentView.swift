@@ -332,7 +332,8 @@ struct ContentView: View {
             ),
             contestName: activeContest.isEmpty ? nil : activeContest,
             js8Pending: isJS8Mode ? actions.js8.pending : [],
-            js8FilterAvailable: isJS8Mode
+            js8FilterAvailable: isJS8Mode,
+            js8Groups: isJS8Mode ? actions.js8.joinedGroups : []
         ) {
             HStack {
                 Spacer()
@@ -539,15 +540,27 @@ struct ContentView: View {
                         )
                     }
 
-                    Button {
-                        actions.sendJS8Heartbeat()
+                    Menu {
+                        Button("Send Now") {
+                            actions.sendJS8Heartbeat()
+                        }
+                        .disabled(!txAvailable || !controller.isRunning || actions.js8.isSending)
+                        Divider()
+                        Picker("Automatically", selection: Binding(
+                            get: { UserDefaults.standard.integer(forKey: SettingsKeys.js8HBIntervalMinutes) },
+                            set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8HBIntervalMinutes) }
+                        )) {
+                            Text("Off").tag(0)
+                            Text("Every 10 minutes").tag(10)
+                            Text("Every 15 minutes").tag(15)
+                            Text("Every 30 minutes").tag(30)
+                            Text("Every 60 minutes").tag(60)
+                        }
+                        .pickerStyle(.inline)
                     } label: {
                         Label("Heartbeat", systemImage: "waveform.path.ecg")
                     }
-                    .disabled(!txAvailable || !controller.isRunning || actions.js8.isSending)
-                    .help(txDisabledReason ?? (controller.isRunning
-                          ? "Send one heartbeat now (@HB with your grid) — stations that hear it reply with your signal report"
-                          : "Start decoding first — JS8 transmits at slot boundaries"))
+                    .help(txDisabledReason ?? "Send a heartbeat (@HB with your grid) now, or on a timer — Normal speed only, in the 500–1000 Hz heartbeat sub-band, never over a conversation. Stations that hear it reply with your signal report.")
 
                     // Speed lives here as well as in the frequency flyout
                     // so it's one click away.

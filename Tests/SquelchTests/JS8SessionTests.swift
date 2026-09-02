@@ -102,6 +102,29 @@ final class JS8SessionTests: XCTestCase {
                                     replyToQueries: true, ackHeartbeats: true).isEmpty)
     }
 
+    func testJoinedGroupParsing() {
+        XCTAssertEqual(JS8Session.joinedGroups(from: "@R8AUXCOM, @CENTS"), ["@R8AUXCOM", "@CENTS"])
+        XCTAssertEqual(JS8Session.joinedGroups(from: "r8auxcom cents"), ["@R8AUXCOM", "@CENTS"],
+                       "bare names get their @ and uppercasing")
+        XCTAssertEqual(JS8Session.joinedGroups(from: nil), [])
+        XCTAssertEqual(JS8Session.joinedGroups(from: " , ,"), [])
+    }
+
+    func testAutoReplyAnswersJoinedGroupQueries() {
+        let s = JS8Session()
+        UserDefaults.standard.set("@R8AUXCOM", forKey: SettingsKeys.js8Groups)
+        defer { UserDefaults.standard.removeObject(forKey: SettingsKeys.js8Groups) }
+        let q = message(kind: .directed, from: "W7CSO", to: "@R8AUXCOM", cmd: " SNR?", snr: -8.2)
+        XCTAssertEqual(s.autoReplies(for: [q], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false),
+                       ["W7CSO SNR -08"])
+        // Same query to a group we haven't joined: silence
+        let other = message(kind: .directed, from: "W7CSO", to: "@CENTS", cmd: " SNR?")
+        let s2 = JS8Session()
+        XCTAssertTrue(s2.autoReplies(for: [other], myCall: "W0CJW", myGrid: "DM79",
+                                     replyToQueries: true, ackHeartbeats: false).isEmpty)
+    }
+
     func testMultiFrameMessageCountsDown() {
         let s = JS8Session()
         XCTAssertTrue(s.send(text: "W0ABC MSG HELLO HELLO HELLO", myCall: "W0CJW", myGrid: "DM79", mode: .js8))
