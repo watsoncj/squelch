@@ -605,105 +605,7 @@ struct ContentView: View {
                 }
     }
 
-    /// Frequency picker flyout, MapModeFlyout-style: real columns, current
-    /// selection highlighted, receive-only section per license class.
-    private struct FrequencyFlyout: View {
-        let license: LicenseClass
-        let currentMHz: Double
-        let currentMode: DigiMode
-        let onPick: (QSYPreset) -> Void
-        let onPickSpeed: (DigiMode) -> Void
 
-        var body: some View {
-            let txList = QSYPreset.transmitLegal(for: license)
-            let rxOnly = QSYPreset.receiveOnly(for: license)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Frequency")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                if currentMode.isJS8 {
-                    speedPicker
-                    Divider()
-                }
-                ForEach(txList) { preset in
-                    row(preset)
-                }
-                if !rxOnly.isEmpty {
-                    if !txList.isEmpty {
-                        Divider()
-                        Text("Receive only")
-                            .font(.caption)
-                            .foregroundStyle(.primary.opacity(0.6))
-                            .padding(.leading, 8)
-                    }
-                    ForEach(rxOnly) { preset in
-                        row(preset)
-                    }
-                }
-            }
-            .padding(12)
-        }
-
-        /// JS8 speeds share a frequency; the preset rows carry NORMAL.
-        private var speedPicker: some View {
-            HStack(spacing: 4) {
-                Text("JS8 speed")
-                    .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.6))
-                    .padding(.trailing, 4)
-                ForEach(DigiMode.js8Speeds) { speed in
-                    Button {
-                        onPickSpeed(speed)
-                    } label: {
-                        Text(speed.rawValue.replacingOccurrences(of: "JS8 ", with: ""))
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(
-                                speed == currentMode ? Color.accentColor.opacity(0.25) : .clear,
-                                in: RoundedRectangle(cornerRadius: 5)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help(speedHelp(speed))
-                }
-            }
-            .padding(.horizontal, 8)
-        }
-
-        private func speedHelp(_ speed: DigiMode) -> String {
-            String(format: "%@ — %g s period, %.0f Hz wide", speed.rawValue, speed.slotSeconds, speed.toneSpanHz)
-                + (speed == .js8Ultra ? " (experimental upstream)" : "")
-        }
-
-        private func row(_ preset: QSYPreset) -> some View {
-            let selected = abs(preset.mhz - currentMHz) < 0.00005
-                && (preset.mode == currentMode || (preset.mode == .js8 && currentMode.isJS8))
-            return Button {
-                onPick(preset)
-            } label: {
-                HStack(spacing: 0) {
-                    Text("\(String(format: "%.4f", preset.mhz)) MHz")
-                        .monospacedDigit()
-                        .frame(width: 110, alignment: .trailing)
-                    Text(preset.mode.rawValue)
-                        .frame(width: 56, alignment: .leading)
-                        .padding(.leading, 14)
-                    Text(bandName(forMHz: preset.mhz))
-                        .frame(width: 36, alignment: .leading)
-                        .foregroundStyle(.primary.opacity(0.7))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    selected ? Color.accentColor.opacity(0.25) : .clear,
-                    in: RoundedRectangle(cornerRadius: 6)
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
 
     /// CQ caller flyout, HuntFlyout-style: start/stop the run and shape
     /// it — a directed-CQ flavor (CQ DX, CQ POTA, custom) and a duty
@@ -935,6 +837,172 @@ struct ContentView: View {
 
     private var isWSPRMode: Bool {
         digiMode == DigiMode.wspr.rawValue
+    }
+
+    /// Frequency picker flyout, master-detail: modes stacked on the left,
+    /// that mode's frequencies on the right (with the receive-only split
+    /// per license class). JS8's speed strip lives with the JS8 mode.
+    private struct FrequencyFlyout: View {
+        let license: LicenseClass
+        let currentMHz: Double
+        let currentMode: DigiMode
+        let onPick: (QSYPreset) -> Void
+        let onPickSpeed: (DigiMode) -> Void
+
+        /// The mode being browsed — starts on whatever is active (any JS8
+        /// speed browses as JS8). Selecting here changes only the list;
+        /// the radio moves when a frequency is clicked.
+        @State private var browsing: DigiMode = .ft8
+        @State private var appeared = false
+
+        private static let modes: [DigiMode] = [.ft8, .ft4, .js8, .wspr]
+
+        private var activeAsBrowsable: DigiMode {
+            currentMode.isJS8 ? .js8 : currentMode
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Frequency")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                HStack(alignment: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Self.modes) { mode in
+                            modeRow(mode)
+                        }
+                    }
+                    Divider()
+                        .padding(.horizontal, 8)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if browsing == .js8 {
+                            speedPicker
+                            Divider()
+                        }
+                        frequencyList
+                    }
+                    .frame(minWidth: 190, alignment: .leading)
+                }
+            }
+            .padding(12)
+            .onAppear {
+                if !appeared {
+                    appeared = true
+                    browsing = activeAsBrowsable
+                }
+            }
+        }
+
+        private func modeRow(_ mode: DigiMode) -> some View {
+            let isBrowsing = browsing == mode
+            let isActive = activeAsBrowsable == mode
+            return Button {
+                browsing = mode
+            } label: {
+                HStack(spacing: 5) {
+                    Text(mode.rawValue)
+                        .fontWeight(isActive ? .semibold : .regular)
+                        .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+                    Spacer(minLength: 0)
+                    if isActive {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .frame(width: 78, alignment: .leading)
+                .background(
+                    isBrowsing ? Color.primary.opacity(0.12) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isActive ? "\(mode.rawValue) — the active mode" : "Show \(mode.rawValue) frequencies")
+        }
+
+        @ViewBuilder
+        private var frequencyList: some View {
+            let presets = QSYPreset.all.filter { $0.mode == browsing }
+            let txList = presets.filter { license.canTransmitData(mhz: $0.mhz) }
+            let rxOnly = presets.filter { !license.canTransmitData(mhz: $0.mhz) }
+            ForEach(txList) { preset in
+                row(preset)
+            }
+            if !rxOnly.isEmpty {
+                if !txList.isEmpty {
+                    Divider()
+                    Text("Receive only")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                        .padding(.leading, 8)
+                }
+                ForEach(rxOnly) { preset in
+                    row(preset)
+                }
+            }
+        }
+
+        /// JS8 speeds share a frequency; the rows carry NORMAL and the
+        /// strip switches speed in place.
+        private var speedPicker: some View {
+            HStack(spacing: 4) {
+                Text("Speed")
+                    .font(.caption)
+                    .foregroundStyle(.primary.opacity(0.6))
+                    .padding(.trailing, 2)
+                ForEach(DigiMode.js8Speeds) { speed in
+                    Button {
+                        onPickSpeed(speed)
+                    } label: {
+                        Text(speed.rawValue.replacingOccurrences(of: "JS8 ", with: ""))
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                speed == currentMode ? Color.accentColor.opacity(0.25) : .clear,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(speedHelp(speed))
+                }
+            }
+            .padding(.horizontal, 8)
+        }
+
+        private func speedHelp(_ speed: DigiMode) -> String {
+            String(format: "%@ — %g s period, %.0f Hz wide", speed.rawValue, speed.slotSeconds, speed.toneSpanHz)
+                + (speed == .js8Ultra ? " (experimental upstream)" : "")
+        }
+
+        private func row(_ preset: QSYPreset) -> some View {
+            let selected = abs(preset.mhz - currentMHz) < 0.00005
+                && (preset.mode == currentMode || (preset.mode == .js8 && currentMode.isJS8))
+            return Button {
+                onPick(preset)
+            } label: {
+                HStack(spacing: 0) {
+                    Text("\(String(format: "%.4f", preset.mhz)) MHz")
+                        .monospacedDigit()
+                        .frame(width: 110, alignment: .trailing)
+                    Text(bandName(forMHz: preset.mhz))
+                        .frame(width: 44, alignment: .leading)
+                        .padding(.leading, 14)
+                        .foregroundStyle(.primary.opacity(0.7))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    selected ? Color.accentColor.opacity(0.25) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     /// Composer flyout for JS8: free text or "CALL CMD …" directed lines.
