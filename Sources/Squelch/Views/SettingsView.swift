@@ -260,7 +260,7 @@ struct SettingsView: View {
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.js8HBAck) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.js8HBAck) }
                 ))
-                .help("Replies \"CALL HEARTBEAT SNR ±NN\" to heartbeats you decode — the ack you've seen other stations send. Keys the radio unattended; rate-limited per station. Off by default.")
+                .help("Replies \"CALL HEARTBEAT SNR ±NN\" to heartbeats you decode — the report that tells a station you hear them, and what makes the HB network work. Keys the radio unattended (only while decoding runs in a JS8 mode); rate-limited to one ack per station per 15 minutes. On by default — turn off for receive-only monitoring.")
                 if let status = js8.wordTableStatus {
                     Text(status)
                         .font(.caption)

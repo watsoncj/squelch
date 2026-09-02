@@ -767,6 +767,11 @@ struct SquelchApp: App {
             SettingsKeys.wsprDutyPct: 20,
             SettingsKeys.cqSlotInterval: 1,
             SettingsKeys.autoUpdateCheck: true,
+            // JS8 stations ack the heartbeats they hear — that's what makes
+            // the HB network tick. On by default (Settings › JS8 disables);
+            // it transmits nothing until decoding runs in a JS8 mode with
+            // TX legal and a callsign set, and it's rate-limited per station.
+            SettingsKeys.js8HBAck: true,
         ])
     }
 
