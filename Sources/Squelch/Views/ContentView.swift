@@ -262,21 +262,21 @@ struct ContentView: View {
     /// feed stays live above it.
     private var panelStack: some View {
         VStack(spacing: 0) {
-            if isJS8Mode {
-                js8TabPicker
-            }
             if isJS8Mode, js8SidebarChats {
-                JS8ChatsPane(
-                    store: actions.js8Chats,
-                    js8: actions.js8,
-                    myCall: myCallsign,
-                    txAvailable: txAvailable,
-                    decoding: controller.isRunning,
-                    onSend: { text, partner in
-                        actions.sendJS8(text: text, selectedCall: partner)
-                    }
-                )
-                .padding(.top, 40) // clear the titlebar drag strip like the feed's header
+                VStack(spacing: 0) {
+                    sidebarHeaderRow // same chrome as the feed's header
+                    Divider()
+                    JS8ChatsPane(
+                        store: actions.js8Chats,
+                        js8: actions.js8,
+                        myCall: myCallsign,
+                        txAvailable: txAvailable,
+                        decoding: controller.isRunning,
+                        onSend: { text, partner in
+                            actions.sendJS8(text: text, selectedCall: partner)
+                        }
+                    )
+                }
             } else {
                 feedPane
             }
@@ -317,7 +317,8 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .top) // full window height, flush corners
     }
 
-    /// Feed ↔ Chats, JS8 mode only. The unread badge makes the tab worth
+    /// Feed ↔ Chats, JS8 mode only. Lives inside the sidebar's header row
+    /// (clear of the traffic lights); the unread badge makes the tab worth
     /// glancing at when a message lands while you're watching the feed.
     private var js8TabPicker: some View {
         let unread = actions.js8Chats.totalUnread
@@ -328,9 +329,33 @@ struct ContentView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .controlSize(.small)
-        .padding(.horizontal, 40)
-        .padding(.top, 46)
-        .padding(.bottom, 2)
+        .frame(width: 170)
+    }
+
+    /// The sidebar's top chrome: window-drag strip, centered mode tabs in
+    /// JS8, hide-sidebar toggle at the trailing edge — identical for the
+    /// feed (as its list header) and the Chats pane.
+    private var sidebarHeaderRow: some View {
+        HStack {
+            Spacer()
+            if isJS8Mode {
+                js8TabPicker
+            }
+            Spacer()
+            Button {
+                showSidebar = false
+            } label: {
+                Image(systemName: "sidebar.leading")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Hide the sidebar")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 48)
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture()) // header drags the window, like Apple Maps
     }
 
     private var feedPane: some View {
@@ -373,22 +398,7 @@ struct ContentView: View {
             js8FilterAvailable: isJS8Mode,
             js8Groups: isJS8Mode ? actions.js8.joinedGroups : []
         ) {
-            HStack {
-                Spacer()
-                Button {
-                    showSidebar = false
-                } label: {
-                    Image(systemName: "sidebar.leading")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("Hide the sidebar")
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 48)
-            .contentShape(Rectangle())
-            .gesture(WindowDragGesture()) // header drags the window, like Apple Maps
+            sidebarHeaderRow
         }
     }
 
