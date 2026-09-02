@@ -11,6 +11,9 @@ struct JS8ChatsPane: View {
     let decoding: Bool
     /// Send `text` addressed to `partner` (builder prepends the address).
     let onSend: (String, String) -> Bool
+    /// No joined groups: widen to every conversation on the band, the
+    /// observed ones (station · station) read-only.
+    let includeObserved: Bool
 
     @State private var selectedPartner: String?
     @State private var draft = ""
@@ -26,13 +29,14 @@ struct JS8ChatsPane: View {
     // MARK: Conversations
 
     private var conversationList: some View {
-        List(store.conversations) { convo in
+        List(store.conversations(includeObserved: includeObserved)) { convo in
             Button {
                 selectedPartner = convo.partner
                 store.markRead(partner: convo.partner)
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: convo.partner.hasPrefix("@") ? "person.3" : "person")
+                    Image(systemName: convo.partner.hasPrefix("@") ? "person.3"
+                          : JS8MessageStore.isObservedPartner(convo.partner) ? "ear" : "person")
                         .foregroundStyle(.secondary)
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 1) {
@@ -73,7 +77,9 @@ struct JS8ChatsPane: View {
                         .foregroundStyle(.primary.opacity(0.4))
                     Text("No conversations yet")
                         .font(.headline)
-                    Text("Messages addressed to \(myCall.isEmpty ? "you" : myCall) or a joined group thread here. Answer a CQ from the feed, or join a group like @R8AUXCOM from a row's context menu.")
+                    Text(includeObserved
+                         ? "Conversations decode here as the band produces them — including ones between other stations. Message someone from a feed row, or send a CQ."
+                         : "Messages addressed to \(myCall.isEmpty ? "you" : myCall) or a joined group thread here. Answer a CQ from the feed, or join a group like @R8AUXCOM from a row's context menu.")
                         .font(.callout)
                         .foregroundStyle(.primary.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -111,6 +117,7 @@ struct JS8ChatsPane: View {
                 .menuStyle(.borderlessButton)
                 .frame(width: 30)
                 .disabled(!canTransmit)
+                .opacity(observedThread ? 0 : 1)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -143,7 +150,8 @@ struct JS8ChatsPane: View {
             Divider()
 
             HStack(spacing: 6) {
-                TextField(canTransmit ? "Message \(partner)…" : "Start decoding to send", text: $draft)
+                TextField(observedThread ? "Observed conversation — read-only"
+                          : (canTransmit ? "Message \(partner)…" : "Start decoding to send"), text: $draft)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { send() }
                     .disabled(!canTransmit)
@@ -202,7 +210,11 @@ struct JS8ChatsPane: View {
         return nil
     }
 
-    private var canTransmit: Bool { txAvailable && decoding }
+    private var observedThread: Bool {
+        selectedPartner.map(JS8MessageStore.isObservedPartner) ?? false
+    }
+
+    private var canTransmit: Bool { txAvailable && decoding && !observedThread }
     private var canSend: Bool {
         canTransmit && !js8.isSending && !draft.trimmingCharacters(in: .whitespaces).isEmpty
     }

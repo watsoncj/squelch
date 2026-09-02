@@ -13,6 +13,12 @@ struct JS8ChatMessage: Codable, Identifiable, Equatable {
     let offsetHz: Float
     let outgoing: Bool
     var read: Bool
+    /// Addressed to this station or a joined group (nil in old records =
+    /// true). False = overheard third-party traffic, shown only when no
+    /// groups are joined (observe-all mode) and never counted unread.
+    var forMe: Bool? = nil
+
+    var isForMe: Bool { forMe ?? true }
 
     /// The line a thread bubble shows: command + text, without the
     /// addressing that the thread already implies.
@@ -53,6 +59,8 @@ final class JS8MessageStore: ObservableObject {
     }
 
     /// Which conversation a message belongs to, from this station's view.
+    /// Third-party traffic threads by the station pair ("KE7IK · W7CSO")
+    /// so an overheard QSO reads as one conversation.
     static func partner(for m: JS8ChatMessage, myCall: String) -> String? {
         let me = myCall.uppercased()
         if m.outgoing {
@@ -60,29 +68,37 @@ final class JS8MessageStore: ObservableObject {
         }
         if m.to.hasPrefix("@") { return m.to }
         if m.to.uppercased() == me { return m.from }
-        return nil
+        if m.to.isEmpty { return m.from.isEmpty ? nil : m.from } // free text
+        return [m.from, m.to].sorted().joined(separator: " · ")
     }
 
-    /// True when this decoded message belongs in Chats rather than only
-    /// the feed: directed/free-text traffic to us or a joined group.
+    /// An observed (read-only) conversation between other stations.
+    static func isObservedPartner(_ partner: String) -> Bool {
+        partner.contains(" · ")
+    }
+
+    /// Everything conversational belongs in the store: directed and free
+    /// text, minus the ambient heartbeat acks. `identities` only decides
+    /// the forMe tag (and so unread counting and the narrowed view).
     static func isChatRelevant(_ m: JS8Message, identities: Set<String>) -> Bool {
         switch m.kind {
         case .heartbeat, .cq: return false
         case .directed:
-            if m.cmd == " HEARTBEAT SNR" { return false } // ambient ack
-            return identities.contains(m.to.uppercased())
+            return m.cmd != " HEARTBEAT SNR"
         case .freeText:
-            return false // broadcast chatter stays in the feed
+            return !m.from.isEmpty // anonymous fragments stay in the feed
         }
     }
 
     func ingest(_ incoming: [JS8Message], myCall: String, identities: Set<String>) {
         let relevant = incoming.filter { Self.isChatRelevant($0, identities: identities) }
         guard !relevant.isEmpty else { return }
-        let new = relevant.map { m in
-            JS8ChatMessage(id: UUID(), timestamp: m.timestamp, from: m.from.uppercased(),
-                           to: m.to.uppercased(), cmd: m.cmd, text: m.text, snr: m.snr,
-                           offsetHz: m.offsetHz, outgoing: false, read: false)
+        let new = relevant.map { m -> JS8ChatMessage in
+            let forMe = identities.contains(m.to.uppercased())
+            return JS8ChatMessage(id: UUID(), timestamp: m.timestamp, from: m.from.uppercased(),
+                                  to: m.to.uppercased(), cmd: m.cmd, text: m.text, snr: m.snr,
+                                  offsetHz: m.offsetHz, outgoing: false,
+                                  read: !forMe, forMe: forMe)
         }
         append(new)
     }
@@ -94,20 +110,30 @@ final class JS8MessageStore: ObservableObject {
                                outgoing: true, read: true)])
     }
 
-    var conversations: [Conversation] {
+    /// `includeObserved` (no groups joined) widens the list to overheard
+    /// conversations; otherwise only threads involving this station (or a
+    /// joined group) appear.
+    func conversations(includeObserved: Bool) -> [Conversation] {
         var lastByPartner: [String: JS8ChatMessage] = [:]
         var unread: [String: Int] = [:]
+        var involvesMe: Set<String> = []
         let me = myCallCached
         for m in messages {
             guard let partner = Self.partner(for: m, myCall: me) else { continue }
             lastByPartner[partner] = m
-            if !m.outgoing, !m.read {
+            if m.outgoing || m.isForMe { involvesMe.insert(partner) }
+            if !m.outgoing, !m.read, m.isForMe {
                 unread[partner, default: 0] += 1
             }
         }
         return lastByPartner
+            .filter { includeObserved || involvesMe.contains($0.key) }
             .map { Conversation(partner: $0.key, last: $0.value, unread: unread[$0.key] ?? 0) }
             .sorted { $0.last.timestamp > $1.last.timestamp }
+    }
+
+    var conversations: [Conversation] {
+        conversations(includeObserved: false)
     }
 
     func thread(with partner: String) -> [JS8ChatMessage] {
@@ -116,7 +142,7 @@ final class JS8MessageStore: ObservableObject {
     }
 
     var totalUnread: Int {
-        conversations.reduce(0) { $0 + $1.unread }
+        conversations(includeObserved: true).reduce(0) { $0 + $1.unread }
     }
 
     func markRead(partner: String) {

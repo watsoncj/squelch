@@ -274,7 +274,8 @@ struct ContentView: View {
                         decoding: controller.isRunning,
                         onSend: { text, partner in
                             actions.sendJS8(text: text, selectedCall: partner)
-                        }
+                        },
+                        includeObserved: actions.js8.joinedGroups.isEmpty
                     )
                 }
             } else {

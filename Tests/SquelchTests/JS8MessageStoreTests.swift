@@ -20,10 +20,27 @@ final class JS8MessageStoreTests: XCTestCase {
         let me: Set<String> = ["W0CJW", "@R8AUXCOM"]
         XCTAssertTrue(JS8MessageStore.isChatRelevant(js8Message(kind: .directed, from: "K1ABC", to: "W0CJW", cmd: " MSG", text: "HI"), identities: me))
         XCTAssertTrue(JS8MessageStore.isChatRelevant(js8Message(kind: .directed, from: "W7CSO", to: "@R8AUXCOM", cmd: " "), identities: me))
-        XCTAssertFalse(JS8MessageStore.isChatRelevant(js8Message(kind: .directed, from: "K1ABC", to: "W9XYZ", cmd: " MSG"), identities: me), "someone else's traffic")
+        XCTAssertTrue(JS8MessageStore.isChatRelevant(js8Message(kind: .directed, from: "K1ABC", to: "W9XYZ", cmd: " MSG"), identities: me), "observed traffic stores too")
         XCTAssertFalse(JS8MessageStore.isChatRelevant(js8Message(kind: .heartbeat, from: "K1ABC", to: "@HB"), identities: me))
         XCTAssertFalse(JS8MessageStore.isChatRelevant(js8Message(kind: .directed, from: "K1ABC", to: "W0CJW", cmd: " HEARTBEAT SNR"), identities: me), "hb acks are ambient")
         XCTAssertFalse(JS8MessageStore.isChatRelevant(js8Message(kind: .cq, from: "K1ABC", to: "@ALLCALL", cmd: " CQ CQ CQ"), identities: me))
+    }
+
+    func testObservedConversationsThreadByPairAndStayRead() {
+        let store = makeStore()
+        store.ingest([
+            js8Message(kind: .directed, from: "W7CSO", to: "KE7IK", cmd: " ", text: "IN THE EOC"),
+            js8Message(kind: .directed, from: "KE7IK", to: "W7CSO", cmd: " ", text: "PARTLY CLOUDY"),
+            js8Message(kind: .directed, from: "K1ABC", to: "W0CJW", cmd: " ", text: "FOR ME"),
+        ], myCall: "W0CJW", identities: ["W0CJW"])
+        // Observed pair threads together, in both directions
+        XCTAssertEqual(store.thread(with: "KE7IK · W7CSO").map(\.text), ["IN THE EOC", "PARTLY CLOUDY"])
+        XCTAssertTrue(JS8MessageStore.isObservedPartner("KE7IK · W7CSO"))
+        // Narrow view: only my conversation; wide view: both
+        XCTAssertEqual(store.conversations(includeObserved: false).map(\.partner), ["K1ABC"])
+        XCTAssertEqual(Set(store.conversations(includeObserved: true).map(\.partner)), ["K1ABC", "KE7IK · W7CSO"])
+        // Observed traffic never counts unread
+        XCTAssertEqual(store.totalUnread, 1)
     }
 
     func testThreadKeysAndUnread() {
