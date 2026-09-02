@@ -114,6 +114,7 @@ struct SettingsView: View {
                 }
             }
             .listStyle(.sidebar)
+            .toolbar(removing: .sidebarToggle)
             .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
             .navigationSplitViewColumnWidth(min: 175, ideal: 185, max: 220)
             .onChange(of: searchText) { _, _ in
@@ -136,6 +137,7 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .navigationTitle((selection ?? .station).title)
         }
         .frame(width: 760, height: 560)
         .onAppear {
@@ -165,9 +167,8 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var stationSection: some View {
-        Section("Station") {
+        Section {
                 TextField("Callsign", text: $myCallsign, prompt: Text("e.g. W1AW"))
-                    .textCase(.uppercase)
 
                 Picker("License class", selection: $licenseClassRaw) {
                     ForEach(LicenseClass.allCases) { license in
@@ -203,14 +204,13 @@ struct SettingsView: View {
                 }
 
                 TextField("ARRL/RAC section", text: $arrlSection, prompt: Text("e.g. CO — or DX outside US/Canada"))
-                    .textCase(.uppercase)
                     .help("Cabrillo LOCATION: line for contest entries (WW Digi, ARRL contests). US/Canadian stations give their ARRL/RAC section; everyone else DX.")
             }
     }
 
     @ViewBuilder
     private var displaySection: some View {
-        Section("Display") {
+        Section {
                 Picker("Time", selection: Binding(
                     get: { UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? TimeDisplay.local.rawValue },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.timeDisplay) }
@@ -236,7 +236,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var audioSection: some View {
-        Section("Audio Input") {
+        Section {
                 Picker("Device", selection: $audioDeviceUID) {
                     Text("System default").tag("")
                     ForEach(devices) { device in
@@ -295,7 +295,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var transmitSection: some View {
-        Section("Transmit") {
+        Section {
                 Picker("Audio output", selection: $audioOutputUID) {
                     Text("System default").tag("")
                     ForEach(outputDevices) { device in
@@ -336,7 +336,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var js8Section: some View {
-        Section("JS8") {
+        Section {
                 HStack {
                     Image(systemName: js8.wordTableInstalled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(js8.wordTableInstalled ? .green : .orange)
@@ -382,7 +382,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var wsprSection: some View {
-        Section("WSPR Beacon") {
+        Section {
                 Picker("Reported power", selection: Binding(
                     get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprPowerDBm) }
@@ -428,7 +428,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var catSection: some View {
-        Section("CAT Control (FT-891)") {
+        Section {
                 Picker("CAT serial port", selection: $catPortPath) {
                     Text("None").tag("")
                     ForEach(serialPorts, id: \.self) { port in
@@ -479,7 +479,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var updatesSection: some View {
-        Section("Updates") {
+        Section {
                 Toggle("Check for updates automatically", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.autoUpdateCheck) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.autoUpdateCheck) }
