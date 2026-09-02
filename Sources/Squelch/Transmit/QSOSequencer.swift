@@ -644,7 +644,11 @@ final class QSOSequencer: ObservableObject {
     private func armCallerReply(to call: String, snr: Float) {
         gridRepeats = 0
         rogerGridSent = false
-        if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty, speaksContestExchange(call) {
+        // Answering a "CQ WW" is evidence enough: a search-and-pounce
+        // contest station never sends CQ WW or R GRID itself, so it is
+        // never profiled — the CQ flavor it chose to answer stands in
+        let contestCaller = speaksContestExchange(call) || cqModifier == "WW"
+        if isContestExchange(), reportReceived == nil, !myGrid4.isEmpty, contestCaller {
             reportSent = ""
             currentTX = "\(call) \(myCall) R \(myGrid4)"
             awaiting = .contestSignoff

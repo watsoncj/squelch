@@ -53,6 +53,34 @@ final class ContestExchangeTests: XCTestCase {
         XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
     }
 
+    /// A search-and-pounce contest station never sends CQ WW or R GRID,
+    /// so it can't be profiled — answering our "CQ WW" is the evidence.
+    func testAnswerToCQWWGetsRogerGridUnprofiled() {
+        let seq = makeSequencer(contest: true)
+        seq.speaksContestExchange = { _ in false }
+        seq.cqModifier = "WW"
+        seq.startCQ(parity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "CQ WW W0CJW DM79")
+        seq.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(seq.transmission(forSlotParity: 0), "K1ABC W0CJW R DM79")
+
+        // A plain CQ carries no such evidence — report first
+        let plain = makeSequencer(contest: true)
+        plain.speaksContestExchange = { _ in false }
+        plain.startCQ(parity: 0)
+        _ = plain.transmission(forSlotParity: 0)
+        plain.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(plain.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+
+        // Outside a contest the flavor changes nothing
+        let casual = makeSequencer(contest: false)
+        casual.cqModifier = "WW"
+        casual.startCQ(parity: 0)
+        _ = casual.transmission(forSlotParity: 0)
+        casual.ingest(decodes: [.init(text: "W0CJW K1ABC EN52", snr: -7)], slotParity: 1)
+        XCTAssertEqual(casual.transmission(forSlotParity: 0), "K1ABC W0CJW -07")
+    }
+
     /// A contest-mode WSJT-X station given a report answers "R GRID" —
     /// the conservative lead costs one slot, never the QSO.
     func testUnprofiledContestStationStillCompletes() {
@@ -111,6 +139,19 @@ final class ContestExchangeTests: XCTestCase {
         let results = decoder.decodeSlot(samples)
         XCTAssertEqual(results.first?.text, message)
         XCTAssertEqual(results.count, 1)
+    }
+
+    /// The contest messages ride the same 77-bit payload in FT4 — pinned
+    /// through the FT4 modulator/decoder too, since WW Digi runs on both.
+    func testFT4EncodeDecodeContestMessages() throws {
+        let decoder = try XCTUnwrap(FT8Decoder(mode: .ft4))
+        for message in ["K1ABC W0CJW R DM79", "CQ WW W0CJW DM79", "K1ABC W0CJW RR73"] {
+            var samples = try XCTUnwrap(FT8Encoder.encode(message: message, frequencyHz: 1200, mode: .ft4),
+                                        "FT4 encode failed for \(message)")
+            samples.append(contentsOf: [Float](repeating: 0, count: Int(7.5 * Double(FT8Decoder.sampleRate)) - samples.count))
+            let results = decoder.decodeSlot(samples)
+            XCTAssertEqual(results.first?.text, message)
+        }
     }
 
     func testCallCandidateRecognizesRogerGrid() {
