@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 
+/// Settings in the macOS System Settings shape: groups in a searchable
+/// sidebar, the selected group's controls in a detail form.
 struct SettingsView: View {
     @ObservedObject var cat: CATController
     @ObservedObject var location: LocationProvider
@@ -23,10 +25,147 @@ struct SettingsView: View {
     @State private var devices: [AudioDevice] = []
     @State private var outputDevices: [AudioDevice] = []
     @State private var serialPorts: [String] = []
+    @State private var selection: Pane? = .station
+    @State private var searchText = ""
+
+    /// One sidebar group. Keywords make search find settings that live
+    /// inside a pane, not just the pane names.
+    enum Pane: String, CaseIterable, Identifiable {
+        case station, display, audio, transmit, js8, wspr, cat, updates
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .station: return "Station"
+            case .display: return "Display"
+            case .audio: return "Audio Input"
+            case .transmit: return "Transmit"
+            case .js8: return "JS8"
+            case .wspr: return "WSPR Beacon"
+            case .cat: return "CAT Control"
+            case .updates: return "Updates"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .station: return "person.crop.square"
+            case .display: return "clock"
+            case .audio: return "waveform"
+            case .transmit: return "antenna.radiowaves.left.and.right"
+            case .js8: return "bubble.left.and.bubble.right"
+            case .wspr: return "dot.radiowaves.up.forward"
+            case .cat: return "cable.connector"
+            case .updates: return "arrow.triangle.2.circlepath"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .station: return .blue
+            case .display: return .indigo
+            case .audio: return .green
+            case .transmit: return .red
+            case .js8: return .orange
+            case .wspr: return .teal
+            case .cat: return .gray
+            case .updates: return .purple
+            }
+        }
+
+        var keywords: [String] {
+            switch self {
+            case .station: return ["callsign", "license", "grid", "maidenhead", "location", "arrl", "section", "cabrillo"]
+            case .display: return ["time", "utc", "local", "distance", "miles", "kilometers", "units"]
+            case .audio: return ["input", "device", "digirig", "level", "meter", "microphone", "silent"]
+            case .transmit: return ["output", "ptt", "serial", "offset", "tune", "alc", "rts", "tx"]
+            case .js8: return ["word table", "dictionary", "heartbeat", "acknowledge", "auto-reply", "snr", "query", "jsc"]
+            case .wspr: return ["beacon", "power", "dbm", "duty", "cycle", "upload", "wsprnet", "spots"]
+            case .cat: return ["serial", "baud", "ft-891", "radio", "frequency", "vfo", "connect"]
+            case .updates: return ["update", "version", "check", "github", "release"]
+            }
+        }
+
+        func matches(_ query: String) -> Bool {
+            let q = query.lowercased()
+            return title.lowercased().contains(q) || keywords.contains { $0.contains(q) }
+        }
+    }
+
+    private var visiblePanes: [Pane] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        return q.isEmpty ? Pane.allCases : Pane.allCases.filter { $0.matches(q) }
+    }
 
     var body: some View {
-        Form {
-            Section("Station") {
+        NavigationSplitView {
+            List(selection: $selection) {
+                ForEach(visiblePanes) { pane in
+                    HStack(spacing: 8) {
+                        Image(systemName: pane.icon)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(pane.tint.gradient, in: RoundedRectangle(cornerRadius: 6))
+                        Text(pane.title)
+                    }
+                    .tag(pane)
+                }
+            }
+            .listStyle(.sidebar)
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Search")
+            .navigationSplitViewColumnWidth(min: 175, ideal: 185, max: 220)
+            .onChange(of: searchText) { _, _ in
+                // Keep the detail on a pane the search can still see
+                if let selection, !visiblePanes.contains(selection), let first = visiblePanes.first {
+                    self.selection = first
+                }
+            }
+        } detail: {
+            Form {
+                switch selection ?? .station {
+                case .station: stationSection
+                case .display: displaySection
+                case .audio: audioSection
+                case .transmit: transmitSection
+                case .js8: js8Section
+                case .wspr: wsprSection
+                case .cat: catSection
+                case .updates: updatesSection
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 760, height: 560)
+        .onAppear {
+            devices = AudioDevices.inputDevices()
+            refreshTX()
+            if pttPortPath.isEmpty, let guess = SerialPTT.likelyPTTPort(in: serialPorts) {
+                pttPortPath = guess
+            }
+            if catPortPath.isEmpty, let guess = CATController.likelyCATPort(in: serialPorts), guess != pttPortPath {
+                catPortPath = guess
+            }
+            // Auto-select when unset, and re-select when the stored UID no
+            // longer matches anything (USB port moves change device UIDs)
+            if audioOutputUID.isEmpty || txOutputStale,
+               let resolved = AudioDevices.resolveTXOutput(
+                   storedOutputUID: audioOutputUID,
+                   storedInputUID: audioDeviceUID,
+                   outputs: outputDevices,
+                   inputs: devices
+               ) {
+                audioOutputUID = resolved.device.uid
+            }
+        }
+    }
+
+    // MARK: - Panes (contents unchanged from the single-form layout)
+
+    @ViewBuilder
+    private var stationSection: some View {
+        Section("Station") {
                 TextField("Callsign", text: $myCallsign, prompt: Text("e.g. W1AW"))
                     .textCase(.uppercase)
 
@@ -67,8 +206,11 @@ struct SettingsView: View {
                     .textCase(.uppercase)
                     .help("Cabrillo LOCATION: line for contest entries (WW Digi, ARRL contests). US/Canadian stations give their ARRL/RAC section; everyone else DX.")
             }
+    }
 
-            Section("Display") {
+    @ViewBuilder
+    private var displaySection: some View {
+        Section("Display") {
                 Picker("Time", selection: Binding(
                     get: { UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? TimeDisplay.local.rawValue },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.timeDisplay) }
@@ -90,8 +232,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+    }
 
-            Section("Audio Input") {
+    @ViewBuilder
+    private var audioSection: some View {
+        Section("Audio Input") {
                 Picker("Device", selection: $audioDeviceUID) {
                     Text("System default").tag("")
                     ForEach(devices) { device in
@@ -146,8 +291,11 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+    }
 
-            Section("Transmit") {
+    @ViewBuilder
+    private var transmitSection: some View {
+        Section("Transmit") {
                 Picker("Audio output", selection: $audioOutputUID) {
                     Text("System default").tag("")
                     ForEach(outputDevices) { device in
@@ -184,51 +332,11 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+    }
 
-            Section("WSPR Beacon") {
-                Picker("Reported power", selection: Binding(
-                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm) },
-                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprPowerDBm) }
-                )) {
-                    Text("23 dBm (0.2 W)").tag(23)
-                    Text("27 dBm (0.5 W)").tag(27)
-                    Text("30 dBm (1 W)").tag(30)
-                    Text("33 dBm (2 W)").tag(33)
-                    Text("37 dBm (5 W)").tag(37)
-                    Text("40 dBm (10 W)").tag(40)
-                    Text("43 dBm (20 W)").tag(43)
-                }
-                .help("Encoded in the beacon message. With CAT connected this follows the radio's power setting automatically (read-only — the app never changes the radio); set it manually only when CAT is unavailable.")
-
-                Picker("Duty cycle", selection: Binding(
-                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct) },
-                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprDutyPct) }
-                )) {
-                    Text("10%").tag(10)
-                    Text("20%").tag(20)
-                    Text("25%").tag(25)
-                    Text("33%").tag(33)
-                    Text("50%").tag(50)
-                }
-                .help("Fraction of 2-minute windows that transmit; the rest receive. 20% is the community norm.")
-
-                Toggle("Upload received spots to WSPRnet", isOn: Binding(
-                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload) },
-                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprUpload) }
-                ))
-                .help("Contribute every WSPR decode to wsprnet.org under your callsign and grid — the community propagation map runs on these. Off by default; nothing leaves the app until you opt in.")
-                if UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload), wsprNet.uploadedCount > 0 {
-                    Text("Uploaded \(wsprNet.uploadedCount) spot\(wsprNet.uploadedCount == 1 ? "" : "s") this session")
-                        .font(.caption)
-                        .foregroundStyle(.primary.opacity(0.6))
-                }
-
-                Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band. While the beacon is armed, the sidebar shows who's hearing you (reports fetched from the WSPRnet database).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("JS8") {
+    @ViewBuilder
+    private var js8Section: some View {
+        Section("JS8") {
                 HStack {
                     Image(systemName: js8.wordTableInstalled ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(js8.wordTableInstalled ? .green : .orange)
@@ -270,8 +378,57 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+    }
 
-            Section("CAT Control (FT-891)") {
+    @ViewBuilder
+    private var wsprSection: some View {
+        Section("WSPR Beacon") {
+                Picker("Reported power", selection: Binding(
+                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprPowerDBm) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprPowerDBm) }
+                )) {
+                    Text("23 dBm (0.2 W)").tag(23)
+                    Text("27 dBm (0.5 W)").tag(27)
+                    Text("30 dBm (1 W)").tag(30)
+                    Text("33 dBm (2 W)").tag(33)
+                    Text("37 dBm (5 W)").tag(37)
+                    Text("40 dBm (10 W)").tag(40)
+                    Text("43 dBm (20 W)").tag(43)
+                }
+                .help("Encoded in the beacon message. With CAT connected this follows the radio's power setting automatically (read-only — the app never changes the radio); set it manually only when CAT is unavailable.")
+
+                Picker("Duty cycle", selection: Binding(
+                    get: { UserDefaults.standard.integer(forKey: SettingsKeys.wsprDutyPct) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprDutyPct) }
+                )) {
+                    Text("10%").tag(10)
+                    Text("20%").tag(20)
+                    Text("25%").tag(25)
+                    Text("33%").tag(33)
+                    Text("50%").tag(50)
+                }
+                .help("Fraction of 2-minute windows that transmit; the rest receive. 20% is the community norm.")
+
+                Toggle("Upload received spots to WSPRnet", isOn: Binding(
+                    get: { UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload) },
+                    set: { UserDefaults.standard.set($0, forKey: SettingsKeys.wsprUpload) }
+                ))
+                .help("Contribute every WSPR decode to wsprnet.org under your callsign and grid — the community propagation map runs on these. Off by default; nothing leaves the app until you opt in.")
+                if UserDefaults.standard.bool(forKey: SettingsKeys.wsprUpload), wsprNet.uploadedCount > 0 {
+                    Text("Uploaded \(wsprNet.uploadedCount) spot\(wsprNet.uploadedCount == 1 ? "" : "s") this session")
+                        .font(.caption)
+                        .foregroundStyle(.primary.opacity(0.6))
+                }
+
+                Text("Beacon runs in WSPR mode (dial 28.1246 MHz) while decoding is started. Each transmission is 110.6 s at a random offset in the WSPR sub-band. While the beacon is armed, the sidebar shows who's hearing you (reports fetched from the WSPRnet database).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+    }
+
+    @ViewBuilder
+    private var catSection: some View {
+        Section("CAT Control (FT-891)") {
                 Picker("CAT serial port", selection: $catPortPath) {
                     Text("None").tag("")
                     ForEach(serialPorts, id: \.self) { port in
@@ -318,8 +475,11 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+    }
 
-            Section("Updates") {
+    @ViewBuilder
+    private var updatesSection: some View {
+        Section("Updates") {
                 Toggle("Check for updates automatically", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.autoUpdateCheck) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.autoUpdateCheck) }
@@ -334,30 +494,6 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 480)
-        .onAppear {
-            devices = AudioDevices.inputDevices()
-            refreshTX()
-            if pttPortPath.isEmpty, let guess = SerialPTT.likelyPTTPort(in: serialPorts) {
-                pttPortPath = guess
-            }
-            if catPortPath.isEmpty, let guess = CATController.likelyCATPort(in: serialPorts), guess != pttPortPath {
-                catPortPath = guess
-            }
-            // Auto-select when unset, and re-select when the stored UID no
-            // longer matches anything (USB port moves change device UIDs)
-            if audioOutputUID.isEmpty || txOutputStale,
-               let resolved = AudioDevices.resolveTXOutput(
-                   storedOutputUID: audioOutputUID,
-                   storedInputUID: audioDeviceUID,
-                   outputs: outputDevices,
-                   inputs: devices
-               ) {
-                audioOutputUID = resolved.device.uid
-            }
-        }
     }
 
     /// A saved TX output UID that matches no current output device — it
