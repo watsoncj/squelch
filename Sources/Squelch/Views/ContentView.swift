@@ -599,7 +599,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "questionmark.circle")
                 }
-                .help("How to read FT8 messages")
+                .help("How to read \(DigiMode(rawValue: digiMode)?.isJS8 == true ? "JS8 traffic" : "\(digiMode) messages")")
                 .popover(isPresented: $showCheatsheet, arrowEdge: .bottom) {
                     CheatsheetView()
                 }
