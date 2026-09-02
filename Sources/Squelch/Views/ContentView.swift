@@ -925,7 +925,8 @@ struct ContentView: View {
 
         @ViewBuilder
         private var frequencyList: some View {
-            let presets = QSYPreset.all.filter { $0.mode == browsing }
+            // Low band to high: 80m at the top, VHF at the bottom
+            let presets = QSYPreset.all.filter { $0.mode == browsing }.sorted { $0.mhz < $1.mhz }
             let txList = presets.filter { license.canTransmitData(mhz: $0.mhz) }
             let rxOnly = presets.filter { !license.canTransmitData(mhz: $0.mhz) }
             ForEach(txList) { preset in
