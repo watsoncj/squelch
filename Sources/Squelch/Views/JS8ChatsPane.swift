@@ -194,7 +194,7 @@ struct JS8ChatsPane: View {
         if msg.to.hasPrefix("@") || (!msg.outgoing && msg.from != selectedPartner) {
             parts.append(msg.outgoing ? "you" : msg.from)
         }
-        parts.append(TimeDisplay.current(UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? "").dateFormatter.string(from: msg.timestamp))
+        parts.append(TimeDisplay.current(UserDefaults.standard.string(forKey: SettingsKeys.timeDisplay) ?? "").logTimestamp(for: msg.timestamp))
         if !msg.outgoing { parts.append(String(format: "%+.0f dB", msg.snr)) }
         return parts.joined(separator: " · ")
     }
