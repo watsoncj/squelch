@@ -91,7 +91,13 @@ final class JS8MessageStore: ObservableObject {
     }
 
     func ingest(_ incoming: [JS8Message], myCall: String, identities: Set<String>) {
-        let relevant = incoming.filter { Self.isChatRelevant($0, identities: identities) }
+        let me = myCall.uppercased()
+        let relevant = incoming.filter {
+            // Our own transmissions decode off the air too (loopback);
+            // the deliberate outgoing echo already records them — a
+            // second copy would masquerade as an observed conversation
+            $0.from.uppercased() != me && Self.isChatRelevant($0, identities: identities)
+        }
         guard !relevant.isEmpty else { return }
         let new = relevant.map { m -> JS8ChatMessage in
             let forMe = identities.contains(m.to.uppercased())
@@ -105,9 +111,16 @@ final class JS8MessageStore: ObservableObject {
 
     func recordOutgoing(text: String, to: String, cmd: String = "", myCall: String) {
         guard !myCall.isEmpty else { return }
+        // The thread names the partner; drop the redundant leading address
+        // ("KS1DMD SNR?" in the KS1DMD thread reads as just "SNR?")
+        var body = text
+        let addressed = to.uppercased() + " "
+        if body.uppercased().hasPrefix(addressed) {
+            body = String(body.dropFirst(addressed.count))
+        }
         append([JS8ChatMessage(id: UUID(), timestamp: Date(), from: myCall.uppercased(),
-                               to: to.uppercased(), cmd: cmd, text: text, snr: 0, offsetHz: 0,
-                               outgoing: true, read: true)])
+                               to: to.uppercased(), cmd: cmd, text: body, snr: 0, offsetHz: 0,
+                               outgoing: true, read: true, forMe: true)])
     }
 
     /// `includeObserved` (no groups joined) widens the list to overheard
@@ -198,8 +211,12 @@ final class JS8MessageStore: ObservableObject {
               let content = String(data: data, encoding: .utf8) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        let me = myCallCached
         messages = content.split(separator: "\n")
             .suffix(Self.maxInMemory)
             .compactMap { try? decoder.decode(JS8ChatMessage.self, from: Data($0.utf8)) }
+            // Heal records from before the loopback fix: a non-outgoing
+            // message "from" this station is our own TX heard off-air
+            .filter { $0.outgoing || $0.from != me || me.isEmpty }
     }
 }

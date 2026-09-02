@@ -77,6 +77,25 @@ final class JS8MessageStoreTests: XCTestCase {
         XCTAssertEqual(b.totalUnread, 0)
     }
 
+    func testLoopbackOfOwnTransmissionIsIgnored() {
+        let store = makeStore()
+        // Our TX decoded off the air: from == myCall, to == the partner
+        store.ingest([js8Message(kind: .directed, from: "W0CJW", to: "KS1DMD", cmd: " SNR?")],
+                     myCall: "W0CJW", identities: ["W0CJW"])
+        XCTAssertTrue(store.messages.isEmpty, "the outgoing echo covers it — no phantom observed pair")
+        XCTAssertTrue(store.conversations(includeObserved: true).isEmpty)
+    }
+
+    func testOutgoingEchoDropsRedundantAddress() {
+        let store = makeStore()
+        store.recordOutgoing(text: "KS1DMD SNR?", to: "KS1DMD", myCall: "W0CJW")
+        XCTAssertEqual(store.messages.first?.text, "SNR?")
+        XCTAssertEqual(JS8MessageStore.partner(for: store.messages[0], myCall: "W0CJW"), "KS1DMD")
+        // Free text without the address keeps its full body
+        store.recordOutgoing(text: "HELLO FROM COLORADO", to: "KJ7VWV", myCall: "W0CJW")
+        XCTAssertEqual(store.messages.last?.text, "HELLO FROM COLORADO")
+    }
+
     func testBubbleText() {
         let m = JS8ChatMessage(id: UUID(), timestamp: Date(), from: "K1ABC", to: "W0CJW",
                                cmd: " MSG", text: "HELLO", snr: -5, offsetHz: 1500, outgoing: false, read: false)
