@@ -3,6 +3,11 @@ import XCTest
 
 final class UpdateCheckerTests: XCTestCase {
 
+    func testReleaseNotesPageUsesTheReleaseTag() {
+        XCTAssertEqual(UpdateChecker.releaseNotesPage(for: "1.14.1")?.absoluteString,
+                       "https://github.com/watsoncj/squelch/releases/tag/v1.14.1")
+    }
+
     // MARK: - Version comparison
 
     func testNewerPatchMinorMajor() {

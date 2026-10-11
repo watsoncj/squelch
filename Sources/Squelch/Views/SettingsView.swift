@@ -84,7 +84,7 @@ struct SettingsView: View {
             case .js8: return ["word table", "dictionary", "heartbeat", "acknowledge", "auto-reply", "snr", "query", "jsc"]
             case .wspr: return ["beacon", "power", "dbm", "duty", "cycle", "upload", "wsprnet", "spots"]
             case .cat: return ["serial", "baud", "ft-891", "radio", "frequency", "vfo", "connect"]
-            case .updates: return ["update", "version", "check", "github", "release"]
+            case .updates: return ["update", "version", "check", "github", "release", "notes", "changelog"]
             }
         }
 
@@ -514,6 +514,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var updatesSection: some View {
         Section {
+                LabeledContent("Squelch \(UpdateChecker.currentVersion)") {
+                    if let notes = UpdateChecker.releaseNotesPage(for: UpdateChecker.currentVersion) {
+                        Link("Release Notes", destination: notes)
+                    }
+                }
+
                 Toggle("Check for updates automatically", isOn: Binding(
                     get: { UserDefaults.standard.bool(forKey: SettingsKeys.autoUpdateCheck) },
                     set: { UserDefaults.standard.set($0, forKey: SettingsKeys.autoUpdateCheck) }

@@ -50,6 +50,12 @@ final class UpdateChecker: ObservableObject {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
 
+    /// The GitHub release page for a version — releases are tagged
+    /// "v<version>".
+    nonisolated static func releaseNotesPage(for version: String) -> URL? {
+        URL(string: "https://github.com/\(repo)/releases/tag/v\(version)")
+    }
+
     // MARK: - Scheduling
 
     /// First check shortly after launch (don't compete with audio/CAT
