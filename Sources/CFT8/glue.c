@@ -21,7 +21,7 @@ enum {
     kMinScore = 10,
     kMaxCandidates = 140,
     kLDPCIterations = 25,
-    kMaxDecoded = 200,
+    kMaxDecoded = CFT8_MAX_RESULTS,
     // Dedupe table: every candidate that passes CRC lands here, decoded
     // text or not, so it must outsize candidates × passes
     kDedupeSlots = 2048,
@@ -476,7 +476,10 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
                 float f = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / mon->symbol_period;
                 float t = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * mon->symbol_period - kFT8WaterfallLag;
                 // Neighbouring waterfall cells of one signal all refine to
-                // the same peak; do that work once per pass
+                // the same peak; do that work once per pass. 2 Hz is the
+                // refinement's own reach: a wider window does skip more
+                // repeats, but off-air it also skipped real neighbours
+                // (3.2 Hz: 9 decodes of 1728 lost for 0.03 s saved).
                 bool seen = false;
                 for (int i = 0; i < num_tried && !seen; ++i)
                     seen = fabsf(tried[i][0] - f) < 2.0f && fabsf(tried[i][1] - t) < 0.1f;
@@ -536,6 +539,12 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
                 res->snr = fine.snr_db;
                 res->freq_hz = fine.freq_hz;
                 res->time_sec = fine.time_sec;
+            }
+            else if (deep)
+            {
+                // Out-of-budget fallback: keep one meaning of time_sec
+                // within a deep slot
+                res->time_sec -= kFT8WaterfallLag;
             }
             strncpy(res->text, text, sizeof(res->text) - 1);
             res->text[sizeof(res->text) - 1] = '\0';

@@ -81,8 +81,11 @@ final class DecodeController: ObservableObject {
     static let deepDecodeLead: Double = 0.4
     /// Beyond this the deep decoder finishes the slot with the stock
     /// decoder instead of holding up a transmission (a throttled or
-    /// efficiency-core-bound decode runs several times slower).
-    static let deepDecodeBudget: TimeInterval = 0.8
+    /// efficiency-core-bound decode runs several times slower). The lead
+    /// plus the lateness we'll accept: it has to clear an M1's ordinary
+    /// worst slot (0.39 s) or that machine would shed decodes routinely,
+    /// and a transmission 0.2 s late still decodes everywhere.
+    static let deepDecodeBudget: TimeInterval = deepDecodeLead + 0.2
     private var slotLead: Double {
         mode == .ft8 && Self.deepFT8Enabled ? Self.deepDecodeLead : 0
     }
@@ -338,14 +341,26 @@ final class DecodeController: ObservableObject {
     /// next boundary. After handling a boundary's slot, pass that boundary
     /// so a shrinking lead can't fire for the same slot twice. Otherwise a
     /// start inside the lead window fires at once rather than letting that
-    /// slot's audio run into the next.
+    /// slot's audio run into the next. Never in the past.
     static func nextSlotFire(now: TimeInterval, period: Double, lead: Double,
                              afterBoundary: TimeInterval? = nil) -> TimeInterval {
         if let afterBoundary {
-            return afterBoundary + period - lead
+            var fire = afterBoundary + period - lead
+            while fire <= now {
+                fire += period
+            }
+            return fire
         }
         let nextBoundary = (now / period).rounded(.down) * period + period
         return max(now, nextBoundary - lead)
+    }
+
+    /// The timer repeats from its first fire, so a fire that wasn't at
+    /// `lead` before a boundary (Start inside the lead window) would put
+    /// every later slot off the grid too. Leeway and a busy queue account
+    /// for a few tens of ms; more than this is a phase error to correct.
+    static func isOffGrid(fired: TimeInterval, boundary: TimeInterval, lead: Double) -> Bool {
+        abs(fired - (boundary - lead)) > 0.15
     }
 
     /// Main queue only.
@@ -449,8 +464,9 @@ final class DecodeController: ObservableObject {
             self.checkInputBinding()
             #endif
             self.onSlotDecoded?(results, slotStart)
-            // The deep-decode setting changed: move the timer to match
-            if wantedLead != lead, self.isRunning {
+            // The deep-decode setting changed, or this fire was off the
+            // grid: re-arm the timer where it belongs
+            if wantedLead != lead || Self.isOffGrid(fired: now, boundary: boundary, lead: lead), self.isRunning {
                 self.scheduleSlotTimer(afterBoundary: boundary)
             }
         }

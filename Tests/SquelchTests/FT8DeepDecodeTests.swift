@@ -149,6 +149,43 @@ final class FT8DeepDecodeTests: XCTestCase {
         XCTAssertEqual(DecodeController.nextSlotFire(now: boundary + 14.8, period: 15, lead: 0.4), boundary + 14.8, accuracy: 1e-6)
     }
 
+    func testOffGridFireIsReArmedOntoTheGrid() {
+        let boundary = 1_800_000_000.0
+        // Start 0.05 s before a boundary with a 0.4 s lead: fires at once…
+        let fired = DecodeController.nextSlotFire(now: boundary - 0.05, period: 15, lead: 0.4)
+        XCTAssertEqual(fired, boundary - 0.05, accuracy: 1e-6)
+        // …which is off the grid, so the timer must be re-armed, and the
+        // re-arm lands a full lead ahead of the next boundary
+        XCTAssertTrue(DecodeController.isOffGrid(fired: fired, boundary: boundary, lead: 0.4))
+        XCTAssertEqual(DecodeController.nextSlotFire(now: boundary, period: 15, lead: 0.4, afterBoundary: boundary),
+                       boundary + 14.6, accuracy: 1e-6)
+        // Ordinary timer jitter is not a phase error
+        XCTAssertFalse(DecodeController.isOffGrid(fired: boundary - 0.36, boundary: boundary, lead: 0.4))
+        XCTAssertFalse(DecodeController.isOffGrid(fired: boundary + 0.04, boundary: boundary, lead: 0))
+    }
+
+    func testReArmNeverSchedulesInThePast() {
+        // The re-arm ran late (a blocked main queue, a wake from sleep):
+        // skip to the next grid point still ahead
+        let boundary = 1_800_000_000.0
+        XCTAssertEqual(DecodeController.nextSlotFire(now: boundary + 20, period: 15, lead: 0.4, afterBoundary: boundary),
+                       boundary + 29.6, accuracy: 1e-6)
+    }
+
+    /// Budget-fallback results must share the deep results' time reference
+    /// (no waterfall lag), or DT would depend on how fast the machine is.
+    func testFallbackResultsKeepTheDeepTimeReference() throws {
+        let samples = try slot(seed: 5, signals: [("CQ W0CJW DM79", 1500, 5, 0.3)])
+        let deep = try XCTUnwrap(try decoder(deep: true).decodeSlot(samples).first)
+        let starved = try decoder(deep: true)
+        starved.timeBudget = 1e-6
+        let fallback = try XCTUnwrap(starved.decodeSlot(samples).first)
+        XCTAssertEqual(fallback.timeOffset, deep.timeOffset, accuracy: 0.05)
+        let stock = try XCTUnwrap(try decoder(deep: false).decodeSlot(samples).first)
+        XCTAssertEqual(stock.timeOffset - deep.timeOffset, 0.16, accuracy: 0.05,
+                       "the stock decoder keeps its original time reference")
+    }
+
     func testChangingTheLeadNeverRepeatsASlot() {
         let boundary = 1_800_000_000.0
         // Deep switched off just after an early fire for `boundary`: the

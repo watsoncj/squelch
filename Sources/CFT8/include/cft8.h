@@ -60,8 +60,12 @@ void cft8_set_time_budget(cft8_decoder_t* dec, float seconds);
 // extra samples beyond the slot capacity are ignored.
 void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples);
 
+// The most results one cft8_decode call returns.
+#define CFT8_MAX_RESULTS 200
+
 // Decode everything accumulated since the last reset.
-// Returns the number of results written (up to max_results).
+// Returns the number of results written (up to max_results, and never more
+// than CFT8_MAX_RESULTS).
 int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results);
 
 // Clear accumulated audio to prepare for the next slot.

@@ -3,6 +3,7 @@
 #include "encode.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,16 +17,22 @@
 #define LLR_VARIANTS 4
 
 static float tone_cos[8][SPS], tone_sin[8][SPS];
+static pthread_once_t tones_once = PTHREAD_ONCE_INIT;
 
-bool ft8_fine_init(ft8_fine_t* me, int sample_rate, float slot_seconds)
+static void tones_init(void)
 {
-    memset(me, 0, sizeof(*me));
     for (int k = 0; k < 8; ++k)
         for (int n = 0; n < SPS; ++n)
         {
             tone_cos[k][n] = cosf(2 * (float)M_PI * k * n / SPS);
             tone_sin[k][n] = sinf(2 * (float)M_PI * k * n / SPS);
         }
+}
+
+bool ft8_fine_init(ft8_fine_t* me, int sample_rate, float slot_seconds)
+{
+    memset(me, 0, sizeof(*me));
+    pthread_once(&tones_once, tones_init);
     me->nfft = (int)(sample_rate * slot_seconds);
     me->nbase = (int)(FT8_FINE_RATE * slot_seconds);
     if (me->nfft % 2 || sample_rate % FT8_FINE_RATE)
@@ -38,7 +45,10 @@ bool ft8_fine_init(ft8_fine_t* me, int sample_rate, float slot_seconds)
     me->bins = malloc(me->nbase * sizeof(kiss_fft_cpx));
     me->base = malloc(me->nbase * sizeof(kiss_fft_cpx));
     me->rot = malloc(me->nbase * sizeof(kiss_fft_cpx));
-    return me->fwd && me->inv && me->padded && me->spec && me->bins && me->base && me->rot;
+    if (me->fwd && me->inv && me->padded && me->spec && me->bins && me->base && me->rot)
+        return true;
+    ft8_fine_free(me);
+    return false;
 }
 
 void ft8_fine_free(ft8_fine_t* me)
@@ -144,12 +154,19 @@ static void rotate(const ft8_fine_t* me, float delta_hz, int from, int to)
         from = 0;
     if (to > me->nbase)
         to = me->nbase;
-    float w = -2 * (float)M_PI * delta_hz / FT8_FINE_RATE;
+    // One phasor stepped by a complex multiply per sample; doubles keep
+    // its length and angle true across the whole transmission
+    double w = -2 * M_PI * delta_hz / FT8_FINE_RATE;
+    double step_c = cos(w), step_s = sin(w);
+    double c = cos(w * from), s = sin(w * from);
     for (int n = from; n < to; ++n)
     {
-        float c = cosf(w * n), s = sinf(w * n);
-        me->rot[n].r = me->base[n].r * c - me->base[n].i * s;
-        me->rot[n].i = me->base[n].r * s + me->base[n].i * c;
+        float cf = (float)c, sf = (float)s;
+        me->rot[n].r = me->base[n].r * cf - me->base[n].i * sf;
+        me->rot[n].i = me->base[n].r * sf + me->base[n].i * cf;
+        double next = c * step_c - s * step_s;
+        s = c * step_s + s * step_c;
+        c = next;
     }
 }
 

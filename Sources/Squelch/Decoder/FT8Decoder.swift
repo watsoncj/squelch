@@ -221,7 +221,7 @@ final class FT8Decoder {
         }
         cft8_set_deep(dec, deepDecode)
         cft8_set_time_budget(dec, Float(timeBudget ?? 0))
-        var raw = [cft8_result_t](repeating: cft8_result_t(), count: 200)
+        var raw = [cft8_result_t](repeating: cft8_result_t(), count: Int(CFT8_MAX_RESULTS))
         let count = raw.withUnsafeMutableBufferPointer { buf in
             Int(cft8_decode(dec, buf.baseAddress, Int32(buf.count)))
         }
