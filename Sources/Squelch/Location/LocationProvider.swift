@@ -89,6 +89,7 @@ enum SettingsKeys {
     static let pttPortPath = "pttPortPath"
     static let txOffsetHz = "txOffsetHz"
     static let digiMode = "digiMode"
+    static let ft8DeepDecode = "ft8DeepDecode"
     static let catPortPath = "catPortPath"
     static let catBaud = "catBaud"
     static let mapStyle = "mapStyle"

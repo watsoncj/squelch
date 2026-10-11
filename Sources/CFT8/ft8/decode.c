@@ -712,3 +712,24 @@ static void pack_bits(const uint8_t bit_array[], int num_bits, uint8_t packed[])
         }
     }
 }
+
+bool ftx_decode_llr(float* log174, int max_iterations, ftx_message_t* message, ftx_decode_status_t* status)
+{
+    uint8_t plain174[FTX_LDPC_N];
+    bp_decode(log174, max_iterations, plain174, &status->ldpc_errors);
+    if (status->ldpc_errors > 0)
+        return false;
+
+    uint8_t a91[FTX_LDPC_K_BYTES];
+    pack_bits(plain174, FTX_LDPC_K, a91);
+    status->crc_extracted = ftx_extract_crc(a91);
+    a91[9] &= 0xF8;
+    a91[10] &= 0x00;
+    status->crc_calculated = ftx_compute_crc(a91, 96 - 14);
+    if (status->crc_extracted != status->crc_calculated)
+        return false;
+    message->hash = status->crc_calculated;
+    for (int i = 0; i < 10; ++i)
+        message->payload[i] = a91[i];
+    return true;
+}

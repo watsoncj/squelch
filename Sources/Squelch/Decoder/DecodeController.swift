@@ -62,6 +62,30 @@ final class DecodeController: ObservableObject {
 
     private let bufferLock = NSLock()
     private var sampleBuffer: [Float] = []
+    /// Incoming samples still to drop (under bufferLock): the tail of a
+    /// slot that was snapshotted ahead of its boundary, which must not
+    /// open the next slot's buffer.
+    private var pendingDiscard = 0
+
+    /// The FT8 deep decoder (Settings › Audio Input), on unless switched
+    /// off. Read every slot, so the toggle takes effect at the next one.
+    static var deepFT8Enabled: Bool {
+        UserDefaults.standard.object(forKey: SettingsKeys.ft8DeepDecode) as? Bool ?? true
+    }
+    /// The deep decoder takes a few tenths of a second (≈0.2 s on an M5,
+    /// ≈0.35 s on an M1) and our own transmission waits on the decode, so
+    /// its slots are snapshotted this far ahead of the boundary and the
+    /// results held until the boundary. FT8 transmissions end 1.9 s before
+    /// the boundary, so nothing on time is cut; off-air, dropping the last
+    /// 0.4 s cost 3 decodes of 1728.
+    static let deepDecodeLead: Double = 0.4
+    /// Beyond this the deep decoder finishes the slot with the stock
+    /// decoder instead of holding up a transmission (a throttled or
+    /// efficiency-core-bound decode runs several times slower).
+    static let deepDecodeBudget: TimeInterval = 0.8
+    private var slotLead: Double {
+        mode == .ft8 && Self.deepFT8Enabled ? Self.deepDecodeLead : 0
+    }
 
     /// Mode is latched at start; switching modes requires stop/start.
     private(set) var mode: DigiMode = .ft8
@@ -159,6 +183,7 @@ final class DecodeController: ObservableObject {
         #endif
         bufferLock.lock()
         sampleBuffer.removeAll()
+        pendingDiscard = 0
         bufferLock.unlock()
         isRunning = false
         statusText = "Stopped"
@@ -249,6 +274,7 @@ final class DecodeController: ObservableObject {
             guard let self else { return }
             self.bufferLock.lock()
             self.sampleBuffer.removeAll(keepingCapacity: true)
+            self.pendingDiscard = 0
             self.bufferLock.unlock()
             self.scheduleSlotTimer()
         }
@@ -259,7 +285,12 @@ final class DecodeController: ObservableObject {
         audioTap?(samples)
         let cap = maxBufferedSamples
         bufferLock.lock()
-        sampleBuffer.append(contentsOf: samples)
+        if pendingDiscard >= samples.count {
+            pendingDiscard -= samples.count
+        } else {
+            sampleBuffer.append(contentsOf: samples[pendingDiscard...])
+            pendingDiscard = 0
+        }
         if sampleBuffer.count > cap {
             sampleBuffer.removeFirst(sampleBuffer.count - cap)
         }
@@ -303,12 +334,28 @@ final class DecodeController: ObservableObject {
         }
     }
 
-    private func scheduleSlotTimer() {
+    /// When the slot timer should next fire: `lead` seconds ahead of the
+    /// next boundary. After handling a boundary's slot, pass that boundary
+    /// so a shrinking lead can't fire for the same slot twice. Otherwise a
+    /// start inside the lead window fires at once rather than letting that
+    /// slot's audio run into the next.
+    static func nextSlotFire(now: TimeInterval, period: Double, lead: Double,
+                             afterBoundary: TimeInterval? = nil) -> TimeInterval {
+        if let afterBoundary {
+            return afterBoundary + period - lead
+        }
+        let nextBoundary = (now / period).rounded(.down) * period + period
+        return max(now, nextBoundary - lead)
+    }
+
+    /// Main queue only.
+    private func scheduleSlotTimer(afterBoundary: TimeInterval? = nil) {
         timer?.cancel()
         let period = slotSeconds
+        let lead = slotLead
         let t = DispatchSource.makeTimerSource(queue: decodeQueue)
         let now = Date().timeIntervalSince1970
-        let untilNextSlot = period - now.truncatingRemainder(dividingBy: period)
+        let untilNextSlot = Self.nextSlotFire(now: now, period: period, lead: lead, afterBoundary: afterBoundary) - now
         // Wall clock, not monotonic: slots are UTC-aligned, and a monotonic
         // deadline pauses across system sleep — every slot after a wake
         // would fire late by the slept time and decode misaligned windows.
@@ -318,7 +365,7 @@ final class DecodeController: ObservableObject {
             leeway: .milliseconds(50)
         )
         t.setEventHandler { [weak self] in
-            self?.processSlot()
+            self?.processSlot(lead: lead)
         }
         t.resume()
         timer = t
@@ -335,8 +382,9 @@ final class DecodeController: ObservableObject {
         return sinceBoundary > tolerance && sinceBoundary < period - tolerance
     }
 
-    /// Runs on decodeQueue at each slot boundary.
-    private func processSlot() {
+    /// Runs on decodeQueue at each slot boundary — or `lead` seconds
+    /// ahead of it, for the deep FT8 decoder.
+    private func processSlot(lead: Double) {
         let period = slotSeconds
         let now = Date().timeIntervalSince1970
         let boundary = (now / period).rounded() * period
@@ -345,11 +393,15 @@ final class DecodeController: ObservableObject {
         bufferLock.lock()
         let slotSamples = sampleBuffer
         sampleBuffer.removeAll(keepingCapacity: true)
+        pendingDiscard = lead > 0 ? max(0, Int((boundary - now) * Double(FT8Decoder.sampleRate))) : 0
         bufferLock.unlock()
 
         if decoder == nil {
             decoder = FT8Decoder(mode: mode)
         }
+        let deep = mode == .ft8 && Self.deepFT8Enabled
+        decoder?.deepDecode = deep
+        decoder?.timeBudget = deep ? Self.deepDecodeBudget : nil
 
         // Always report the slot — even empty — so the QSO sequencer keeps
         // getting its transmit windows when a slot's audio is unusable.
@@ -380,7 +432,11 @@ final class DecodeController: ObservableObject {
         }
         let isWSPR = mode == .wspr
         let slotWasEmpty = slotSamples.isEmpty
-        DispatchQueue.main.async {
+        // An early snapshot must not become an early transmission: the
+        // sequencer keys up as soon as it gets the slot.
+        let untilBoundary = lead > 0 ? boundary - Date().timeIntervalSince1970 : 0
+        let wantedLead = slotLead
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, untilBoundary)) {
             self.lastSlotCount = results.count
             if let sync = wsprSlotSync {
                 self.noteWSPRSlot(spotCount: results.count, strongestSync: sync)
@@ -393,6 +449,10 @@ final class DecodeController: ObservableObject {
             self.checkInputBinding()
             #endif
             self.onSlotDecoded?(results, slotStart)
+            // The deep-decode setting changed: move the timer to match
+            if wantedLead != lead, self.isRunning {
+                self.scheduleSlotTimer(afterBoundary: boundary)
+            }
         }
     }
 

@@ -12,6 +12,7 @@ struct PadSettingsView: View {
     @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
     @AppStorage(SettingsKeys.dialFrequencyMHz) private var dialFrequencyMHz = 14.074
     @AppStorage(SettingsKeys.wsprUpload) private var wsprUpload = false
+    @AppStorage(SettingsKeys.ft8DeepDecode) private var ft8DeepDecode = true
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -80,6 +81,10 @@ struct PadSettingsView: View {
                             .monospacedDigit()
                     }
                     Text("Plug the Digirig (or any USB audio interface) into the USB-C port — it's used automatically. Set the radio's dial by hand to match the frequency chosen in the toolbar; iPadOS has no USB serial, so CAT and transmit stay Mac features.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Toggle("Deep FT8 decoding", isOn: $ft8DeepDecode)
+                    Text("Decodes weaker signals and signals sitting under stronger ones. Turn off to fall back to the original decoder.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

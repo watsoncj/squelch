@@ -193,6 +193,16 @@ final class FT8Decoder {
 
     private let mode: DigiMode
 
+    /// FT8 only: decode each candidate from the slot audio itself and
+    /// subtract what decoded to find the signals underneath — about 2 dB
+    /// more sensitive and able to pull apart overlapping signals, for a
+    /// few tenths of a second per slot. Off is the stock ft8_lib waterfall
+    /// decoder. No effect in other modes.
+    var deepDecode = true
+    /// Deep decode only: once a slot's decode has run this long, finish it
+    /// with the stock decoder. Nil = no limit.
+    var timeBudget: TimeInterval?
+
     init?(mode: DigiMode = .ft8) {
         guard let d = cft8_create(Int32(Self.sampleRate), mode.protocolID) else { return nil }
         dec = d
@@ -209,7 +219,9 @@ final class FT8Decoder {
         samples.withUnsafeBufferPointer { buf in
             cft8_feed(dec, buf.baseAddress, Int32(buf.count))
         }
-        var raw = [cft8_result_t](repeating: cft8_result_t(), count: 50)
+        cft8_set_deep(dec, deepDecode)
+        cft8_set_time_budget(dec, Float(timeBudget ?? 0))
+        var raw = [cft8_result_t](repeating: cft8_result_t(), count: 200)
         let count = raw.withUnsafeMutableBufferPointer { buf in
             Int(cft8_decode(dec, buf.baseAddress, Int32(buf.count)))
         }

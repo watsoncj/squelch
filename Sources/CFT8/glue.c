@@ -9,17 +9,22 @@
 #include <ft8/constants.h>
 #include <common/monitor.h>
 #include <js8/js8.h>
+#include <ft8/fine.h>
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 enum {
     kMinScore = 10,
     kMaxCandidates = 140,
     kLDPCIterations = 25,
-    kMaxDecoded = 50,
+    kMaxDecoded = 200,
+    // Dedupe table: every candidate that passes CRC lands here, decoded
+    // text or not, so it must outsize candidates × passes
+    kDedupeSlots = 2048,
     kHashtableSize = 256,
     // JS8 digs deeper: fixture measurements (JS8Call's media/tests) show
     // finer time alignment is worth +3 decodes of 33, and the extra CPU
@@ -28,7 +33,13 @@ enum {
     kJS8MinScore = 4,
     kJS8MaxCandidates = 500,
     kJS8LDPCIterations = 30,
+    kSubtractPasses = 3,
 };
+
+// The waterfall stamps a block with the END of its 2-symbol analysis
+// window; at FT8's time_osr of 2 the symbol it resolves started this much
+// earlier.
+static const float kFT8WaterfallLag = 0.16f;
 
 typedef struct {
     char callsign[12];
@@ -38,10 +49,16 @@ typedef struct {
 struct cft8_decoder {
     monitor_t mon;
     hash_entry_t hashtable[kHashtableSize];
-    // Raw slot audio, kept for the subtract-and-rescan passes (JS8).
+    // Raw slot audio, kept for the subtract-and-rescan passes (JS8, and
+    // FT8's deep decode).
     float* audio;
     int audio_len;
     int audio_cap;
+    // FT8 deep decode: baseband demodulator + subtraction (see cft8_set_deep)
+    ft8_fine_t fine;
+    bool has_fine;
+    bool deep;
+    float budget_sec;
 };
 
 // ft8_lib's hash interface takes plain function pointers with no context
@@ -150,12 +167,31 @@ cft8_decoder_t* cft8_create(int sample_rate, cft8_protocol_t protocol)
         .protocol = ftx,
     };
     monitor_init(&dec->mon, &cfg);
-    if (ftx_protocol_is_js8(ftx))
+    if (ftx == FTX_PROTOCOL_FT8)
+        dec->has_fine = ft8_fine_init(&dec->fine, sample_rate, ftx_protocol_slot_time(ftx));
+    if (ftx_protocol_is_js8(ftx) || dec->has_fine)
     {
         dec->audio_cap = (int)(ftx_protocol_slot_time(ftx) * sample_rate);
         dec->audio = malloc(dec->audio_cap * sizeof(float));
     }
     return dec;
+}
+
+void cft8_set_deep(cft8_decoder_t* dec, bool deep)
+{
+    dec->deep = deep && dec->has_fine && dec->audio;
+}
+
+void cft8_set_time_budget(cft8_decoder_t* dec, float seconds)
+{
+    dec->budget_sec = seconds;
+}
+
+static double seconds_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
 void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples)
@@ -178,13 +214,16 @@ void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples)
 
 static void gfsk_pulse(int n_spsym, float symbol_bt, float* pulse);
 
-// Coherent subtraction of one decoded JS8 signal from the slot audio
+// Coherent subtraction of one decoded JS8 or FT8 signal from the slot audio
 // (WSJT-X's subtractft8 scheme, adapted to a real-valued signal): build
 // the reference GFSK phase, demodulate the audio against it, low-pass the
 // product to recover the slowly varying complex envelope — which absorbs
 // the residual frequency/phase error — then reconstruct and subtract.
-static void subtract_js8(float* audio, int n_audio, const uint8_t tones[JS8_NN],
-                         float f0, float dt_sec, float symbol_period, int rate)
+// The two share 79 tones and BT. `refined` says f0/dt_sec already came from
+// the baseband demodulator, so only the last fraction of a Hz and the
+// sample-level timing are left to find.
+static void subtract_signal(float* audio, int n_audio, const uint8_t tones[JS8_NN],
+                            float f0, float dt_sec, float symbol_period, int rate, bool refined)
 {
     int n_spsym = (int)(0.5f + rate * symbol_period);
     int n_wave = JS8_NN * n_spsym;
@@ -252,7 +291,7 @@ static void subtract_js8(float* audio, int n_audio, const uint8_t tones[JS8_NN],
 
         // Pass A: time, 20 ms steps over [−400 ms, +100 ms] around the estimate
         best_energy = -1;
-        for (int ds = -(rate * 2 / 5); ds <= rate / 10; ds += rate / 50)
+        for (int ds = refined ? 0 : -(rate * 2 / 5); ds <= (refined ? 0 : rate / 10); ds += rate / 50)
         {
             double e;
             REF_ENERGY(start + ds, 0.0f, e);
@@ -262,10 +301,13 @@ static void subtract_js8(float* audio, int n_audio, const uint8_t tones[JS8_NN],
                 refined_start = start + ds;
             }
         }
-        // Pass B: frequency, ±1.6 Hz in 0.2 Hz steps
+        // Pass B: frequency, ±1.6 Hz in 0.2 Hz steps (±0.3 Hz in 0.05 Hz
+        // steps from a refined estimate)
         float best_delta = 0;
+        float delta_span = refined ? 0.3f : 1.6f;
+        float delta_step = refined ? 0.05f : 0.2f;
         best_energy = -1;
-        for (float delta = -1.6f; delta <= 1.6f; delta += 0.2f)
+        for (float delta = -delta_span; delta <= delta_span; delta += delta_step)
         {
             double e;
             REF_ENERGY(refined_start, 2 * (float)M_PI * delta / rate, e);
@@ -352,32 +394,57 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
     monitor_t* mon = &dec->mon;
     const ftx_waterfall_t* wf = &mon->wf;
     bool js8 = ftx_protocol_is_js8(wf->protocol);
+    bool deep = dec->deep && dec->audio_len > 0;
     int iterations = js8 ? kJS8LDPCIterations : kLDPCIterations;
     int sample_rate = (int)lroundf(mon->block_size / mon->symbol_period);
 
-    ftx_message_t decoded[kMaxDecoded];
-    ftx_message_t* decoded_hashtable[kMaxDecoded] = { 0 };
+    ftx_message_t decoded[kDedupeSlots];
+    ftx_message_t* decoded_hashtable[kDedupeSlots] = { 0 };
     int num_out = 0;
     int subtracted = 0; // results already removed from the audio
     // Subtract-and-rescan: decode, coherently subtract what decoded,
     // rebuild the waterfall from the cleaned audio, scan again for the
     // signals the strong ones were sitting on.
-    int max_passes = (js8 && dec->audio && dec->audio_len > 0) ? 3 : 1;
+    int max_passes = ((js8 && dec->audio && dec->audio_len > 0) || deep) ? kSubtractPasses : 1;
+    // Deep FT8 only: full payloads of the results, for re-encoding, and
+    // whether each came from the baseband demodulator
+    uint8_t payloads[kMaxDecoded][FTX_PAYLOAD_LENGTH_BYTES];
+    bool refined[kMaxDecoded];
+    // Deep FT8 only: a slow machine sheds work rather than hold up our own
+    // transmission, which waits on this decode
+    bool budgeted = deep && dec->budget_sec > 0;
+    double started = budgeted ? seconds_now() : 0;
+    double pass_started = started;
 
+    if (deep)
+        ft8_fine_load(&dec->fine, dec->audio, dec->audio_len);
     for (int pass = 0; pass < max_passes && num_out < max_results; ++pass)
     {
         if (pass > 0)
         {
             if (subtracted == num_out)
                 break; // last pass found nothing new
+            if (budgeted)
+            {
+                // Passes get cheaper, so the last one's cost bounds the next
+                double now = seconds_now();
+                if (now - started + (now - pass_started) > dec->budget_sec)
+                    break;
+                pass_started = now;
+            }
             for (; subtracted < num_out; ++subtracted)
             {
                 cft8_result_t* r = &results[subtracted];
                 uint8_t tones[JS8_NN];
-                js8_encode(r->js8_payload, r->js8_type, wf->protocol, tones);
-                subtract_js8(dec->audio, dec->audio_len, tones, r->freq_hz, r->time_sec,
-                             mon->symbol_period, sample_rate);
+                if (js8)
+                    js8_encode(r->js8_payload, r->js8_type, wf->protocol, tones);
+                else
+                    ft8_encode(payloads[subtracted], tones);
+                subtract_signal(dec->audio, dec->audio_len, tones, r->freq_hz, r->time_sec,
+                                mon->symbol_period, sample_rate, refined[subtracted]);
             }
+            if (deep)
+                ft8_fine_load(&dec->fine, dec->audio, dec->audio_len);
             monitor_reset(mon);
             for (int pos = 0; pos + mon->block_size <= dec->audio_len; pos += mon->block_size)
             {
@@ -390,6 +457,9 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
         ftx_candidate_t candidates[kJS8MaxCandidates];
         int num_candidates = ftx_find_candidates(wf, js8 ? kJS8MaxCandidates : kMaxCandidates,
                                                  candidates, js8 ? kJS8MinScore : kMinScore);
+        // Deep FT8 only: where this pass's candidates refined to
+        float tried[kMaxCandidates][2];
+        int num_tried = 0;
 
         for (int idx = 0; idx < num_candidates && num_out < max_results; ++idx)
         {
@@ -397,11 +467,33 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
 
             ftx_message_t message;
             ftx_decode_status_t status;
-            if (!ftx_decode_candidate(wf, cand, iterations, &message, &status))
+            ft8_fine_result_t fine = { 0 };
+            // Out of time, the rest of the candidates (strongest come
+            // first) get the stock decode, which costs next to nothing
+            bool use_fine = deep && !(budgeted && seconds_now() - started > dec->budget_sec);
+            if (use_fine)
+            {
+                float f = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / mon->symbol_period;
+                float t = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * mon->symbol_period - kFT8WaterfallLag;
+                // Neighbouring waterfall cells of one signal all refine to
+                // the same peak; do that work once per pass
+                bool seen = false;
+                for (int i = 0; i < num_tried && !seen; ++i)
+                    seen = fabsf(tried[i][0] - f) < 2.0f && fabsf(tried[i][1] - t) < 0.1f;
+                if (seen)
+                    continue;
+                bool ok = ft8_fine_decode(&dec->fine, f, t, iterations, &message, &fine);
+                tried[num_tried][0] = fine.freq_hz;
+                tried[num_tried][1] = fine.time_sec;
+                ++num_tried;
+                if (!ok)
+                    continue;
+            }
+            else if (!ftx_decode_candidate(wf, cand, iterations, &message, &status))
                 continue;
 
             // Duplicate check (same payload decoded from a different candidate)
-            int idx_hash = message.hash % kMaxDecoded;
+            int idx_hash = message.hash % kDedupeSlots;
             bool duplicate = false;
             while (decoded_hashtable[idx_hash] != NULL)
             {
@@ -411,7 +503,7 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
                     duplicate = true;
                     break;
                 }
-                idx_hash = (idx_hash + 1) % kMaxDecoded;
+                idx_hash = (idx_hash + 1) % kDedupeSlots;
             }
             if (duplicate)
                 continue;
@@ -431,12 +523,20 @@ int cft8_decode(cft8_decoder_t* dec, cft8_result_t* results, int max_results)
                     continue;
             }
 
+            memcpy(payloads[num_out], message.payload, FTX_PAYLOAD_LENGTH_BYTES);
+            refined[num_out] = use_fine;
             cft8_result_t* res = &results[num_out++];
             memset(res, 0, sizeof(*res));
             res->score = cand->score;
             res->snr = cand->score * 0.5f - 24.0f; // rough SNR estimate from sync score
             res->freq_hz = (mon->min_bin + cand->freq_offset + (float)cand->freq_sub / wf->freq_osr) / mon->symbol_period;
             res->time_sec = (cand->time_offset + (float)cand->time_sub / wf->time_osr) * mon->symbol_period;
+            if (use_fine)
+            {
+                res->snr = fine.snr_db;
+                res->freq_hz = fine.freq_hz;
+                res->time_sec = fine.time_sec;
+            }
             strncpy(res->text, text, sizeof(res->text) - 1);
             res->text[sizeof(res->text) - 1] = '\0';
             memcpy(res->js8_payload, message.payload, 9);
@@ -459,6 +559,8 @@ void cft8_destroy(cft8_decoder_t* dec)
     if (!dec)
         return;
     monitor_free(&dec->mon);
+    if (dec->has_fine)
+        ft8_fine_free(&dec->fine);
     free(dec->audio);
     free(dec);
 }

@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKeys.myGrid) private var myGrid = ""
     @AppStorage(SettingsKeys.arrlSection) private var arrlSection = ""
     @AppStorage(SettingsKeys.audioDeviceUID) private var audioDeviceUID = ""
+    @AppStorage(SettingsKeys.ft8DeepDecode) private var ft8DeepDecode = true
     @AppStorage(SettingsKeys.audioOutputUID) private var audioOutputUID = ""
     @AppStorage(SettingsKeys.pttPortPath) private var pttPortPath = ""
     @AppStorage(SettingsKeys.txOffsetHz) private var txOffsetHz = 1500.0
@@ -78,7 +79,7 @@ struct SettingsView: View {
             switch self {
             case .station: return ["callsign", "license", "grid", "maidenhead", "location", "arrl", "section", "cabrillo"]
             case .display: return ["time", "utc", "local", "distance", "miles", "kilometers", "units"]
-            case .audio: return ["input", "device", "digirig", "level", "meter", "microphone", "silent"]
+            case .audio: return ["input", "device", "digirig", "level", "meter", "microphone", "silent", "decoder", "deep", "ft8", "sensitivity"]
             case .transmit: return ["output", "ptt", "serial", "offset", "tune", "alc", "rts", "tx"]
             case .js8: return ["word table", "dictionary", "heartbeat", "acknowledge", "auto-reply", "snr", "query", "jsc"]
             case .wspr: return ["beacon", "power", "dbm", "duty", "cycle", "upload", "wsprnet", "spots"]
@@ -290,6 +291,9 @@ struct SettingsView: View {
                 Text("The Digirig usually appears as “USB PnP Sound Device” or “USB Audio Device”. Restart decoding after changing this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("Deep FT8 decoding", isOn: $ft8DeepDecode)
+                    .help("Decodes weaker signals and signals sitting under stronger ones, and reports measured SNR. Uses a few tenths of a second of CPU per slot. Turn off to fall back to the original decoder. Takes effect at the next slot; FT8 only.")
             }
     }
 

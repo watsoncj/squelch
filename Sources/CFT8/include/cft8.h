@@ -42,6 +42,20 @@ float cft8_transmission_seconds(cft8_protocol_t protocol); // first symbol -> la
 // Create a decoder for the given input sample rate (mono float samples).
 cft8_decoder_t* cft8_create(int sample_rate, cft8_protocol_t protocol);
 
+// FT8 only (ignored for other protocols): decode each candidate from the
+// slot audio itself — fine frequency/time sync, matched-filter tones,
+// multi-symbol detection — and subtract what decoded to rescan for the
+// signals underneath. Roughly 2 dB more sensitive and able to separate
+// overlapping signals, at ~100× the CPU (still a fraction of a second).
+// Results then carry a measured SNR and an unbiased time_sec. Off by
+// default; takes effect at the next cft8_decode.
+void cft8_set_deep(cft8_decoder_t* dec, bool deep);
+
+// Deep FT8 decode only: once a decode has run this long, start no further
+// subtraction pass and give the remaining (weakest) candidates the stock
+// decode instead. 0 (the default) = no limit.
+void cft8_set_time_budget(cft8_decoder_t* dec, float seconds);
+
 // Feed one slot's worth of audio (~15 s). Safe to pass fewer samples;
 // extra samples beyond the slot capacity are ignored.
 void cft8_feed(cft8_decoder_t* dec, const float* samples, int num_samples);
