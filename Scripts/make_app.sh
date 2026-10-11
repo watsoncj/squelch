@@ -7,7 +7,12 @@ CONFIG="${1:-release}"
 APP="$ROOT/Squelch.app"
 
 echo "Building ($CONFIG)…"
-swift build --package-path "$ROOT" -c "$CONFIG"
+# SwiftPM's default build system stamps the binary's "built with SDK" as
+# the deployment target (15.0) instead of the SDK it actually used. macOS
+# reads that stamp to decide whether an app gets current system styling:
+# stamped 15.0, the toolbar loses its Liquid Glass capsules. Stamp the truth.
+SDK_STAMP=(-Xlinker -platform_version -Xlinker macos -Xlinker 15.0 -Xlinker "$(xcrun --sdk macosx --show-sdk-version)")
+swift build --package-path "$ROOT" -c "$CONFIG" "${SDK_STAMP[@]}"
 
 BIN="$ROOT/.build/$CONFIG/Squelch"
 

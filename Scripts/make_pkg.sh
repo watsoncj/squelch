@@ -22,7 +22,9 @@ DIST_ID="${DIST_ID:-Apple Distribution}"
 INSTALLER_ID="${INSTALLER_ID:-3rd Party Mac Developer Installer}"
 
 echo "Building release…"
-swift build --package-path "$ROOT" -c release
+# See make_app.sh: without this the app loses current system styling
+SDK_STAMP=(-Xlinker -platform_version -Xlinker macos -Xlinker 15.0 -Xlinker "$(xcrun --sdk macosx --show-sdk-version)")
+swift build --package-path "$ROOT" -c release "${SDK_STAMP[@]}"
 
 BIN="$ROOT/.build/release/Squelch"
 
