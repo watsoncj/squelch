@@ -1164,7 +1164,7 @@ struct ContentView: View {
     private var canReplyToSelection: Bool {
         guard txAvailable, sequencer.mode == .idle, !transmit.anyTXActive,
               let message = selectedMessage else { return false }
-        return message.isAnswerable(by: myCallsign)
+        return message.isCallable(by: myCallsign)
     }
 
     private var txDisabledReason: String? {

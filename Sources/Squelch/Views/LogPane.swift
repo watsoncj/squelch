@@ -235,9 +235,10 @@ struct LogPane<Header: View>: View {
                                 longitude: message.longitude, distanceKm: message.distanceKm, mode: message.mode))
                         }
                     }
-                    if message.isAnswerable(by: myCallsign), let call = message.callsign, let onReply {
+                    if message.isCallable(by: myCallsign), let call = message.callsign, let onReply {
                         Button(replyEnabled
-                               ? (message.isCQ ? "Reply to \(call)" : "Answer \(call)")
+                               ? (message.isCQ ? "Reply to \(call)"
+                                  : message.isAnswerable(by: myCallsign) ? "Answer \(call)" : "Call \(call)")
                                : "Reply requires decoding (press Start)") {
                             onReply(message)
                         }

@@ -50,8 +50,11 @@ struct StationDetailView: View {
             .map { $0 }
     }
 
-    private var latestAnswerable: DecodedMessage? {
-        store.messages.first { $0.callsign == callsign && $0.isAnswerable(by: myCallsign) }
+    /// The station's newest message: what the reply button acts on,
+    /// whether that's answering a CQ, continuing an exchange with us, or
+    /// calling a station that's busy with someone else.
+    private var latestCallable: DecodedMessage? {
+        store.messages.first { $0.callsign == callsign && $0.isCallable(by: myCallsign) }
     }
 
     private var workedBefore: QSORecord? {
@@ -274,11 +277,12 @@ struct StationDetailView: View {
 
     private var replyButton: some View {
         Group {
-            if let message = latestAnswerable, let onReply {
+            if let message = latestCallable, let onReply {
                 Button {
                     onReply(message)
                 } label: {
-                    Label(message.isCQ ? "Reply to CQ" : "Answer", systemImage: "arrowshape.turn.up.left.fill")
+                    Label(message.isCQ ? "Reply to CQ" : message.isAnswerable(by: myCallsign) ? "Answer" : "Call \(callsign)",
+                          systemImage: "arrowshape.turn.up.left.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)

@@ -178,6 +178,13 @@ final class CallsignCountryTests: XCTestCase {
         XCTAssertFalse(message("W0CJW KJ6QBD RR73").isAnswerable(by: "W0CJW")) // sign-off
         XCTAssertFalse(message("W0CJW KJ6QBD 73").isAnswerable(by: "W0CJW"))
         XCTAssertFalse(message("K1ABC KJ6QBD CM98").isAnswerable(by: "W0CJW")) // not for me
+
+        // …but any station heard can be called cold, CQ or not
+        XCTAssertTrue(message("K1ABC KJ6QBD CM98").isCallable(by: "W0CJW"))
+        XCTAssertTrue(message("K1ABC KJ6QBD RR73").isCallable(by: "W0CJW"))
+        XCTAssertTrue(message("W0CJW KJ6QBD 73").isCallable(by: "W0CJW"))      // work them again
+        XCTAssertTrue(message("CQ KJ6QBD CM98").isCallable(by: "W0CJW"))
+        XCTAssertFalse(message("K1ABC W0CJW DM79").isCallable(by: "w0cjw"))    // our own loopback
     }
 
     func testMHzText() {

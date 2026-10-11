@@ -89,6 +89,14 @@ struct DecodedMessage: Identifiable, Codable, Equatable {
         return !QSOSequencer.isSignoff(payloadToken)
     }
 
+    /// Can a QSO be opened with this message's sender? Any FT8/FT4 station
+    /// we can name but ourselves — calling CQ or not. One busy in another
+    /// exchange may not come back; that's the operator's call to make.
+    func isCallable(by myCall: String) -> Bool {
+        guard let callsign, !isJS8, mode != "WSPR" else { return false }
+        return callsign.uppercased() != myCall.uppercased()
+    }
+
     /// Even (0) or odd (1) slot for the given slot period (15 s FT8,
     /// 7.5 s FT4); QSO partners alternate parity.
     func slotParity(slotSeconds: Double) -> Int {

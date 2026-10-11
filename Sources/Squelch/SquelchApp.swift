@@ -695,7 +695,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Reply to a CQ (answer with our grid), or to a message calling us —
-    /// entering mid-exchange at the right step for its payload.
+    /// entering mid-exchange at the right step for its payload. Any other
+    /// message is just proof the station is on: call it cold with our grid,
+    /// as if it had called CQ.
     func reply(to message: DecodedMessage) {
         guard requireDecoding() else { return }
         guard let call = message.callsign else { return }
@@ -705,7 +707,7 @@ final class AppModel: ObservableObject {
         sequencer.myGrid4 = String((location.effectiveGrid ?? "").prefix(4))
         let theirParity = message.slotParity(slotSeconds: period)
 
-        if message.isCQ {
+        if message.isCQ || !message.isAnswerable(by: sequencer.myCall) {
             sequencer.replyTo(call: call, snr: message.snr, cqParity: theirParity, grid: message.grid)
         } else if QSOSequencer.isReport(message.payloadToken) {
             // They sent us a report — we owe a roger
