@@ -895,6 +895,11 @@ struct SquelchApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1200, height: 800)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Squelch") {
+                    Self.showAboutPanel()
+                }
+            }
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
                     model.updater.checkNow()
@@ -911,5 +916,22 @@ struct SquelchApp: App {
         Settings {
             SettingsView(cat: model.cat, location: model.location, controller: model.controller, wsprNet: model.wsprNet, updater: model.updater, js8: model.js8)
         }
+    }
+
+    /// The standard About panel, with a link to this version's release
+    /// notes where the credits go.
+    private static func showAboutPanel() {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let notes = UpdateChecker.releaseNotesPage(for: UpdateChecker.currentVersion) {
+            let centered = NSMutableParagraphStyle()
+            centered.alignment = .center
+            options[.credits] = NSAttributedString(string: "Release Notes", attributes: [
+                .link: notes,
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .paragraphStyle: centered,
+            ])
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
