@@ -16,7 +16,7 @@ struct PendingReply: Equatable {
     let report: String?  // they sent a report → we enter as answerer
     let snr: Float
     let theirParity: Int
-    let fireAt: Date     // the TX slot the reply goes out in (unless canceled)
+    var fireAt: Date     // the TX slot the reply goes out in (unless canceled)
     /// They rogered our grid with theirs ("R EN52") — the grid-only
     /// contest exchange is complete; we owe an RR73, nothing more.
     var rogerGrid: String? = nil
@@ -127,9 +127,13 @@ final class AppModel: ObservableObject {
         sequencer.onQSOAbandoned = { [weak self] partner in
             self?.recentlyAbandoned = (partner, Date())
             // A station that never came back is a station the hunter
-            // shouldn't chase again this session
-            self?.huntPassedCalls.insert(partner)
+            // shouldn't chase again this session — unless it's wanted:
+            // those stay in season and re-arm on their next CQ or sign-off
+            if !Self.wantedCalls().contains(partner.uppercased()) {
+                self?.huntPassedCalls.insert(partner)
+            }
         }
+        sequencer.isPatientPartner = { Self.wantedCalls().contains($0.uppercased()) }
         transmit.preTransmitHook = { [cat] in
             cat.ensureDataUSB()
         }
@@ -325,6 +329,7 @@ final class AppModel: ObservableObject {
             considerHunt(results: results, theirParity: parity, period: period)
         }
 
+        holdWantedHuntWhileBusy(results: results, period: period)
         firePendingReplyIfDue(upcomingParity: 1 - parity, period: period)
 
         if let text = sequencer.transmission(forSlotParity: 1 - parity) {
@@ -386,7 +391,8 @@ final class AppModel: ObservableObject {
             dx: UserDefaults.standard.bool(forKey: SettingsKeys.huntDX),
             newStates: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewStates),
             newCountries: UserDefaults.standard.bool(forKey: SettingsKeys.huntNewCountries),
-            ww: UserDefaults.standard.bool(forKey: SettingsKeys.huntWW)
+            ww: UserDefaults.standard.bool(forKey: SettingsKeys.huntWW),
+            wanted: Self.wantedCalls()
         )
         let stateForGrid: (String) -> String? = { [stateResolver] grid in
             stateResolver.state(forGrid: grid, isUS: true)
@@ -418,6 +424,28 @@ final class AppModel: ObservableObject {
             theirParity: theirParity,
             fireAt: QSOSequencer.nextTXWindow(parity: 1 - theirParity, period: period, after: Date(), minLead: 5)
         )
+    }
+
+    /// The wanted list, empty while that hunt criterion is off. Read
+    /// fresh each time so flyout edits apply mid-session.
+    static func wantedCalls() -> Set<String> {
+        guard UserDefaults.standard.bool(forKey: SettingsKeys.huntWanted) else { return [] }
+        return CQHunter.wantedCalls(
+            from: UserDefaults.standard.string(forKey: SettingsKeys.huntWantedCalls) ?? "")
+    }
+
+    /// An armed call to a wanted station slides one TX window whenever
+    /// that station is heard mid-exchange with someone else — it took
+    /// another caller during the countdown, so we wait for its sign-off
+    /// instead of calling over the contact.
+    private func holdWantedHuntWhileBusy(results: [FT8Result], period: Double) {
+        guard let pending = pendingReply, case .huntedCQ(.wanted) = pending.kind,
+              CQHunter.isMidExchange(
+                call: pending.call, in: results.map(\.text),
+                myCall: UserDefaults.standard.string(forKey: SettingsKeys.myCallsign) ?? "")
+        else { return }
+        pendingReply?.fireAt = QSOSequencer.nextTXWindow(
+            parity: 1 - pending.theirParity, period: period, after: Date(), minLead: 5)
     }
 
     /// First decode addressed to us carrying a grid or report — someone

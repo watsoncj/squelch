@@ -830,6 +830,8 @@ struct ContentView: View {
         @AppStorage(SettingsKeys.huntNewStates) private var newStates = false
         @AppStorage(SettingsKeys.huntNewCountries) private var newCountries = false
         @AppStorage(SettingsKeys.huntWW) private var ww = false
+        @AppStorage(SettingsKeys.huntWanted) private var wanted = false
+        @AppStorage(SettingsKeys.huntWantedCalls) private var wantedCalls = ""
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
@@ -843,7 +845,7 @@ struct ContentView: View {
                 Toggle("Hunt CQs from new ones", isOn: $enabled)
                     .toggleStyle(.switch)
                     .onChange(of: enabled) { _, on in
-                        if on, !dx, !newStates, !newCountries, !ww {
+                        if on, !dx, !newStates, !newCountries, !ww, !wanted {
                             dx = true
                         }
                     }
@@ -856,6 +858,13 @@ struct ContentView: View {
                         .help("Countries missing from your QSO log, judged by callsign prefix")
                     Toggle("CQ WW (WW Digi contest)", isOn: $ww)
                         .help("Stations calling CQ WW — WSJT-X's WW Digi contest call. Dupes are per band and per contest, so a station worked on another band is fair game again.")
+                    Toggle("Wanted calls", isOn: $wanted)
+                        .help("Specific callsigns to chase, e.g. special-event stations. Called on a CQ or as they sign off with someone else, never mid-contact, with extra patience and no giving up for the session. Each is skipped once worked on this band.")
+                    TextField("W7B W7I W7G …", text: $wantedCalls)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .disabled(!wanted)
+                        .frame(width: 240)
                 }
                 .disabled(!enabled)
                 Text("Any match arms a reply with a countdown — cancel it from the toolbar chip to stay quiet. A station calling you beats a hunted CQ; stations already worked on this band (in this contest, if one is active) are skipped and directed CQs (CQ DX, CQ EU) are respected.")

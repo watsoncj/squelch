@@ -1,8 +1,8 @@
 import Foundation
 
 /// Scans a receive slot's CQ calls for "new ones" — DX, unworked US states,
-/// unworked countries, contest CQs — so hunt mode can arm a countdown-
-/// gated reply. Pure logic, no I/O: the app supplies the worked sets and
+/// unworked countries, contest CQs, callsigns on the wanted list — so hunt
+/// mode can arm a countdown-gated reply. Pure logic, no I/O: the app supplies the worked sets and
 /// a state lookup.
 enum CQHunter {
     struct Flags: Equatable {
@@ -11,15 +11,20 @@ enum CQHunter {
         var newCountries = false
         /// "CQ WW" — the directed CQ WSJT-X sends in WW Digi contest mode.
         var ww = false
+        /// Specific callsigns to chase (special-event stations, a sked) —
+        /// empty when that hunt is off. Unlike the other criteria these
+        /// also match a sign-off, not just a CQ: pileup runners rarely CQ.
+        var wanted: Set<String> = []
 
-        var any: Bool { dx || newStates || newCountries || ww }
+        var any: Bool { dx || newStates || newCountries || ww || !wanted.isEmpty }
     }
 
-    /// Why a CQ matched, best reason wins: a country you've never worked
-    /// beats a new state beats plain DX beats a contest CQ. (DX outranks
+    /// Why a CQ matched, best reason wins: a wanted call beats a country
+    /// you've never worked beats a new state beats plain DX beats a contest CQ. (DX outranks
     /// the contest CQ because distance is what scores in WW Digi — a DX
     /// station calling "CQ WW" matches both and takes the DX rank.)
     enum Reason: Equatable {
+        case wanted(String)
         case newCountry(String)
         case newState(String)
         case dx(String)
@@ -27,6 +32,7 @@ enum CQHunter {
 
         var label: String {
             switch self {
+            case .wanted(let call): return "Wanted: \(call)"
             case .newCountry(let name): return "New country: \(name)"
             case .newState(let state): return "New state: \(state)"
             case .dx(let name): return "DX: \(name)"
@@ -37,10 +43,11 @@ enum CQHunter {
         /// Selection priority (lower wins). SNR breaks ties.
         var rank: Int {
             switch self {
-            case .newCountry: return 0
-            case .newState: return 1
-            case .dx: return 2
-            case .contestCQ: return 3
+            case .wanted: return 0
+            case .newCountry: return 1
+            case .newState: return 2
+            case .dx: return 3
+            case .contestCQ: return 4
             }
         }
     }
@@ -72,19 +79,28 @@ enum CQHunter {
 
         for decode in decodes {
             let parsed = FT8MessageParser.parse(decode.text)
-            guard parsed.isCQ, let call = parsed.sender,
+            guard let call = parsed.sender,
                   call != myCall.uppercased(),
                   !workedCalls.contains(call),
-                  !passedCalls.contains(call),
-                  answersDirectedCQ(text: decode.text, sender: call, myCountry: myCountry)
+                  !passedCalls.contains(call)
             else { continue }
 
-            guard let reason = matchReason(
-                call: call, grid: parsed.grid, modifier: cqModifier(text: decode.text, sender: call),
-                flags: flags, myCountry: myCountry,
-                workedStates: workedStates, workedCountries: workedCountries,
-                stateForGrid: stateForGrid
-            ) else { continue }
+            let reason: Reason
+            if parsed.isCQ {
+                guard answersDirectedCQ(text: decode.text, sender: call, myCountry: myCountry),
+                      let matched = matchReason(
+                        call: call, grid: parsed.grid, modifier: cqModifier(text: decode.text, sender: call),
+                        flags: flags, myCountry: myCountry,
+                        workedStates: workedStates, workedCountries: workedCountries,
+                        stateForGrid: stateForGrid
+                      ) else { continue }
+                reason = matched
+            } else {
+                // A wanted station signing off with someone else is about
+                // to be free — the only non-CQ traffic worth a call
+                guard flags.wanted.contains(call), isSignoff(decode.text) else { continue }
+                reason = .wanted(call)
+            }
 
             let candidate = Candidate(call: call, grid: parsed.grid, snr: decode.snr, reason: reason)
             if let current = best {
@@ -108,6 +124,9 @@ enum CQHunter {
         workedCountries: Set<String>,
         stateForGrid: (String) -> String?
     ) -> Reason? {
+        if flags.wanted.contains(call) {
+            return .wanted(call)
+        }
         let country = CallsignCountry.lookup(call)?.name
 
         // Own country never counts as a "new country" — that hunt is for
@@ -131,6 +150,30 @@ enum CQHunter {
             return .contestCQ("WW")
         }
         return nil
+    }
+
+    /// The wanted list as typed ("W7B, w7i W7G") → a set of callsigns.
+    static func wantedCalls(from text: String) -> Set<String> {
+        let separators = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/")).inverted
+        return Set(text.uppercased().components(separatedBy: separators)
+            .filter(FT8MessageParser.isCallsign))
+    }
+
+    /// "K1ABC W7T RR73" / "… 73" / "… RRR" — the sender is wrapping up.
+    static func isSignoff(_ text: String) -> Bool {
+        let tokens = text.uppercased().split(separator: " ")
+        return tokens.count == 3 && ["RR73", "73", "RRR"].contains(tokens[2])
+    }
+
+    /// Whether `call` was heard this slot in the middle of an exchange
+    /// with someone other than us — a report or grid going out, not a CQ
+    /// or sign-off. Calling them now would only QRM that contact.
+    static func isMidExchange(call: String, in texts: [String], myCall: String) -> Bool {
+        texts.contains { text in
+            let parsed = FT8MessageParser.parse(text)
+            return !parsed.isCQ && parsed.sender == call
+                && parsed.addressee != myCall.uppercased() && !isSignoff(text)
+        }
     }
 
     /// The directed-CQ modifier ("DX", "WW", "POTA"), or nil for a plain CQ.

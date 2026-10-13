@@ -102,6 +102,8 @@ enum SettingsKeys {
     static let huntNewStates = "huntNewStates"
     static let huntNewCountries = "huntNewCountries"
     static let huntWW = "huntWW"
+    static let huntWanted = "huntWanted"
+    static let huntWantedCalls = "huntWantedCalls"
     static let showWaterfall = "showWaterfall"
     static let waterfallHeight = "waterfallHeight"
     static let waterfallMaximized = "waterfallMaximized"

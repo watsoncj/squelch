@@ -470,6 +470,48 @@ final class QSOSequencerTests: XCTestCase {
         XCTAssertEqual(completed?.reportReceived, "-10")
     }
 
+    /// Wanted stations: hold while they're mid-contact with someone
+    /// else, call again once they sign off, and outlast `maxRetries`.
+    func testPatientPartnerHoldsWhileMidExchange() {
+        let seq = makeSequencer()
+        seq.maxRetries = 1
+        seq.patientRetries = 4
+        seq.isPatientPartner = { $0 == "W7T" }
+        seq.replyTo(call: "W7T", snr: -7, cqParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "W7T W0CJW DM79")
+
+        // They picked someone else: silent through the exchange…
+        for heard in ["K1ABC W7T -05", "K1ABC W7T R-05"] {
+            seq.ingest(decodes: [.init(text: heard, snr: -8)], slotParity: 0)
+            XCTAssertNil(seq.transmission(forSlotParity: 1), "called over '\(heard)'")
+        }
+        // …and back in as they sign off
+        seq.ingest(decodes: [.init(text: "K1ABC W7T RR73", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "W7T W0CJW DM79")
+
+        // Unheard slots burn the larger patient budget, not maxRetries
+        for _ in 0..<4 {
+            seq.ingest(decodes: [], slotParity: 0)
+            XCTAssertEqual(seq.transmission(forSlotParity: 1), "W7T W0CJW DM79")
+        }
+        seq.ingest(decodes: [], slotParity: 0)
+        XCTAssertNil(seq.transmission(forSlotParity: 1))
+        XCTAssertEqual(seq.mode, .idle)
+    }
+
+    /// Once they've answered us the hold no longer applies — our roger
+    /// keeps going out while they service other callers.
+    func testPatientPartnerKeepsRogeringOnceAnswered() {
+        let seq = makeSequencer()
+        seq.isPatientPartner = { _ in true }
+        seq.replyTo(call: "W7T", snr: -7, cqParity: 0)
+        _ = seq.transmission(forSlotParity: 1)
+        seq.ingest(decodes: [.init(text: "W0CJW W7T -10", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "W7T W0CJW R-07")
+        seq.ingest(decodes: [.init(text: "K1ABC W7T -05", snr: -8)], slotParity: 0)
+        XCTAssertEqual(seq.transmission(forSlotParity: 1), "W7T W0CJW R-07")
+    }
+
     /// Contest mode: a busy runner gets no extra patience — retries burn
     /// even while they're audibly working others, and we move on.
     func testContestModeSkipsBusyPatience() {

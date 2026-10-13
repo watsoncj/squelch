@@ -16,6 +16,7 @@ struct QSOStatusPanel: View {
     @AppStorage(SettingsKeys.huntDX) private var huntDX = false
     @AppStorage(SettingsKeys.huntNewStates) private var huntNewStates = false
     @AppStorage(SettingsKeys.huntNewCountries) private var huntNewCountries = false
+    @AppStorage(SettingsKeys.huntWanted) private var huntWanted = false
 
     private var period: Double {
         (DigiMode(rawValue: digiMode) ?? .ft8).slotSeconds
@@ -178,6 +179,7 @@ struct QSOStatusPanel: View {
         if huntDX { parts.append("DX") }
         if huntNewStates { parts.append("new states") }
         if huntNewCountries { parts.append("new countries") }
+        if huntWanted { parts.append("wanted calls") }
         return parts.isEmpty ? "nothing (pick criteria under Hunt)" : parts.joined(separator: ", ")
     }
 

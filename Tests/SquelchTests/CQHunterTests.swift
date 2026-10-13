@@ -176,6 +176,49 @@ final class CQHunterTests: XCTestCase {
         XCTAssertNil(pick([("CQ WW W0CJW DM79", -5)], flags: ww), "never our own CQ")
     }
 
+    // MARK: - Wanted calls
+
+    func testWantedCallMatchesCQAndOutranksEverything() {
+        let flags = CQHunter.Flags(dx: true, newCountries: true, wanted: ["W7T"])
+        let candidate = pick(
+            [("CQ JA3XYZ PM74", 5), ("CQ W7T CN87", -18)],
+            flags: flags
+        )
+        XCTAssertEqual(candidate?.call, "W7T")
+        XCTAssertEqual(candidate?.reason, .wanted("W7T"))
+        XCTAssertEqual(candidate?.grid, "CN87")
+    }
+
+    func testWantedCallMatchesSignoffButNotMidExchange() {
+        let flags = CQHunter.Flags(wanted: ["W7T"])
+        for signoff in ["K1ABC W7T RR73", "K1ABC W7T 73", "K1ABC W7T RRR"] {
+            XCTAssertEqual(pick([(signoff, -9)], flags: flags)?.reason, .wanted("W7T"), signoff)
+        }
+        for busy in ["K1ABC W7T -05", "K1ABC W7T R-05", "K1ABC W7T CN87", "W7T K1ABC RR73"] {
+            XCTAssertNil(pick([(busy, -9)], flags: flags), busy)
+        }
+        // Unlisted stations still need a CQ
+        XCTAssertNil(pick([("K1ABC JA3XYZ RR73", -9)], flags: CQHunter.Flags(dx: true, wanted: ["W7T"])))
+    }
+
+    func testWantedRespectsWorkedAndPassed() {
+        let flags = CQHunter.Flags(wanted: ["W7O"])
+        XCTAssertNil(pick([("CQ W7O CN87", -3)], flags: flags, workedCalls: ["W7O"]))
+        XCTAssertNil(pick([("CQ W7O CN87", -3)], flags: flags, passedCalls: ["W7O"]))
+    }
+
+    func testWantedListParsing() {
+        XCTAssertEqual(CQHunter.wantedCalls(from: "w7b, W7I;W7G\nbigfoot  W4S "), ["W7B", "W7I", "W7G", "W4S"])
+        XCTAssertTrue(CQHunter.wantedCalls(from: "").isEmpty)
+    }
+
+    func testMidExchangeDetection() {
+        XCTAssertTrue(CQHunter.isMidExchange(call: "W7T", in: ["K1ABC W7T -05"], myCall: "W0CJW"))
+        XCTAssertFalse(CQHunter.isMidExchange(call: "W7T", in: ["K1ABC W7T RR73", "CQ W7T CN87"], myCall: "W0CJW"))
+        XCTAssertFalse(CQHunter.isMidExchange(call: "W7T", in: ["W0CJW W7T -05"], myCall: "W0CJW"))
+        XCTAssertFalse(CQHunter.isMidExchange(call: "W7T", in: ["W7T K1ABC -05"], myCall: "W0CJW"))
+    }
+
     func testCQModifierExtraction() {
         XCTAssertEqual(CQHunter.cqModifier(text: "CQ WW K1ABC FN42", sender: "K1ABC"), "WW")
         XCTAssertEqual(CQHunter.cqModifier(text: "CQ DX K1ABC FN42", sender: "K1ABC"), "DX")

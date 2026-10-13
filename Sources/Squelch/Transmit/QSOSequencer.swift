@@ -97,6 +97,14 @@ final class QSOSequencer: ObservableObject {
     /// than `maxRetries`: they answered a while ago and may have lost
     /// interest, and the rest of the line shouldn't wait to find out.
     var queuedCallerRetries = 1
+    /// Stations worth waiting for — injectable; the app wires it to the
+    /// hunter's wanted list. A patient partner gets the larger budgets
+    /// below, keeps its busy patience during a contest, and until it has
+    /// answered us we sit out any slot after it's heard mid-exchange
+    /// with someone else instead of calling over that contact.
+    var isPatientPartner: (String) -> Bool = { _ in false }
+    var patientRetries = 8
+    var patientBusyPasses = 30
     /// Whether a contest is running — injectable; the app wires this to
     /// the active-contest setting. Under contest time pressure the busy
     /// patience is zeroed: slots spent waiting in a runner's line are
@@ -141,6 +149,9 @@ final class QSOSequencer: ObservableObject {
     /// Who the partner was heard working this receive slot (or "CQ") —
     /// proof of life that pauses the retry countdown.
     private var partnerBusyWith: String?
+    /// That same slot's message was a report or grid, not a CQ or
+    /// sign-off — the partner is mid-exchange, not between customers.
+    private var partnerMidExchange = false
     private var busyPassesLeft = 0
     /// Times the partner re-sent their grid after our "R GRID" — a
     /// station not running the contest exchange keeps waiting for a
@@ -150,7 +161,12 @@ final class QSOSequencer: ObservableObject {
     private var gridRepeats = 0
     private var rogerGridSent = false
     /// Busy patience granted at each engagement — none during a contest.
-    private var busyPassBudget: Int { isContestActive() ? 0 : maxBusyPasses }
+    private var busyPassBudget: Int {
+        if isPatient { return patientBusyPasses }
+        return isContestActive() ? 0 : maxBusyPasses
+    }
+    private var retryBudget: Int { isPatient ? patientRetries : maxRetries }
+    private var isPatient: Bool { partner.map(isPatientPartner) ?? false }
 
     /// Exchanges given up on with both reports already exchanged, kept so
     /// a straggling signoff still completes and logs the contact — pileup
@@ -216,7 +232,7 @@ final class QSOSequencer: ObservableObject {
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) \(myGrid4)".trimmingCharacters(in: .whitespaces)
         awaiting = .report
-        retriesLeft = maxRetries
+        retriesLeft = retryBudget
         busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
@@ -234,7 +250,7 @@ final class QSOSequencer: ObservableObject {
         partnerGrid = grid
         txParity = 1 - theirParity
         armCallerReply(to: call, snr: snr)
-        retriesLeft = maxRetries
+        retriesLeft = retryBudget
         busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
@@ -278,7 +294,7 @@ final class QSOSequencer: ObservableObject {
         reportSent = Self.formatReport(snr)
         currentTX = "\(call) \(myCall) R\(reportSent)"
         awaiting = .rr73
-        retriesLeft = maxRetries
+        retriesLeft = retryBudget
         busyPassesLeft = busyPassBudget
         qsoStart = Date()
         resumeCQAfterQSO = false
@@ -371,6 +387,7 @@ final class QSOSequencer: ObservableObject {
             if let partner, tokens.count >= 2, addressee != myCall.uppercased(),
                tokens[1].trimmingCharacters(in: brackets) == partner {
                 partnerBusyWith = addressee
+                partnerMidExchange = addressee != "CQ" && !CQHunter.isSignoff(decode.text)
             }
             guard tokens.count >= 2, addressee == myCall.uppercased() else { continue }
             let from = tokens[1].trimmingCharacters(in: brackets)
@@ -435,6 +452,14 @@ final class QSOSequencer: ObservableObject {
                 // Heard working someone else (or CQing between customers):
                 // busy is not gone — stay in line without burning a retry
                 busyPassesLeft -= 1
+                if partnerMidExchange, isPatient, mode == .qsoAsAnswerer, awaiting == .report {
+                    // They haven't picked us yet and are mid-contact:
+                    // hold this slot rather than call over it
+                    partnerBusyWith = nil
+                    partnerMidExchange = false
+                    describe("\(partner ?? "?") is working \(other) — holding until they're free")
+                    return nil
+                }
                 describe(other == "CQ"
                          ? "\(partner ?? "?") is CQing — staying in line"
                          : "\(partner ?? "?") is working \(other) — staying in line")
@@ -463,6 +488,7 @@ final class QSOSequencer: ObservableObject {
         }
         respondedSinceLastTX = false
         partnerBusyWith = nil // per-slot evidence, consumed above
+        partnerMidExchange = false
         if awaiting == .contestSignoff {
             rogerGridSent = true // from here on a repeated grid is a reaction to it
         }
@@ -493,7 +519,7 @@ final class QSOSequencer: ObservableObject {
             qsoStart = Date()
             mode = .qsoAsCaller
             armCallerReply(to: from, snr: snr)
-            retriesLeft = maxRetries
+            retriesLeft = retryBudget
             busyPassesLeft = busyPassBudget
             markResponded(callerReplyDescription(to: from))
 
@@ -536,7 +562,7 @@ final class QSOSequencer: ObservableObject {
                 currentTX = "\(from) \(myCall) R\(reportSent)"
                 mode = .qsoAsAnswerer
                 awaiting = .rr73
-                retriesLeft = maxRetries
+                retriesLeft = retryBudget
                 markResponded("Roger report to \(from)")
             }
 
@@ -577,7 +603,7 @@ final class QSOSequencer: ObservableObject {
                 reportReceived = payload
                 currentTX = "\(from) \(myCall) R\(reportSent)"
                 awaiting = .rr73
-                retriesLeft = maxRetries
+                retriesLeft = retryBudget
                 busyPassesLeft = busyPassBudget
                 markResponded("Roger report to \(from)")
             } else if let grid = Self.rogerGridValue(payload) {
@@ -750,6 +776,7 @@ final class QSOSequencer: ObservableObject {
         finalMessagesLeft = 0
         resumeCQAfterQSO = false
         partnerBusyWith = nil
+        partnerMidExchange = false
         busyPassesLeft = 0
         gridRepeats = 0
         rogerGridSent = false
